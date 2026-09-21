@@ -17,3 +17,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ballast_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO ballast_app;
+
+-- golang-migrate keeps its own bookkeeping table. It carries no org_id and no
+-- policy, and it has no business sitting among the application tables: the
+-- schema tests assert that every table in public is tenant-scoped, with no
+-- exception list to hide behind. So the migration tool gets its own schema,
+-- which the application role cannot see at all.
+CREATE SCHEMA migrate;
+REVOKE ALL ON SCHEMA migrate FROM PUBLIC;

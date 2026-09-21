@@ -1,6 +1,14 @@
 # Ballast — development entry points.
 # Targets that have no implementation yet fail loudly rather than lying.
 
+MIGRATE_VERSION := v4.18.3
+MIGRATE := go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
+
+# Migrations connect as the owner role. ballast_app has no DDL rights, and that
+# is the point: it must not be able to drop a policy. The bookkeeping table is
+# kept out of the public schema, which holds tenant-scoped tables only.
+MIGRATE_DATABASE_URL ?= postgres://ballast:ballast@127.0.0.1:5432/ballast?sslmode=disable&x-migrations-table="migrate"."schema_migrations"&x-migrations-table-quoted=1
+
 GOLANGCI_LINT_VERSION := v2.1.6
 GOLANGCI_LINT := $(shell command -v golangci-lint 2>/dev/null)
 ifeq ($(GOLANGCI_LINT),)
@@ -17,7 +25,7 @@ endef
 
 .PHONY: help
 help: ## List the available targets
-	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-10s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-14s %s\n", $$1, $$2}'
 
 ## --- Local dependencies ---------------------------------------------------
 
@@ -33,7 +41,11 @@ down: ## Stop PostgreSQL and MinIO
 
 .PHONY: migrate
 migrate: ## Apply the database migrations
-	$(call todo,T03)
+	$(MIGRATE) -path migrations -database '$(MIGRATE_DATABASE_URL)' up
+
+.PHONY: migrate-down
+migrate-down: ## Roll every migration back
+	$(MIGRATE) -path migrations -database '$(MIGRATE_DATABASE_URL)' down -all
 
 .PHONY: sqlc
 sqlc: ## Regenerate the Go code from the SQL queries

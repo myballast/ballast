@@ -51,6 +51,12 @@ jobs:
       # superuser, and every Row-Level Security assertion would pass vacuously.
       - run: make up
 
+      # Acceptance criterion of #3: the schema must be reversible, not
+      # merely creatable. A down migration that does not clean up is only
+      # discovered when someone needs it.
+      - name: Migrate up, down and up again
+        run: make migrate && make migrate-down && make migrate
+
       - run: make test-int
 
       - name: Dump container logs
