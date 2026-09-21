@@ -1,0 +1,43 @@
+# Local development dependencies. Credentials here are development-only.
+name: ballast
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      # Owner role: runs the migrations and owns the tables.
+      # The application connects as ballast_app, created by the init script below.
+      POSTGRES_USER: ballast
+      POSTGRES_PASSWORD: ballast
+      POSTGRES_DB: ballast
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ballast -d ballast"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ballast
+      MINIO_ROOT_PASSWORD: ballastballast
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
+  miniodata:

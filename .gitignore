@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+
+# Go
+/bin/
+*.test
+*.out
+coverage.*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Front-end
+/web/node_modules/
+/web/.next/
+/web/out/
+/web/.turbo/
+*.tsbuildinfo
+
+# k6 run artifacts
+/*.k6.json

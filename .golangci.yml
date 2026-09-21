@@ -1,0 +1,61 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - gosec
+    - revive
+
+  settings:
+    depguard:
+      rules:
+        # Layer 1. Entities and business rules only: no project import at all,
+        # no I/O package, and a single tolerated third party for UUIDs.
+        domain:
+          files:
+            - "**/internal/domain/**"
+          allow:
+            - $gostd
+            - github.com/google/uuid
+          deny:
+            - pkg: database/sql
+              desc: domain must not know about SQL; declare a port in usecase instead
+            - pkg: net/http
+              desc: domain must not know about HTTP; it belongs in adapter/http
+
+        # Layer 2. Orchestration only: it may reach inward, never outward.
+        usecase:
+          files:
+            - "**/internal/usecase/**"
+          deny:
+            - pkg: github.com/youssefmahersi/ballast/internal/adapter
+              desc: usecase must not import adapter; declare the interface in ports.go
+            - pkg: github.com/youssefmahersi/ballast/internal/infra
+              desc: usecase must not import infra; declare the interface in ports.go
+            - pkg: github.com/jackc/pgx
+              desc: usecase must not know about the database driver
+            - pkg: github.com/docker/docker
+              desc: usecase must not drive containers; go through the Executor port
+            - pkg: github.com/go-chi/chi
+              desc: usecase must not know about the HTTP router
+
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go$
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/youssefmahersi/ballast
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
