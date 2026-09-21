@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Superseded runs on the same ref are pointless, and this repository is private,
+# so they cost real minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The pinned golangci-lint version lives in the Makefile, so local and CI
+      # cannot drift apart. The first run on a cold cache compiles it.
+      - run: make lint
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: make test
+
+      # The repository's own compose.yaml, not a services: block: service
+      # containers start before the checkout and therefore cannot run
+      # deploy/postgres/init/01-app-role.sql. CI would then connect as a
+      # superuser, and every Row-Level Security assertion would pass vacuously.
+      - run: make up
+
+      - run: make test-int
+
+      - name: Dump container logs
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+
+      - name: Stop the stack
+        if: always()
+        run: make down

@@ -33,11 +33,11 @@ down: ## Stop PostgreSQL and MinIO
 
 .PHONY: migrate
 migrate: ## Apply the database migrations
-	$(call todo,T02)
+	$(call todo,T03)
 
 .PHONY: sqlc
 sqlc: ## Regenerate the Go code from the SQL queries
-	$(call todo,T02)
+	$(call todo,T03)
 
 ## --- Quality --------------------------------------------------------------
 
@@ -45,9 +45,11 @@ sqlc: ## Regenerate the Go code from the SQL queries
 test: ## Run the unit tests
 	go test ./...
 
+# Export DATABASE_URL to target another database; the default DSN lives next
+# to the tests that use it.
 .PHONY: test-int
 test-int: ## Run the integration tests, requires `make up`
-	$(call todo,T03)
+	go test -tags=integration -count=1 ./...
 
 .PHONY: lint
 lint: ## Run golangci-lint
@@ -57,12 +59,12 @@ lint: ## Run golangci-lint
 
 .PHONY: api
 api: ## Run the HTTP API locally
-	$(call todo,T04)
+	$(call todo,T11)
 
 .PHONY: worker
 worker: ## Run the worker locally
-	$(call todo,T04)
+	$(call todo,T11)
 
 .PHONY: web
 web: ## Run the front-end locally
-	$(call todo,T25)
+	$(call todo,T12)

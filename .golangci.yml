@@ -1,5 +1,11 @@
 version: "2"
 
+run:
+  # Without this the files behind //go:build integration are invisible to
+  # every linter.
+  build-tags:
+    - integration
+
 linters:
   default: standard
   enable:
