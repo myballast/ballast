@@ -9,6 +9,14 @@ MIGRATE := go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrat
 # kept out of the public schema, which holds tenant-scoped tables only.
 MIGRATE_DATABASE_URL ?= postgres://ballast:ballast@127.0.0.1:5432/ballast?sslmode=disable&x-migrations-table="migrate"."schema_migrations"&x-migrations-table-quoted=1
 
+SQLC_VERSION := 1.27.0
+SQLC := $(shell command -v sqlc 2>/dev/null)
+ifeq ($(SQLC),)
+# sqlc does not build from source on every host: its PostgreSQL parser is cgo.
+# The official image sidesteps that, and Docker is already required to run k6.
+SQLC := docker run --rm -v "$(CURDIR):/src" -w /src --user "$(shell id -u):$(shell id -g)" sqlc/sqlc:$(SQLC_VERSION)
+endif
+
 GOLANGCI_LINT_VERSION := v2.1.6
 GOLANGCI_LINT := $(shell command -v golangci-lint 2>/dev/null)
 ifeq ($(GOLANGCI_LINT),)
@@ -49,7 +57,12 @@ migrate-down: ## Roll every migration back
 
 .PHONY: sqlc
 sqlc: ## Regenerate the Go code from the SQL queries
-	$(call todo,T03)
+	$(SQLC) generate
+
+.PHONY: seed
+seed: ## Load the development organization, project, scenario and environment
+	docker compose exec -T -e PGOPTIONS=--client-min-messages=warning postgres \
+		psql -q -v ON_ERROR_STOP=1 -U ballast -d ballast < deploy/seed/dev.sql
 
 ## --- Quality --------------------------------------------------------------
 
@@ -71,11 +84,11 @@ lint: ## Run golangci-lint
 
 .PHONY: api
 api: ## Run the HTTP API locally
-	$(call todo,T11)
+	go run ./cmd/api
 
 .PHONY: worker
 worker: ## Run the worker locally
-	$(call todo,T11)
+	go run ./cmd/worker
 
 .PHONY: web
 web: ## Run the front-end locally

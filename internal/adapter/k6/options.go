@@ -180,3 +180,26 @@ func thresholdsFor(thresholds []domain.Threshold) (map[string][]string, error) {
 func seconds(s int) string {
 	return strconv.Itoa(s) + "s"
 }
+
+// OptionsBuilder adapts BuildOptions to what the run service asks for. It holds
+// no state; a single one serves every run.
+type OptionsBuilder struct{}
+
+// NewOptionsBuilder returns a builder.
+func NewOptionsBuilder() OptionsBuilder {
+	return OptionsBuilder{}
+}
+
+// Build renders the k6 options for a load profile and its thresholds.
+func (OptionsBuilder) Build(
+	kind domain.ProfileKind,
+	params domain.ProfileParams,
+	thresholds []domain.Threshold,
+) ([]byte, error) {
+	options, err := BuildOptions(kind, params, thresholds)
+	if err != nil {
+		return nil, err
+	}
+
+	return options.JSON()
+}
