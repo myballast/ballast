@@ -1,0 +1,23 @@
+{
+  "scenarios": {
+    "spike": {
+      "executor": "ramping-vus",
+      "startVUs": 0,
+      "stages": [
+        {
+          "duration": "10s",
+          "target": 200
+        },
+        {
+          "duration": "60s",
+          "target": 200
+        },
+        {
+          "duration": "10s",
+          "target": 0
+        }
+      ],
+      "gracefulStop": "0s"
+    }
+  }
+}

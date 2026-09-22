@@ -1,0 +1,23 @@
+{
+  "scenarios": {
+    "stress": {
+      "executor": "ramping-vus",
+      "startVUs": 0,
+      "stages": [
+        {
+          "duration": "600s",
+          "target": 200
+        },
+        {
+          "duration": "120s",
+          "target": 200
+        },
+        {
+          "duration": "60s",
+          "target": 0
+        }
+      ],
+      "gracefulStop": "0s"
+    }
+  }
+}

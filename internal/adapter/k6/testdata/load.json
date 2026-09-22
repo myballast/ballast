@@ -1,0 +1,23 @@
+{
+  "scenarios": {
+    "load": {
+      "executor": "ramping-vus",
+      "startVUs": 0,
+      "stages": [
+        {
+          "duration": "120s",
+          "target": 50
+        },
+        {
+          "duration": "600s",
+          "target": 50
+        },
+        {
+          "duration": "60s",
+          "target": 0
+        }
+      ],
+      "gracefulStop": "0s"
+    }
+  }
+}
