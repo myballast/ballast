@@ -1,0 +1,10 @@
+{
+  "scenarios": {
+    "smoke": {
+      "executor": "constant-vus",
+      "vus": 1,
+      "duration": "60s",
+      "gracefulStop": "0s"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "scenarios": {
+    "load": {
+      "executor": "ramping-vus",
+      "startVUs": 0,
+      "stages": [
+        {
+          "duration": "120s",
+          "target": 50
+        },
+        {
+          "duration": "600s",
+          "target": 50
+        },
+        {
+          "duration": "60s",
+          "target": 0
+        }
+      ],
+      "gracefulStop": "0s"
+    }
+  },
+  "thresholds": {
+    "http_req_duration": [
+      "p(95)<300",
+      "p(99)<800"
+    ],
+    "http_req_duration{name:POST /login}": [
+      "p(95)<1000"
+    ],
+    "http_req_failed": [
+      "rate<0.01"
+    ],
+    "login_duration": [
+      "p(95)<1000"
+    ]
+  }
+}

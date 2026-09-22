@@ -1,0 +1,23 @@
+{
+  "scenarios": {
+    "soak": {
+      "executor": "ramping-vus",
+      "startVUs": 0,
+      "stages": [
+        {
+          "duration": "300s",
+          "target": 20
+        },
+        {
+          "duration": "10800s",
+          "target": 20
+        },
+        {
+          "duration": "300s",
+          "target": 0
+        }
+      ],
+      "gracefulStop": "0s"
+    }
+  }
+}
