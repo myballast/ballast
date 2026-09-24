@@ -38,12 +38,15 @@ help: ## List the available targets
 ## --- Local dependencies ---------------------------------------------------
 
 .PHONY: up
-up: ## Start PostgreSQL and MinIO, and wait for them to be healthy
+up: ## Start the local services and wait for them to be healthy
 	docker compose up --detach --wait
 
 .PHONY: down
-down: ## Stop PostgreSQL and MinIO
-	docker compose down
+down: ## Stop the local services
+	# --remove-orphans matters here: a service that is removed from compose.yaml
+	# stops being something Compose knows about, so its container is left running
+	# and `make down` would never touch it again.
+	docker compose down --remove-orphans
 
 ## --- Database -------------------------------------------------------------
 

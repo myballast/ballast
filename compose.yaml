@@ -21,23 +21,41 @@ services:
       timeout: 3s
       retries: 30
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ballast
-      MINIO_ROOT_PASSWORD: ballastballast
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - miniodata:/data
-    healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
+  # MinIO is commented out, not removed.
+  #
+  # Its container images are no longer publicly available: every tag is refused
+  # on both quay.io and Docker Hub, and quay.io answers "Requires
+  # authentication" for the whole repository rather than for one tag. So this is
+  # not a version that moved, it is public access that went away.
+  #
+  # Nothing in the code talks to object storage yet — internal/adapter/storage/s3
+  # holds a doc comment and nothing else — so starting it bought a 167 MB
+  # download and no capability. Leaving it in stopped `make up` from working on
+  # any machine that did not already have the image cached, which is every fresh
+  # machine and every continuous integration runner.
+  #
+  # It comes back with the ticket that archives a run's artifacts, which is the
+  # first thing that needs it. That is also the moment to decide whether it is
+  # still MinIO: SeaweedFS, Garage and LocalStack are all reachable today, and
+  # picking one now would be choosing a dependency before any code needs it.
+  #
+  # minio:
+  #   image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: ballast
+  #     MINIO_ROOT_PASSWORD: ballastballast
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   volumes:
+  #     - miniodata:/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "mc ready local || exit 1"]
+  #     interval: 2s
+  #     timeout: 3s
+  #     retries: 30
 
 volumes:
   pgdata:
-  miniodata:
+  # miniodata:
