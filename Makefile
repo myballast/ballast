@@ -94,5 +94,14 @@ worker: ## Run the worker locally
 	go run ./cmd/worker
 
 .PHONY: web
-web: ## Run the front-end locally
-	$(call todo,T12)
+web: web/node_modules ## Run the front-end locally
+	npm --prefix web run dev
+
+web/node_modules: web/package-lock.json
+	npm --prefix web ci
+	@touch $@
+
+.PHONY: web-lint
+web-lint: web/node_modules ## Lint and type-check the front-end
+	npm --prefix web run lint
+	npm --prefix web run typecheck
