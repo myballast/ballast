@@ -124,6 +124,10 @@ type Result struct {
 type Runner struct {
 	cli client.APIClient
 	cfg Config
+
+	// Guards the one-off check that the generator image is on the machine.
+	imageOnce    imageGuard
+	imagePresent bool
 }
 
 // New connects to the Docker daemon described by the environment.
@@ -154,6 +158,12 @@ func (r *Runner) Close() error {
 // one that still applies if this process is killed outright.
 func (r *Runner) Run(ctx context.Context, job Job, logs chan<- domain.LogLine) (Result, error) {
 	if err := job.validate(); err != nil {
+		return Result{}, err
+	}
+
+	// Before anything else: Docker will not fetch a missing image by itself,
+	// and a machine that has never run a test has none of them.
+	if err := r.ensureImage(ctx); err != nil {
 		return Result{}, err
 	}
 
