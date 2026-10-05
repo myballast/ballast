@@ -118,10 +118,24 @@ stop: ## Stop the API, the worker and the front-end, wherever they were started
 	done
 	@rm -rf $(RUN_DIR)
 
+# Local settings and secrets, such as the OAuth app credentials, live in a
+# .env file that git ignores; .env.example lists them. Every variable it sets
+# is exported to the processes below.
+ifneq (,$(wildcard .env))
+include .env
+export $(shell sed -n 's/^\([A-Z_][A-Z0-9_]*\)=.*/\1/p' .env)
+endif
+
+# Development defaults only: a value from the shell or from .env wins. The
+# session secret below signs cookies on this machine and nowhere else.
+api: export BALLAST_SESSION_SECRET ?= development-only-session-secret-do-not-deploy
+api: export BALLAST_PUBLIC_URL ?= http://localhost:8080
+api: export BALLAST_WEB_URL ?= http://localhost:3000
+
 # The organization deploy/seed/dev.sql creates, and the route that lets a
-# generator reach a server on this machine. Development defaults only: a value
-# exported in the shell wins.
-api worker: export BALLAST_DEV_ORG_ID ?= 00000000-0000-4000-8000-000000000001
+# generator reach a server on this machine. The worker serves one organization
+# until the queue can serve them all.
+worker: export BALLAST_WORKER_ORG_ID ?= 00000000-0000-4000-8000-000000000001
 worker: export BALLAST_EXTRA_HOST ?= host.docker.internal:host-gateway
 
 # The seed is left out on purpose: it deletes the development organization, and
