@@ -31,7 +31,7 @@ func main() {
 }
 
 func work(log *slog.Logger) error {
-	cfg, err := config.Load()
+	cfg, err := config.LoadWorker()
 	if err != nil {
 		return err
 	}
@@ -66,9 +66,9 @@ func work(log *slog.Logger) error {
 		log,
 	)
 
-	log.Info("polling for runs", "org_id", cfg.DevOrgID, "interval", cfg.PollInterval)
+	log.Info("polling for runs", "org_id", cfg.OrgID, "interval", cfg.PollInterval)
 
-	return poll(ctx, service, cfg.DevOrgID, cfg.PollInterval, log)
+	return poll(ctx, service, cfg.OrgID, cfg.PollInterval, log)
 }
 
 // poll is the whole scheduling story for now: one organization, one run at a

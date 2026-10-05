@@ -78,9 +78,8 @@ INSERT INTO threshold (org_id, scenario_id, metric, expression) VALUES
 COMMIT;
 
 \echo ''
-\echo 'Seeded. Export these, then run `make api` and `make worker`:'
-\echo '  export BALLAST_DEV_ORG_ID=00000000-0000-4000-8000-000000000001'
-\echo '  export BALLAST_EXTRA_HOST=host.docker.internal:host-gateway'
+\echo 'Seeded. `make dev` points the worker at this organization:'
+\echo '  BALLAST_WORKER_ORG_ID=00000000-0000-4000-8000-000000000001'
 \echo ''
 \echo 'scenario_id    00000000-0000-4000-8000-000000000003'
 \echo 'environment_id 00000000-0000-4000-8000-000000000004'

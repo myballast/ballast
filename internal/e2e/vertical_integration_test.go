@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -22,11 +23,13 @@ import (
 
 	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/dto"
+	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/adapter/runner/hosted"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
+	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
@@ -147,6 +150,8 @@ type stack struct {
 	api     *httptest.Server
 	service *run.Service
 	org     uuid.UUID
+	// session is what a browser signed in to org would carry.
+	session *http.Cookie
 }
 
 // build wires every layer exactly as cmd/api and cmd/worker do.
@@ -177,19 +182,60 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 		log,
 	)
 
-	api := httptest.NewServer(httpadapter.NewRouter(service, org, log))
+	sessions, err := session.NewManager([]byte(strings.Repeat("e", session.MinSecretLength)), time.Hour, infra.SystemClock{})
+	if err != nil {
+		t.Fatalf("session manager: %v", err)
+	}
+	web, _ := url.Parse("http://web.test")
+
+	// Signing in goes through an identity provider, which has no place in this
+	// test. The session it would end with is issued directly instead, for the
+	// user seed created.
+	var user uuid.UUID
+	if err := db.InTenantTx(context.Background(), org, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), "SELECT id FROM app_user WHERE org_id = $1", org).Scan(&user)
+	}); err != nil {
+		t.Fatalf("find the seeded user: %v", err)
+	}
+	issued := httptest.NewRecorder()
+	if err := sessions.Issue(issued, domain.Identity{UserID: user, OrgID: org}); err != nil {
+		t.Fatalf("issue a session: %v", err)
+	}
+
+	api := httptest.NewServer(httpadapter.NewRouter(
+		service, auth.NewService(nil, nil, infra.SystemClock{}, log), sessions, web, log,
+	))
 	t.Cleanup(api.Close)
 
-	return stack{api: api, service: service, org: org}
+	return stack{api: api, service: service, org: org, session: issued.Result().Cookies()[0]}
+}
+
+// do sends a request as the signed-in user. The cookie is set by hand: it is
+// Secure, and a cookie jar would rightly refuse to send it to an http:// test
+// server.
+func (s stack) do(t *testing.T, method, path string, body io.Reader) *http.Response {
+	t.Helper()
+
+	req, err := http.NewRequest(method, s.api.URL+path, body)
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, path, err)
+	}
+	req.AddCookie(s.session)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	res, err := s.api.Client().Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	return res
 }
 
 func (s stack) enqueue(t *testing.T, body string) (int, dto.EnqueueRunResponse) {
 	t.Helper()
 
-	res, err := s.api.Client().Post(s.api.URL+"/runs", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("POST /runs: %v", err)
-	}
+	res := s.do(t, http.MethodPost, "/runs", strings.NewReader(body))
 	defer func() { _ = res.Body.Close() }()
 
 	var decoded dto.EnqueueRunResponse
@@ -201,10 +247,7 @@ func (s stack) enqueue(t *testing.T, body string) (int, dto.EnqueueRunResponse) 
 func (s stack) get(t *testing.T, id string) dto.RunResponse {
 	t.Helper()
 
-	res, err := s.api.Client().Get(s.api.URL + "/runs/" + id)
-	if err != nil {
-		t.Fatalf("GET /runs/%s: %v", id, err)
-	}
+	res := s.do(t, http.MethodGet, "/runs/"+id, nil)
 	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {

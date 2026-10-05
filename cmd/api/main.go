@@ -11,12 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/infra/config"
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
+	"github.com/youssefmahersi/ballast/internal/infra/oidc"
+	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 
 	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
@@ -34,7 +37,7 @@ func main() {
 // serve is where every layer meets. It is the only place that knows about all
 // of them at once.
 func serve(log *slog.Logger) error {
-	cfg, err := config.Load()
+	cfg, err := config.LoadAPI()
 	if err != nil {
 		return err
 	}
@@ -61,9 +64,25 @@ func serve(log *slog.Logger) error {
 		log,
 	)
 
+	sessions, err := session.NewManager(cfg.SessionSecret, cfg.SessionTTL, infra.SystemClock{})
+	if err != nil {
+		return err
+	}
+
+	signIn := auth.NewService(
+		postgres.NewAccountRepository(db),
+		providers(cfg),
+		infra.SystemClock{},
+		log,
+	)
+	if len(signIn.Providers()) == 0 {
+		log.Warn("no identity provider is configured; nobody can sign in",
+			"hint", "set BALLAST_GITHUB_CLIENT_ID and BALLAST_GITHUB_CLIENT_SECRET")
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, cfg.DevOrgID, log),
+		Handler:           httpadapter.NewRouter(service, signIn, sessions, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -76,12 +95,29 @@ func serve(log *slog.Logger) error {
 		_ = server.Shutdown(shutdown)
 	}()
 
-	log.Info("listening", "addr", cfg.Addr, "org_id", cfg.DevOrgID)
+	log.Info("listening", "addr", cfg.Addr, "providers", signIn.Providers())
 
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// providers builds the identity providers that have credentials. Each one's
+// callback is on this API, at the address browsers reach it by.
+func providers(cfg config.API) map[string]auth.IdentityProvider {
+	callback := func(name string) string {
+		return cfg.PublicURL.JoinPath("auth", name, "callback").String()
+	}
+
+	enabled := map[string]auth.IdentityProvider{}
+	if cfg.GitHub.Enabled() {
+		enabled["github"] = oidc.NewGitHub(cfg.GitHub.ID, cfg.GitHub.Secret, callback("github"))
+	}
+	if cfg.Google.Enabled() {
+		enabled["google"] = oidc.NewGoogle(cfg.Google.ID, cfg.Google.Secret, callback("google"))
+	}
+	return enabled
 }
 
 // refusingExecutor stands in for the generator in the API process.
