@@ -9,28 +9,33 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/youssefmahersi/ballast/internal/adapter/http/dto"
+	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
 // Run maps HTTP requests onto the run service.
 //
-// The organization is taken from the configuration rather than from the
-// request: until authentication exists there is nobody to read it from, and
-// reading it from a header would be a hole rather than a placeholder.
+// The organization is the one in the session, put in the request's context by
+// middleware.Authenticate. It is never read from the request itself: a header
+// or a parameter naming an organization would be a hole, not a feature.
 type Run struct {
-	runs  *run.Service
-	orgID uuid.UUID
-	log   *slog.Logger
+	runs *run.Service
+	log  *slog.Logger
 }
 
 // NewRun returns the handler.
-func NewRun(runs *run.Service, orgID uuid.UUID, log *slog.Logger) *Run {
-	return &Run{runs: runs, orgID: orgID, log: log}
+func NewRun(runs *run.Service, log *slog.Logger) *Run {
+	return &Run{runs: runs, log: log}
 }
 
 // Enqueue handles POST /runs.
 func (h *Run) Enqueue(w http.ResponseWriter, r *http.Request) {
+	who, ok := signedIn(w, r)
+	if !ok {
+		return
+	}
+
 	var body dto.EnqueueRunRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "the request body is not valid JSON")
@@ -50,7 +55,8 @@ func (h *Run) Enqueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cmd := run.EnqueueCommand{
-		OrgID:         h.orgID,
+		OrgID:         who.OrgID,
+		ActorID:       &who.UserID,
 		ScenarioID:    scenarioID,
 		EnvironmentID: environmentID,
 		Profile:       domain.ProfileKind(body.Profile),
@@ -78,13 +84,18 @@ func (h *Run) Enqueue(w http.ResponseWriter, r *http.Request) {
 
 // ByID handles GET /runs/{id}.
 func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
+	who, ok := signedIn(w, r)
+	if !ok {
+		return
+	}
+
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "the run id is not a uuid")
 		return
 	}
 
-	found, results, err := h.runs.ByID(r.Context(), h.orgID, id)
+	found, results, err := h.runs.ByID(r.Context(), who.OrgID, id)
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
@@ -156,6 +167,17 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		h.log.ErrorContext(r.Context(), "request failed", "path", r.URL.Path, "error", err)
 		writeError(w, http.StatusInternalServerError, "something went wrong")
 	}
+}
+
+// signedIn returns who the session names. The middleware has already refused
+// a request without one; this is the second lock, for a route that was ever
+// registered without the first.
+func signedIn(w http.ResponseWriter, r *http.Request) (domain.Identity, bool) {
+	who, ok := session.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "sign in to continue")
+	}
+	return who, ok
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

@@ -5,8 +5,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Config is everything the API and the worker read from their environment.
@@ -17,9 +15,6 @@ type Config struct {
 	DatabaseURL string
 	// Addr is where the HTTP API listens.
 	Addr string
-	// DevOrgID is the organization every request is attributed to until
-	// authentication exists. It is a placeholder for a session, not a design.
-	DevOrgID uuid.UUID
 	// K6Image is the generator image, pinned.
 	K6Image string
 	// RunTTL is the hard ceiling on a generator's life.
@@ -40,17 +35,6 @@ func Load() (Config, error) {
 		K6Image:      env("BALLAST_K6_IMAGE", ""),
 		PollInterval: time.Second,
 	}
-
-	rawOrg := env("BALLAST_DEV_ORG_ID", "")
-	if rawOrg == "" {
-		return Config{}, fmt.Errorf("BALLAST_DEV_ORG_ID is not set; run `make seed` and export the organization it prints")
-	}
-
-	orgID, err := uuid.Parse(rawOrg)
-	if err != nil {
-		return Config{}, fmt.Errorf("BALLAST_DEV_ORG_ID is not a uuid: %w", err)
-	}
-	cfg.DevOrgID = orgID
 
 	ttl, err := duration("BALLAST_RUN_TTL", 15*time.Minute)
 	if err != nil {

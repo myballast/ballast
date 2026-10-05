@@ -86,3 +86,34 @@ func (db *DB) InTenantTx(ctx context.Context, orgID uuid.UUID, fn func(pgx.Tx) e
 		return fn(tx)
 	})
 }
+
+// lookupSubject is the only statement that runs outside InTenantTx.
+const lookupSubject = `SELECT org_id, user_id FROM auth_lookup($1)`
+
+// LookupSubject resolves a sign-in subject to the organizations and users it
+// belongs to, oldest first.
+//
+// It is the one exception to InTenantTx, and the reason is structural: at
+// sign-in the organization is what is being looked for, so there is none to
+// scope a transaction to. It does not loosen row-level security. It calls
+// auth_lookup, the function migration 003 grants for exactly this and nothing
+// else, which answers with two identifiers per match. Any other query belongs
+// in InTenantTx.
+func (db *DB) LookupSubject(ctx context.Context, subject string) ([]Match, error) {
+	rows, err := db.pool.Query(ctx, lookupSubject, subject)
+	if err != nil {
+		return nil, fmt.Errorf("look the subject up: %w", err)
+	}
+
+	matches, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Match])
+	if err != nil {
+		return nil, fmt.Errorf("read the subject's matches: %w", err)
+	}
+	return matches, nil
+}
+
+// Match is one organization and user a subject resolves to.
+type Match struct {
+	OrgID  uuid.UUID
+	UserID uuid.UUID
+}
