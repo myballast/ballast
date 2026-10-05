@@ -85,6 +85,20 @@ lint: ## Run golangci-lint
 
 ## --- Processes ------------------------------------------------------------
 
+# The organization deploy/seed/dev.sql creates, and the route that lets a
+# generator reach a server on this machine. Development defaults only: a value
+# exported in the shell wins.
+api worker: export BALLAST_DEV_ORG_ID ?= 00000000-0000-4000-8000-000000000001
+worker: export BALLAST_EXTRA_HOST ?= host.docker.internal:host-gateway
+
+# The seed is left out on purpose: it deletes the development organization, and
+# every run with it. Run `make seed` once, by hand.
+.PHONY: dev
+dev: web/node_modules ## Start Postgres, migrate, then run the API, the worker and the front-end together
+	$(MAKE) --no-print-directory up
+	$(MAKE) --no-print-directory migrate
+	$(MAKE) --no-print-directory -j3 api worker web
+
 .PHONY: api
 api: ## Run the HTTP API locally
 	go run ./cmd/api
