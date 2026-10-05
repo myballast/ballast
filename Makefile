@@ -42,7 +42,7 @@ up: ## Start the local services and wait for them to be healthy
 	docker compose up --detach --wait
 
 .PHONY: down
-down: ## Stop the local services
+down: stop ## Stop the API, the worker, the front-end and the local services
 	# --remove-orphans matters here: a service that is removed from compose.yaml
 	# stops being something Compose knows about, so its container is left running
 	# and `make down` would never touch it again.
@@ -85,6 +85,39 @@ lint: ## Run golangci-lint
 
 ## --- Processes ------------------------------------------------------------
 
+# Long-lived processes record their process group here, so that `make stop`
+# can reach them from another terminal.
+RUN_DIR := .run
+
+# $(call track,<name>) records the process group of the make running <name>.
+# Under `make dev` the three processes share one group, which is the point:
+# signalling it is the same as pressing Ctrl+C in that terminal.
+define track
+	@mkdir -p $(RUN_DIR)
+	@ps -o pgid= -p $$$$ | tr -d ' ' > $(RUN_DIR)/$(1).pgid
+endef
+
+# stop interrupts every recorded group, then waits for it to be gone: the
+# worker must be able to finish cleaning up while Postgres is still there.
+# A group is signalled only if it still runs one of our processes, since a
+# number left behind by a crash may since have gone to something else. The
+# [n] keeps the pattern from matching the grep that carries it.
+.PHONY: stop
+stop: ## Stop the API, the worker and the front-end, wherever they were started
+	@self=$$(ps -o pgid= -p $$$$ | tr -d ' '); \
+	for pg in $$(cat $(RUN_DIR)/*.pgid 2>/dev/null | sort -u); do \
+		[ "$$pg" = "$$self" ] && continue; \
+		if ps -eo pgid=,command= | awk -v pg="$$pg" '$$1 == pg' | grep -qE 'cmd/(api|worker)|[n]ext dev'; then \
+			echo "stopping process group $$pg"; \
+			kill -INT -"$$pg" 2>/dev/null || true; \
+			for _ in $$(seq 1 30); do \
+				ps -eo pgid= | grep -qx " *$$pg" || break; \
+				sleep 0.5; \
+			done; \
+		fi; \
+	done
+	@rm -rf $(RUN_DIR)
+
 # The organization deploy/seed/dev.sql creates, and the route that lets a
 # generator reach a server on this machine. Development defaults only: a value
 # exported in the shell wins.
@@ -101,14 +134,17 @@ dev: web/node_modules ## Start Postgres, migrate, then run the API, the worker a
 
 .PHONY: api
 api: ## Run the HTTP API locally
+	$(call track,api)
 	go run ./cmd/api
 
 .PHONY: worker
 worker: ## Run the worker locally
+	$(call track,worker)
 	go run ./cmd/worker
 
 .PHONY: web
 web: web/node_modules ## Run the front-end locally
+	$(call track,web)
 	npm --prefix web run dev
 
 web/node_modules: web/package-lock.json
