@@ -1,0 +1,19 @@
+# Lint configuration for openapi.yaml (`make api-lint`).
+#
+# The recommended rules, minus those that would have the spec describe an API
+# other than this one. Silencing a rule here is preferred to inventing a
+# response that the API never sends.
+extends:
+  - recommended
+
+rules:
+  # The sign-in flow is browser navigation: login and callback answer with
+  # redirects only, never 2xx.
+  operation-2xx-response: off
+  # /healthz, /auth/providers and /auth/logout cannot fail on the caller's
+  # input, and the callback reports failures by redirecting.
+  operation-4xx-response: off
+  # The only server is the local one until there is a deployment to name.
+  no-server-example.com: off
+  # No license has been chosen for the project yet.
+  info-license: off

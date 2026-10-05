@@ -1,0 +1,435 @@
+openapi: 3.1.0
+
+# The contract of Ballast's HTTP API.
+#
+# Kept by hand, next to the code it describes, and checked against it:
+# internal/adapter/http/openapi_test.go fails when a route registered in
+# router.go is missing here, or when a route described here no longer exists.
+# Any change to an endpoint updates this file in the same change.
+#
+# View it with `make api-docs`.
+
+info:
+  title: Ballast API
+  version: 0.1.0
+  description: |
+    Load testing as a service. A signed-in user picks a scenario and a target
+    environment, queues a run, and reads its results.
+
+    **Authentication.** Every route except the health check and the sign-in flow
+    requires the `ballast_session` cookie, which the sign-in flow sets. It is
+    `HttpOnly`, so browser scripts cannot read it; the front end's server
+    forwards it. A request without a valid session gets `401`.
+
+    **Tenancy.** The organization a request acts for is the one in the session.
+    It is never read from the request itself. Identifiers that belong to another
+    organization behave exactly like identifiers that do not exist.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development (`make dev`)
+
+tags:
+  - name: health
+    description: Liveness of the API process. Does not touch the database.
+  - name: auth
+    description: Sign-in through an external identity provider. Ballast stores no password.
+  - name: runs
+    description: Queue load-test runs and read their results.
+
+security:
+  - session: []
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Health check
+      operationId: health
+      security: []
+      responses:
+        "200":
+          description: The API is up.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "ok\n"
+
+  /auth/providers:
+    get:
+      tags: [auth]
+      summary: List the identity providers one can sign in with
+      description: Only the providers the API has credentials for are listed.
+      operationId: listProviders
+      security: []
+      responses:
+        "200":
+          description: The configured providers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvidersResponse"
+
+  /auth/{provider}/login:
+    get:
+      tags: [auth]
+      summary: Start a sign-in
+      description: |
+        Meant for a browser navigation, not for `fetch`. Sets a short-lived
+        `ballast_oauth` cookie holding the state and PKCE verifier, then
+        redirects to the provider's authorization page.
+      operationId: login
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+        - name: next
+          in: query
+          required: false
+          description: |
+            Path on the front end to return to once signed in. Anything that is
+            not a plain path (a scheme, a host, a leading `//`, a backslash) is
+            replaced by `/`.
+          schema:
+            type: string
+            example: /runs/5439bf02-f910-479f-8bb1-dc72ff319d53
+      responses:
+        "302":
+          description: Redirect to the provider, with the state and an S256 PKCE challenge.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+            Set-Cookie:
+              description: "`ballast_oauth`: Path=/auth/, Max-Age=600, HttpOnly, Secure, SameSite=Lax."
+              schema: { type: string }
+        "404":
+          description: No such provider, or it is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/{provider}/callback:
+    get:
+      tags: [auth]
+      summary: Finish a sign-in
+      description: |
+        Where the provider sends the browser back. Must be registered as the
+        OAuth application's callback URL.
+
+        The state must match the one in the `ballast_oauth` cookie, which is
+        cleared whatever happens. On the first sign-in an organization is
+        created, with a first project the user administers.
+
+        Every outcome is a redirect to the front end: to `next` on success, to
+        `/login?error=<code>` otherwise. The codes are `invalid_request` (no
+        matching sign-in was started in this browser), `denied` (refused at
+        the provider) and `signin_failed`.
+      operationId: callback
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+        - name: code
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string }
+        - name: error
+          in: query
+          description: Set by the provider when the user refused.
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to the front end.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+            Set-Cookie:
+              description: |
+                On success, `ballast_session`: Path=/, HttpOnly, Secure,
+                SameSite=Lax, Max-Age set to the session lifetime. In every
+                case, `ballast_oauth` expired.
+              schema: { type: string }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Sign out
+      description: Expires the session cookie. A POST, so that a link on another site cannot sign anyone out.
+      operationId: logout
+      security: []
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie:
+              description: "`ballast_session` expired."
+              schema: { type: string }
+
+  /runs:
+    post:
+      tags: [runs]
+      summary: Queue a run
+      description: |
+        Runs a scenario against an environment of the same project. The load
+        is the profile's template unless `params` is given, and either way it
+        is clamped to the environment's `max_vus` and `max_duration_s` before
+        it is stored. The run is executed later by the worker.
+
+        Refused with `403` when the environment's ownership has not been
+        verified; the attempt is logged.
+      operationId: enqueueRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnqueueRunRequest"
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnqueueRunResponse"
+        "400":
+          description: |
+            The body is not valid JSON, an identifier is not a UUID, the
+            profile is unknown or its parameters describe no runnable test, or
+            the scenario and the environment belong to different projects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: The environment has not been verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: this environment has not been verified
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /runs/{id}:
+    get:
+      tags: [runs]
+      summary: Read a run and its results
+      description: |
+        Metrics and threshold verdicts are empty until the run has finished.
+        Verdicts are k6's own; Ballast never recomputes them.
+      operationId: getRun
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunResponse"
+        "400":
+          description: The id is not a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: ballast_session
+      description: |
+        A JWT set by the sign-in flow. It names the user and the organization
+        and carries no permission.
+
+  parameters:
+    Provider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [github, google]
+
+  responses:
+    Unauthenticated:
+      description: No valid session.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: sign in to continue
+    NotFound:
+      description: |
+        Nothing with this identifier exists in the caller's organization —
+        whether it does not exist at all or belongs to another organization.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Something failed. The details are in the server's logs, never in the response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: something went wrong
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    ProvidersResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            type: string
+            enum: [github, google]
+
+    ProfileKind:
+      type: string
+      enum: [smoke, load, stress, spike, soak]
+
+    ProfileParams:
+      type: object
+      description: The shape of the load, in whole seconds. The total duration must be at least one second.
+      required: [target_vus, ramp_up_s, plateau_s, ramp_down_s]
+      properties:
+        target_vus: { type: integer, minimum: 1 }
+        ramp_up_s: { type: integer, minimum: 0 }
+        plateau_s: { type: integer, minimum: 0 }
+        ramp_down_s: { type: integer, minimum: 0 }
+
+    EnqueueRunRequest:
+      type: object
+      required: [scenario_id, environment_id, profile]
+      properties:
+        scenario_id: { type: string, format: uuid }
+        environment_id: { type: string, format: uuid }
+        profile:
+          $ref: "#/components/schemas/ProfileKind"
+        params:
+          $ref: "#/components/schemas/ProfileParams"
+      example:
+        scenario_id: 00000000-0000-4000-8000-000000000003
+        environment_id: 00000000-0000-4000-8000-000000000004
+        profile: smoke
+
+    EnqueueRunResponse:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          $ref: "#/components/schemas/RunStatus"
+
+    RunStatus:
+      type: string
+      description: "`orphaned` is not terminal: the worker died mid-run and the run still has to be cleaned up."
+      enum: [queued, running, passed, failed, errored, timeout, cancelled, rejected, skipped, orphaned]
+
+    RunResponse:
+      type: object
+      required:
+        - id
+        - project_id
+        - scenario_id
+        - environment_id
+        - scenario_version
+        - profile
+        - params
+        - status
+        - created_at
+        - metrics
+        - thresholds
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        scenario_id: { type: string, format: uuid }
+        environment_id: { type: string, format: uuid }
+        scenario_version:
+          type: integer
+          description: The version of the scenario that was run, frozen on the run.
+        profile:
+          $ref: "#/components/schemas/ProfileKind"
+        params:
+          $ref: "#/components/schemas/ProfileParams"
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        error_message:
+          type: string
+          description: Why the run errored, when it did.
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/Metric"
+        thresholds:
+          type: array
+          items:
+            $ref: "#/components/schemas/Threshold"
+
+    Metric:
+      type: object
+      description: One number k6 measured.
+      required: [metric, stat, value]
+      properties:
+        metric:
+          type: string
+          example: http_req_duration
+        tag:
+          type: string
+          description: The sub-metric's tag selector, absent for the metric itself.
+          example: "expected_response:true"
+        stat:
+          type: string
+          description: avg, min, med, max, p(90), p(95), p(99) for a trend; rate, count… otherwise.
+          example: p(95)
+        value:
+          type: number
+          description: Milliseconds for durations, a ratio between 0 and 1 for rates.
+
+    Threshold:
+      type: object
+      description: k6's verdict on one rule of the scenario.
+      required: [metric, expression, passed]
+      properties:
+        metric:
+          type: string
+          example: http_req_duration
+        expression:
+          type: string
+          example: p(95)<2000
+        passed:
+          type: boolean

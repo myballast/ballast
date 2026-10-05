@@ -83,6 +83,21 @@ test-int: ## Run the integration tests, requires `make up`
 lint: ## Run golangci-lint
 	$(GOLANGCI_LINT) run ./...
 
+## --- API documentation ----------------------------------------------------
+
+SWAGGER_UI_IMAGE := swaggerapi/swagger-ui:v5.17.14
+REDOCLY_IMAGE := redocly/cli:1.34.5
+
+.PHONY: api-docs
+api-docs: ## Browse docs/api/openapi.yaml in Swagger UI on http://localhost:8081
+	@echo "Swagger UI on http://localhost:8081 (Ctrl+C to stop)"
+	docker run --rm -p 8081:8080 -e SWAGGER_JSON=/spec/openapi.yaml \
+		-v "$(CURDIR)/docs/api:/spec:ro" $(SWAGGER_UI_IMAGE)
+
+.PHONY: api-lint
+api-lint: ## Validate docs/api/openapi.yaml against the OpenAPI specification
+	docker run --rm -v "$(CURDIR)/docs/api:/spec:ro" -w /spec $(REDOCLY_IMAGE) lint openapi.yaml
+
 ## --- Processes ------------------------------------------------------------
 
 # Long-lived processes record their process group here, so that `make stop`
