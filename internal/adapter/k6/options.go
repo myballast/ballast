@@ -32,10 +32,18 @@ const (
 // costs more.
 const gracefulStop = "0s"
 
+// summaryTrendStats is the list of statistics k6 computes for every trend
+// metric in its summary. k6 stops at p(95) by default; the run page shows
+// p(99), so it is asked for here. Setting the list replaces k6's defaults, so
+// they are repeated in front of it.
+var summaryTrendStats = []string{"avg", "min", "med", "max", "p(90)", "p(95)", "p(99)"}
+
 // Options is the k6 options object, as k6 reads it.
 type Options struct {
 	Scenarios  map[string]Scenario `json:"scenarios"`
 	Thresholds map[string][]string `json:"thresholds,omitempty"`
+
+	SummaryTrendStats []string `json:"summaryTrendStats"`
 }
 
 // Scenario is one entry of options.scenarios. Which fields carry meaning
@@ -91,6 +99,8 @@ func BuildOptions(
 	return Options{
 		Scenarios:  map[string]Scenario{string(kind): scenarioFor(params)},
 		Thresholds: rules,
+
+		SummaryTrendStats: summaryTrendStats,
 	}, nil
 }
 

@@ -22,3 +22,6 @@ coverage.*
 
 # k6 run artifacts
 /*.k6.json
+
+# Process groups recorded by make api, worker, web and dev
+/.run/

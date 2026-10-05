@@ -304,3 +304,22 @@ func TestBuildOptionsRejectsBadInput(t *testing.T) {
 		})
 	}
 }
+
+// k6 reports p(90) and p(95) by default, and the run page shows p99. Without
+// asking for it, the number never exists and the page can only show a dash.
+// k6's own defaults stay in the list: asking for p(99) replaces them rather
+// than adding to them.
+func TestOptionsAskForTheTrendStatsTheRunPageShows(t *testing.T) {
+	params, _ := domain.ProfileSmoke.Defaults()
+
+	opts, err := k6.BuildOptions(domain.ProfileSmoke, params, nil)
+	if err != nil {
+		t.Fatalf("BuildOptions: %v", err)
+	}
+
+	got := strings.Join(opts.SummaryTrendStats, ",")
+	want := "avg,min,med,max,p(90),p(95),p(99)"
+	if got != want {
+		t.Errorf("summaryTrendStats is %q, want %q", got, want)
+	}
+}
