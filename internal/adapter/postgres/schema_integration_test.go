@@ -28,6 +28,7 @@ var expectedTables = []string{
 	"run_metric",
 	"run_threshold",
 	"scenario",
+	"scenario_version",
 	"secret",
 	"threshold",
 }

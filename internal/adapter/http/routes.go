@@ -127,5 +127,46 @@ func Routes() []Route {
 			Method: "DELETE", Path: "/projects/{projectId}/members/{userId}",
 			Scope: ScopePath, Permission: domain.PermManageMembers, ProjectParam: "projectId",
 		},
+
+		// Scenarios. Nested under the project on purpose: the project is in the
+		// path, so the middleware built from this table refuses before any
+		// handler code matters.
+		{
+			Method: "GET", Path: "/projects/{projectId}/scenarios",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "GET", Path: "/projects/{projectId}/scenarios/{scenarioId}",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "PATCH", Path: "/projects/{projectId}/scenarios/{scenarioId}",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/scenarios/{scenarioId}",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "GET", Path: "/projects/{projectId}/scenarios/{scenarioId}/versions",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "GET", Path: "/projects/{projectId}/scenarios/{scenarioId}/thresholds",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/{scenarioId}/thresholds",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE",
+			Path:   "/projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}",
+			Scope:  ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
 	}
 }

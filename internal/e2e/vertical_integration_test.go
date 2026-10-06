@@ -106,6 +106,10 @@ func seed(ctx context.Context, t *testing.T, db *postgres.DB, baseURL string, th
 				[]any{env, org, project, baseURL, user}},
 			{`INSERT INTO scenario (id, org_id, project_id, name, script) VALUES ($1, $2, $3, 'health', $4)`,
 				[]any{scenario, org, project, healthScript}},
+			{`INSERT INTO scenario_version
+				(org_id, scenario_id, version, script, default_profile)
+			  VALUES ($1, $2, 1, $3, 'smoke')`,
+				[]any{org, scenario, healthScript}},
 			// Without a membership nothing is permitted: every permission is
 			// held within a project.
 			{`INSERT INTO membership (org_id, user_id, project_id, role) VALUES ($1, $2, $3, 'admin')`,
@@ -136,7 +140,7 @@ func seed(ctx context.Context, t *testing.T, db *postgres.DB, baseURL string, th
 		cleanup := context.WithoutCancel(ctx)
 		_ = db.InTenantTx(cleanup, org, func(tx pgx.Tx) error {
 			for _, table := range []string{
-				"run_threshold", "run_metric", "run", "threshold", "scenario",
+				"run_threshold", "run_metric", "run", "threshold", "scenario_version", "scenario",
 				"environment", "project", "app_user", "organization",
 			} {
 				if _, err := tx.Exec(cleanup,
@@ -211,7 +215,7 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 	}
 
 	api := httptest.NewServer(httpadapter.NewRouter(
-		service, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		service, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 

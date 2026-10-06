@@ -46,6 +46,12 @@ func seedProject(ctx context.Context, t *testing.T, db *postgres.DB, org uuid.UU
 			{`INSERT INTO scenario (id, org_id, project_id, name, script)
 			  VALUES ($1, $2, $3, 'checkout', 'export default function () {}')`,
 				[]any{scenario, org, project}},
+			// A run names the version it executed; the schema requires it to
+			// exist.
+			{`INSERT INTO scenario_version
+				(org_id, scenario_id, version, script, default_profile)
+			  VALUES ($1, $2, 1, 'export default function () {}', 'smoke')`,
+				[]any{org, scenario}},
 		} {
 			if _, err := tx.Exec(ctx, statement.sql, statement.args...); err != nil {
 				return err
@@ -61,7 +67,7 @@ func seedProject(ctx context.Context, t *testing.T, db *postgres.DB, org uuid.UU
 		cleanup := context.WithoutCancel(ctx)
 		_ = db.InTenantTx(cleanup, org, func(tx pgx.Tx) error {
 			for _, table := range []string{
-				"run_threshold", "run_metric", "run", "scenario",
+				"run_threshold", "run_metric", "run", "scenario_version", "scenario",
 				"environment", "project", "app_user", "organization",
 			} {
 				if _, err := tx.Exec(cleanup,

@@ -71,6 +71,14 @@ $js$,
     'smoke'
 );
 
+-- A run names the version it executed, and the schema requires that version to
+-- exist. The seeded scenario is its own first version.
+INSERT INTO scenario_version
+    (org_id, scenario_id, version, script, default_profile)
+SELECT org_id, id, version, script, default_profile
+FROM scenario
+WHERE id = '00000000-0000-4000-8000-000000000003';
+
 -- Without a membership, nothing is permitted: every permission is held within a
 -- project, so a user with no row here is a stranger to their own organization's
 -- projects. admin, so that the whole API can be exercised locally.

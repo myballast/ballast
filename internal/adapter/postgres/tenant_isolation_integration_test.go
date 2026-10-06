@@ -115,6 +115,11 @@ func seedEveryTable(ctx context.Context, t *testing.T, db *postgres.DB, label st
 			{`INSERT INTO scenario (id, org_id, project_id, name, script) VALUES ($1, $2, $3, 'checkout', $4)`,
 				[]any{scenario, org, project, "export default function () {}"}},
 
+			{`INSERT INTO scenario_version
+				(org_id, scenario_id, version, script, default_profile)
+			  VALUES ($1, $2, 1, 'export default function () {}', 'smoke')`,
+				[]any{org, scenario}},
+
 			{`INSERT INTO threshold (org_id, scenario_id, metric, expression) VALUES ($1, $2, 'http_req_duration', 'p(95)<300')`,
 				[]any{org, scenario}},
 
@@ -165,7 +170,7 @@ func dropEverything(ctx context.Context, t *testing.T, db *postgres.DB, org uuid
 
 	tables := []string{
 		"audit_log", "run_log", "run_artifact", "run_threshold", "run_metric",
-		"run", "threshold", "scenario", "secret", "environment", "membership",
+		"run", "threshold", "scenario_version", "scenario", "secret", "environment", "membership",
 		"project_allowed_host", "project", "app_user", "organization",
 	}
 

@@ -30,3 +30,14 @@ var ErrForbidden = errors.New("forbidden")
 // ErrLastAdministrator reports a change that would leave a project with nobody
 // able to administer it. Recovering from that takes a hand on the database.
 var ErrLastAdministrator = errors.New("the project would be left with no administrator")
+
+// ErrInvalidScenario reports a scenario Ballast will not store, for a reason
+// that has nothing to do with its script.
+var ErrInvalidScenario = errors.New("invalid scenario")
+
+// ErrInvalidThreshold reports a threshold rule Ballast will not store.
+var ErrInvalidThreshold = errors.New("invalid threshold")
+
+// ErrScenarioNotEmpty reports an attempt to delete a scenario that still holds
+// runs. Its rows cascade, so deleting it would take their history with it.
+var ErrScenarioNotEmpty = errors.New("the scenario still holds runs")
