@@ -19,7 +19,9 @@ import (
 
 type fakeRuns struct {
 	created domain.Run
-	err     error
+	// byID is what ByID hands back. Empty means every read is a miss.
+	byID map[uuid.UUID]domain.Run
+	err  error
 }
 
 func (f *fakeRuns) Create(_ context.Context, run domain.Run) (domain.Run, error) {
@@ -31,7 +33,10 @@ func (f *fakeRuns) Create(_ context.Context, run domain.Run) (domain.Run, error)
 	return run, nil
 }
 
-func (f *fakeRuns) ByID(context.Context, uuid.UUID, uuid.UUID) (domain.Run, error) {
+func (f *fakeRuns) ByID(_ context.Context, _, id uuid.UUID) (domain.Run, error) {
+	if found, ok := f.byID[id]; ok {
+		return found, nil
+	}
 	return domain.Run{}, domain.ErrNotFound
 }
 
@@ -73,6 +78,35 @@ func (f fakeEnvironments) EnvironmentByID(context.Context, uuid.UUID, uuid.UUID)
 	return f.environment, f.err
 }
 
+// allowAll and refuseAll stand in for the authorizer. What it decides is tested
+// in usecase/authz; what matters here is that the service asks, and with which
+// project.
+type allowAll struct{}
+
+func (allowAll) Can(context.Context, domain.Identity, domain.Permission, uuid.UUID) (bool, error) {
+	return true, nil
+}
+
+type refuseAll struct{}
+
+func (refuseAll) Can(context.Context, domain.Identity, domain.Permission, uuid.UUID) (bool, error) {
+	return false, nil
+}
+
+// askedFor records what the service asked about, so a test can check the scope
+// rather than only the answer.
+type askedFor struct {
+	perm      domain.Permission
+	projectID uuid.UUID
+}
+
+func (a *askedFor) Can(
+	_ context.Context, _ domain.Identity, perm domain.Permission, projectID uuid.UUID,
+) (bool, error) {
+	a.perm, a.projectID = perm, projectID
+	return true, nil
+}
+
 type fixedClock struct{ at time.Time }
 
 func (c fixedClock) Now() time.Time { return c.at }
@@ -86,7 +120,7 @@ type fixture struct {
 	runs     *fakeRuns
 	scenario domain.Scenario
 	env      domain.Environment
-	orgID    uuid.UUID
+	actor    domain.Identity
 }
 
 func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)) fixture {
@@ -123,19 +157,20 @@ func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)
 			fakeScenarios{scenario: scenario},
 			fakeEnvironments{environment: environment},
 			nil, nil, nil,
+			allowAll{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			discardLogger(),
 		),
 		runs:     runs,
 		scenario: scenario,
 		env:      environment,
-		orgID:    uuid.New(),
+		actor:    domain.Identity{UserID: uuid.New(), OrgID: uuid.New()},
 	}
 }
 
 func (f fixture) command() EnqueueCommand {
 	return EnqueueCommand{
-		OrgID:         f.orgID,
+		Actor:         f.actor,
 		ScenarioID:    f.scenario.ID,
 		EnvironmentID: f.env.ID,
 		Profile:       domain.ProfileSmoke,
@@ -246,5 +281,120 @@ func TestEnqueueRefusesAnUnknownProfile(t *testing.T) {
 
 	if _, err := f.service.Enqueue(context.Background(), cmd); !errors.Is(err, domain.ErrInvalidProfileParams) {
 		t.Fatalf("got %v, want ErrInvalidProfileParams", err)
+	}
+}
+
+// serviceWith builds a service whose only interesting collaborator is the
+// authorizer.
+func serviceWith(t *testing.T, authz Authorizer, scenario domain.Scenario, environment domain.Environment) (*Service, *fakeRuns) {
+	t.Helper()
+
+	runs := &fakeRuns{}
+	return NewService(
+		runs,
+		fakeScenarios{scenario: scenario},
+		fakeEnvironments{environment: environment},
+		nil, nil, nil,
+		authz,
+		fixedClock{at: time.Unix(0, 0).UTC()},
+		discardLogger(),
+	), runs
+}
+
+// The permission is asked about the scenario's project, which is the project the
+// load would be generated for. Asking about anything else would be a check that
+// looks right and protects nothing.
+func TestEnqueueAsksAboutTheScenariosProject(t *testing.T) {
+	f := newFixture(t, nil)
+	asked := &askedFor{}
+
+	service, _ := serviceWith(t, asked, f.scenario, f.env)
+	if _, err := service.Enqueue(context.Background(), f.command()); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	if asked.perm != domain.PermRunTest {
+		t.Errorf("asked for bit %d, want PermRunTest", int64(asked.perm))
+	}
+	if asked.projectID != f.scenario.ProjectID {
+		t.Errorf("asked about project %s, want the scenario's %s", asked.projectID, f.scenario.ProjectID)
+	}
+}
+
+func TestEnqueueRefusesSomebodyWhoMayNotRun(t *testing.T) {
+	f := newFixture(t, nil)
+
+	service, runs := serviceWith(t, refuseAll{}, f.scenario, f.env)
+	if _, err := service.Enqueue(context.Background(), f.command()); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("got %v, want ErrForbidden", err)
+	}
+	if runs.created.ScenarioID != uuid.Nil {
+		t.Error("a run was written for somebody who was refused")
+	}
+}
+
+// The permission comes first, before the two identifiers are compared. Both
+// faults are present here, and the one reported says which check ran: the other
+// order would tell somebody with no business in either project that the two sit
+// in different ones.
+func TestEnqueueChecksThePermissionBeforeComparingProjects(t *testing.T) {
+	f := newFixture(t, func(_ *domain.Scenario, env *domain.Environment) {
+		env.ProjectID = uuid.New()
+	})
+
+	service, _ := serviceWith(t, refuseAll{}, f.scenario, f.env)
+
+	_, err := service.Enqueue(context.Background(), f.command())
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("got %v, want ErrForbidden: the comparison ran before the permission", err)
+	}
+	if errors.Is(err, domain.ErrCrossProject) {
+		t.Error("the mismatch was reported to somebody with no permission in either project")
+	}
+}
+
+// With the permission granted, the mismatch is what refuses — and it is the
+// mismatch that is reported, so a caller can tell the two apart.
+func TestEnqueueRefusesAMismatchOncePermissionIsGranted(t *testing.T) {
+	f := newFixture(t, func(_ *domain.Scenario, env *domain.Environment) {
+		env.ProjectID = uuid.New()
+	})
+
+	service, runs := serviceWith(t, allowAll{}, f.scenario, f.env)
+
+	_, err := service.Enqueue(context.Background(), f.command())
+	if !errors.Is(err, domain.ErrCrossProject) {
+		t.Fatalf("got %v, want ErrCrossProject", err)
+	}
+	if runs.created.ScenarioID != uuid.Nil {
+		t.Error("a run was written across two projects")
+	}
+}
+
+// A run of a project the caller does not belong to reads as absent. Reporting a
+// refusal would confirm the identifier stands for something.
+func TestByIDHidesARunTheCallerMayNotSee(t *testing.T) {
+	f := newFixture(t, nil)
+
+	runs := &fakeRuns{byID: map[uuid.UUID]domain.Run{}}
+	id := uuid.New()
+	runs.byID[id] = domain.Run{ID: id, OrgID: f.actor.OrgID, ProjectID: uuid.New()}
+
+	service := NewService(
+		runs,
+		fakeScenarios{scenario: f.scenario},
+		fakeEnvironments{environment: f.env},
+		nil, nil, nil,
+		refuseAll{},
+		fixedClock{at: time.Unix(0, 0).UTC()},
+		discardLogger(),
+	)
+
+	_, _, err := service.ByID(context.Background(), f.actor, id)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+	if errors.Is(err, domain.ErrForbidden) {
+		t.Error("the refusal leaked: a 403 would confirm the run exists")
 	}
 }

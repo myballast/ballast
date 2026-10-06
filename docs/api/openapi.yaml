@@ -187,6 +187,7 @@ paths:
         Refused with `403` when the environment's ownership has not been
         verified; the attempt is logged.
       operationId: enqueueRun
+      x-ballast-permission: run_test
       requestBody:
         required: true
         content:
@@ -232,6 +233,7 @@ paths:
         Metrics and threshold verdicts are empty until the run has finished.
         Verdicts are k6's own; Ballast never recomputes them.
       operationId: getRun
+      x-ballast-permission: view_project
       parameters:
         - name: id
           in: path
@@ -266,6 +268,7 @@ paths:
         permission check: a project they do not belong to is simply not theirs,
         and does not appear.
       operationId: listProjects
+      x-ballast-permission: none
       responses:
         "200":
           description: The projects, by name.
@@ -289,6 +292,7 @@ paths:
         project, so the nearest rule that stays scoped is that the caller
         already administers something here.
       operationId: createProject
+      x-ballast-permission: manage_project
       requestBody:
         required: true
         content:
@@ -329,6 +333,7 @@ paths:
       tags: [projects]
       summary: Read a project
       operationId: getProject
+      x-ballast-permission: view_project
       responses:
         "200":
           description: The project.
@@ -355,6 +360,7 @@ paths:
 
         Requires `admin`.
       operationId: updateProject
+      x-ballast-permission: manage_project
       requestBody:
         required: true
         content:
@@ -391,6 +397,7 @@ paths:
 
         Requires `admin`.
       operationId: deleteProject
+      x-ballast-permission: manage_project
       responses:
         "204":
           description: Deleted.
@@ -419,6 +426,7 @@ paths:
       tags: [projects]
       summary: List a project's members
       operationId: listMembers
+      x-ballast-permission: view_project
       responses:
         "200":
           description: The members, by email address.
@@ -456,6 +464,7 @@ paths:
 
         Requires `admin`.
       operationId: setMemberRole
+      x-ballast-permission: manage_members
       requestBody:
         required: true
         content:
@@ -499,6 +508,7 @@ paths:
 
         Requires `admin`.
       operationId: removeMember
+      x-ballast-permission: manage_members
       responses:
         "204":
           description: Removed.

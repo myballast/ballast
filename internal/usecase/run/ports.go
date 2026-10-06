@@ -76,6 +76,13 @@ type OptionsBuilder interface {
 	Build(kind domain.ProfileKind, params domain.ProfileParams, thresholds []domain.Threshold) ([]byte, error)
 }
 
+// Authorizer answers what the caller may do. Every question it is asked names a
+// project: a permission mask says what somebody may do, never what to, so a
+// check without a scope is a bug rather than a refusal.
+type Authorizer interface {
+	Can(ctx context.Context, who domain.Identity, perm domain.Permission, projectID uuid.UUID) (bool, error)
+}
+
 // Clock exists so that what a run records about when it happened can be
 // controlled in a test.
 type Clock interface {

@@ -18,6 +18,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/infra/config"
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
+	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
@@ -62,6 +63,7 @@ func work(log *slog.Logger) error {
 		runner,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
+		authz.NewService(postgres.NewMembershipRepository(db), log),
 		infra.SystemClock{},
 		log,
 	)

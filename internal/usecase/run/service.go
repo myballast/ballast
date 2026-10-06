@@ -13,6 +13,7 @@ type Service struct {
 	executor  Executor
 	options   OptionsBuilder
 	parser    SummaryParser
+	authz     Authorizer
 	clock     Clock
 	log       *slog.Logger
 }
@@ -26,6 +27,7 @@ func NewService(
 	executor Executor,
 	options OptionsBuilder,
 	parser SummaryParser,
+	authz Authorizer,
 	clock Clock,
 	log *slog.Logger,
 ) *Service {
@@ -36,6 +38,7 @@ func NewService(
 		executor:  executor,
 		options:   options,
 		parser:    parser,
+		authz:     authz,
 		clock:     clock,
 		log:       log,
 	}

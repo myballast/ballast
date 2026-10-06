@@ -1,18 +1,16 @@
 package http_test
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
 )
 
 // The API's contract lives in docs/api/openapi.yaml, written by hand. These
@@ -30,53 +28,26 @@ type route struct {
 	public bool
 }
 
-// registeredRoutes reads router.go and returns every route it registers.
-// A route is public when its handler is not wrapped in protect(...).
+// registeredRoutes returns every route the API serves, read from the table in
+// routes.go.
 //
-// Reading the source rather than the running mux is deliberate: ServeMux
-// cannot list what it holds, and the alternative was to reshape the router
-// around this test.
+// Reading the table rather than the source of the registration is what the
+// table is for: it is the only place a route comes from, and routes_test.go is
+// what keeps that true.
 func registeredRoutes(t *testing.T) []route {
 	t.Helper()
 
-	file, err := parser.ParseFile(token.NewFileSet(), "router.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse router.go: %v", err)
+	declared := httpadapter.Routes()
+	if len(declared) == 0 {
+		t.Fatal("the route table is empty; the test would prove nothing")
 	}
 
-	var routes []route
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) != 2 {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc") {
-			return true
-		}
-		lit, ok := call.Args[0].(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
-			t.Errorf("a route is registered with a pattern that is not a string literal; this test cannot check it")
-			return true
-		}
-		pattern, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			t.Fatalf("unquote %s: %v", lit.Value, err)
-		}
-
-		public := true
-		if wrap, ok := call.Args[1].(*ast.CallExpr); ok {
-			if id, ok := wrap.Fun.(*ast.Ident); ok && id.Name == "protect" {
-				public = false
-			}
-		}
-
-		routes = append(routes, route{key: pattern, public: public})
-		return true
-	})
-
-	if len(routes) == 0 {
-		t.Fatal("found no route in router.go; the test would prove nothing")
+	routes := make([]route, 0, len(declared))
+	for _, declaration := range declared {
+		routes = append(routes, route{
+			key:    declaration.Method + " " + declaration.Path,
+			public: declaration.Scope == httpadapter.ScopePublic,
+		})
 	}
 	return routes
 }
@@ -89,8 +60,8 @@ type operation struct {
 
 // A path item holds its operations by method, and may also hold keys that are
 // not operations at all — `parameters`, shared by every method under it, is a
-// sequence rather than a mapping. Decoding into RawNode first and reading only
-// the method keys keeps those from being mistaken for operations.
+// sequence rather than a mapping. Decoding each method key on its own keeps
+// those from being mistaken for operations.
 type spec struct {
 	Security []map[string][]string           `yaml:"security"`
 	Paths    map[string]map[string]yaml.Node `yaml:"paths"`
