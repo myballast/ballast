@@ -163,7 +163,16 @@ func TestTheScenarioHeadMatchesItsNewestVersion(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	for version, script := range map[int]string{2: "two", 3: "three"} {
+	// A slice rather than a map: the versions have to be written in order, and a
+	// map's iteration order is random -- which made this test write version 3
+	// before version 2 about half the time, and then rightly complain that the
+	// head had stayed behind.
+	for _, next := range []struct {
+		version int
+		script  string
+	}{{2, "two"}, {3, "three"}} {
+		version, script := next.version, next.script
+
 		if _, err := scenarios.NewVersion(ctx, who.OrgID, created.ID, domain.ScenarioVersion{
 			ScenarioID: created.ID, Version: version, Script: script,
 			DefaultProfile:       domain.ProfileLoad,

@@ -45,6 +45,15 @@ func (n neverRuns) Execute(context.Context, run.Job, chan<- domain.LogLine) (run
 	return run.Outcome{}, fmt.Errorf("the generator must not be reached in this test")
 }
 
+// neverReadsSecrets stands in for the secret reader, for the same reason: these
+// tests end before anything is executed.
+type neverReadsSecrets struct{ t *testing.T }
+
+func (n neverReadsSecrets) SecretsOf(context.Context, uuid.UUID, uuid.UUID) (map[string]string, error) {
+	n.t.Error("the secrets were decrypted; a request got past a permission check")
+	return nil, fmt.Errorf("the secrets must not be read in this test")
+}
+
 // tenant is one project of an organization, with everything a run needs.
 type tenant struct {
 	projectID     uuid.UUID
@@ -164,6 +173,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
 		postgres.NewEnvironmentRepository(db),
+		neverReadsSecrets{t: t},
 		neverRuns{t: t},
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
@@ -193,7 +203,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 
 	web, _ := url.Parse("http://web.test")
 	api := httptest.NewServer(httpadapter.NewRouter(
-		runs, projects, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		runs, projects, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 

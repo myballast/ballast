@@ -78,6 +78,14 @@ func (f fakeEnvironments) EnvironmentByID(context.Context, uuid.UUID, uuid.UUID)
 	return f.environment, f.err
 }
 
+// noSecrets is an environment with none set, which is every environment in the
+// tests that are about accepting a run rather than executing one.
+type noSecrets struct{}
+
+func (noSecrets) SecretsOf(context.Context, uuid.UUID, uuid.UUID) (map[string]string, error) {
+	return nil, nil
+}
+
 // allowAll and refuseAll stand in for the authorizer. What it decides is tested
 // in usecase/authz; what matters here is that the service asks, and with which
 // project.
@@ -156,6 +164,7 @@ func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)
 			runs,
 			fakeScenarios{scenario: scenario},
 			fakeEnvironments{environment: environment},
+			noSecrets{},
 			nil, nil, nil,
 			allowAll{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
@@ -294,6 +303,7 @@ func serviceWith(t *testing.T, authz Authorizer, scenario domain.Scenario, envir
 		runs,
 		fakeScenarios{scenario: scenario},
 		fakeEnvironments{environment: environment},
+		noSecrets{},
 		nil, nil, nil,
 		authz,
 		fixedClock{at: time.Unix(0, 0).UTC()},
@@ -384,6 +394,7 @@ func TestByIDHidesARunTheCallerMayNotSee(t *testing.T) {
 		runs,
 		fakeScenarios{scenario: f.scenario},
 		fakeEnvironments{environment: f.env},
+		noSecrets{},
 		nil, nil, nil,
 		refuseAll{},
 		fixedClock{at: time.Unix(0, 0).UTC()},
@@ -396,5 +407,41 @@ func TestByIDHidesARunTheCallerMayNotSee(t *testing.T) {
 	}
 	if errors.Is(err, domain.ErrForbidden) {
 		t.Error("the refusal leaked: a 403 would confirm the run exists")
+	}
+}
+
+// The fixture's clock reads midnight UTC, so a window over the small hours is
+// open and one over the evening is shut.
+func TestEnqueueRefusesARunOutsideTheTargetsWindow(t *testing.T) {
+	f := newFixture(t, func(_ *domain.Scenario, env *domain.Environment) {
+		env.Window = &domain.AllowedWindow{StartMinute: 20 * 60, EndMinute: 23 * 60, Zone: "UTC"}
+	})
+
+	_, err := f.service.Enqueue(context.Background(), f.command())
+	if !errors.Is(err, domain.ErrOutsideAllowedWindow) {
+		t.Fatalf("got %v, want ErrOutsideAllowedWindow", err)
+	}
+	if f.runs.created.ScenarioID != uuid.Nil {
+		t.Fatal("the run was queued anyway")
+	}
+}
+
+func TestEnqueueAcceptsARunInsideTheTargetsWindow(t *testing.T) {
+	f := newFixture(t, func(_ *domain.Scenario, env *domain.Environment) {
+		env.Window = &domain.AllowedWindow{StartMinute: 0, EndMinute: 6 * 60, Zone: "UTC"}
+	})
+
+	if _, err := f.service.Enqueue(context.Background(), f.command()); err != nil {
+		t.Fatalf("a run inside the window was refused: %v", err)
+	}
+}
+
+// An environment with no window takes load at any hour, which is every
+// environment that existed before the column did.
+func TestEnqueueAcceptsARunWhenNoWindowWasDeclared(t *testing.T) {
+	f := newFixture(t, nil)
+
+	if _, err := f.service.Enqueue(context.Background(), f.command()); err != nil {
+		t.Fatalf("a run against an environment with no window was refused: %v", err)
 	}
 }

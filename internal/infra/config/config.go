@@ -1,10 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 )
 
 // Config is everything the API and the worker read from their environment.
@@ -24,6 +27,9 @@ type Config struct {
 	// ExtraHosts is passed to the generator's container, in host:ip form. It
 	// exists so a development run can reach a server on the host machine.
 	ExtraHosts []string
+	// SecretKey encrypts the secrets of an environment at rest. Both processes
+	// need it: the API writes them, the worker hands them to the generator.
+	SecretKey []byte
 }
 
 // Load reads the configuration, refusing to start rather than guessing at
@@ -51,6 +57,21 @@ func Load() (Config, error) {
 	if host := env("BALLAST_EXTRA_HOST", ""); host != "" {
 		cfg.ExtraHosts = []string{host}
 	}
+
+	// No default and no starting without it. A process that came up with no key
+	// would run until somebody set their first secret, and then fail somewhere
+	// far from the cause; worse, a default would be a key in the repository, used
+	// by whoever never read this far.
+	raw := env("BALLAST_SECRET_KEY", "")
+	if raw == "" {
+		return Config{}, errors.New(
+			"BALLAST_SECRET_KEY is not set; it encrypts the secrets of an environment at rest. Generate one with: openssl rand -base64 32")
+	}
+	key, err := crypto.KeyFromBase64(raw)
+	if err != nil {
+		return Config{}, fmt.Errorf("BALLAST_SECRET_KEY: %w. Generate one with: openssl rand -base64 32", err)
+	}
+	cfg.SecretKey = key
 
 	return cfg, nil
 }

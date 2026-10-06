@@ -112,6 +112,14 @@ func (s *Service) buildJob(ctx context.Context, orgID uuid.UUID, current domain.
 		return Job{}, domain.ErrTargetNotVerified
 	}
 
+	// Checked again here for the same reason, and this one is not belt and
+	// braces: a run accepted at five in the afternoon can still be waiting in the
+	// queue at three in the morning, and the window exists precisely to say that
+	// three in the morning is not a time to load this target.
+	if !environment.AllowsAt(s.clock.Now()) {
+		return Job{}, domain.ErrOutsideAllowedWindow
+	}
+
 	thresholds, err := s.scenarios.ScenarioThresholds(ctx, orgID, current.ScenarioID)
 	if err != nil {
 		return Job{}, fmt.Errorf("read the thresholds: %w", err)
@@ -124,10 +132,37 @@ func (s *Service) buildJob(ctx context.Context, orgID uuid.UUID, current domain.
 		return Job{}, fmt.Errorf("build the generator options: %w", err)
 	}
 
+	// The environment's credentials, decrypted here and handed to the generator
+	// in its environment. This is the last place in Ballast where they exist as
+	// anything readable.
+	secrets, err := s.secrets.SecretsOf(ctx, orgID, current.EnvironmentID)
+	if err != nil {
+		return Job{}, fmt.Errorf("read the environment's secrets: %w", err)
+	}
+
 	return Job{
 		RunID:   current.ID,
 		Script:  []byte(scenario.Script),
 		Options: options,
-		Env:     map[string]string{"BASE_URL": environment.BaseURL},
+		Env:     injected(secrets, environment),
 	}, nil
+}
+
+// injected builds the generator's environment: the secrets first, then what
+// Ballast puts there itself.
+//
+// The order is the point. BASE_URL is the target whose ownership was proved and
+// approved, and writing it last means a secret of that name cannot redirect the
+// load — whatever a secret is called, it loses. Keys that would do this are
+// refused when a secret is stored, which is the check that is supposed to catch
+// it; this is what holds if that check is ever widened by accident.
+func injected(secrets map[string]string, environment domain.Environment) map[string]string {
+	env := make(map[string]string, len(secrets)+1)
+	for key, value := range secrets {
+		env[key] = value
+	}
+
+	env[domain.BaseURLVariable] = environment.BaseURL
+
+	return env
 }

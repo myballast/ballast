@@ -17,6 +17,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/infra/config"
+	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
@@ -56,10 +57,16 @@ func work(log *slog.Logger) error {
 	}
 	defer func() { _ = runner.Close() }()
 
+	cipher, err := crypto.NewCipher(cfg.SecretKey)
+	if err != nil {
+		return err
+	}
+
 	service := run.NewService(
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
 		postgres.NewEnvironmentRepository(db),
+		postgres.NewSecretRepository(db, cipher),
 		runner,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),

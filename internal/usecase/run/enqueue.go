@@ -77,6 +77,18 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		return domain.Run{}, domain.ErrTargetNotVerified
 	}
 
+	// The hours the target tolerates being loaded. Checked here so that a run
+	// asked for outside them is refused rather than queued, and checked again by
+	// the worker, because the queue is not instantaneous.
+	if now := s.clock.Now(); !environment.AllowsAt(now) {
+		s.log.InfoContext(ctx, "run refused outside the target's window",
+			"org_id", cmd.Actor.OrgID,
+			"environment_id", environment.ID,
+			"at", now,
+		)
+		return domain.Run{}, domain.ErrOutsideAllowedWindow
+	}
+
 	if err := params.Validate(); err != nil {
 		return domain.Run{}, err
 	}

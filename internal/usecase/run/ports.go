@@ -38,6 +38,18 @@ type EnvironmentReader interface {
 	EnvironmentByID(ctx context.Context, orgID, id uuid.UUID) (domain.Environment, error)
 }
 
+// SecretReader reads an environment's secrets, decrypted, for injection into the
+// generator.
+//
+// This is the only port in Ballast that hands a secret's value to anything, and
+// the worker is the only process wired to an implementation of it: the API, which
+// writes secrets, is given a port that cannot read one back. The values it
+// returns go into the generator's environment and nowhere else — not into a log,
+// not into a run's record, not into a response.
+type SecretReader interface {
+	SecretsOf(ctx context.Context, orgID, environmentID uuid.UUID) (map[string]string, error)
+}
+
 // Job is one execution handed to a generator.
 type Job struct {
 	RunID uuid.UUID

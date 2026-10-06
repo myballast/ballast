@@ -29,6 +29,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/runner/hosted"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
+	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
@@ -75,6 +76,18 @@ export default function () {
 	check(res, { 'health is 200': (r) => r.status === 200 });
 }
 `
+
+// cipher is the encryption the worker is wired to. A key of the right length,
+// fixed rather than random, so a failure is reproducible.
+func cipher(t *testing.T) *crypto.Cipher {
+	t.Helper()
+
+	c, err := crypto.NewCipher([]byte(strings.Repeat("v", crypto.KeyLength)))
+	if err != nil {
+		t.Fatalf("build the cipher: %v", err)
+	}
+	return c
+}
 
 // seed lays down one organization with a project, a verified target and a
 // scenario, through the application role and its policies.
@@ -186,6 +199,10 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
 		postgres.NewEnvironmentRepository(db),
+		// A real cipher over a real key: what the generator is handed has to come
+		// back out of the database the way it went in, and that is part of what
+		// this test is for.
+		postgres.NewSecretRepository(db, cipher(t)),
 		runner,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
@@ -215,7 +232,7 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 	}
 
 	api := httptest.NewServer(httpadapter.NewRouter(
-		service, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		service, nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 
@@ -456,5 +473,120 @@ func TestVerticalSkeletonRefusesAnUnverifiedTarget(t *testing.T) {
 	}
 	if runs != 0 {
 		t.Errorf("%d run(s) were written for an unverified target", runs)
+	}
+}
+
+// secretScript authenticates with a credential it never contains: the token
+// arrives as an environment variable, which is the whole point of storing one.
+const secretScript = `
+import http from 'k6/http';
+import { check } from 'k6';
+
+export default function () {
+	const res = http.get(` + "`${__ENV.BASE_URL}/private`" + `, {
+		headers: { Authorization: ` + "`Bearer ${__ENV.API_TOKEN}`" + ` },
+	});
+	check(res, { 'the target accepted the credential': (r) => r.status === 200 });
+}
+`
+
+// The last item of the secrets ticket, end to end: a credential written through
+// the API's encryption, kept in the database as ciphertext, and arriving in the
+// generator's container as something a scenario can authenticate with.
+//
+// The target refuses anything else, so a secret that did not make it through
+// would not merely be missing — the run would fail.
+func TestASecretReachesTheGeneratorAndNothingElse(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	const token = "ghp_a_token_the_target_insists_on"
+
+	var (
+		mu       sync.Mutex
+		accepted int
+		refused  int
+	)
+	target := newTarget(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			refused++
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		accepted++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	db, err := postgres.Open(ctx, dsn())
+	if err != nil {
+		t.Fatalf("open the database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	org, scenario, environment := seed(ctx, t, db, target, nil)
+
+	// The scenario the worker will read. The seed writes the health script, and
+	// this is the one that needs a credential.
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE scenario SET script = $3 WHERE org_id = $1 AND id = $2`,
+			org, scenario, secretScript)
+		return err
+	}); err != nil {
+		t.Fatalf("point the scenario at the authenticated script: %v", err)
+	}
+
+	// Written the way the API writes one: through the repository, encrypted.
+	if _, err := postgres.NewSecretRepository(db, cipher(t)).
+		Put(ctx, org, environment, "API_TOKEN", token, time.Now().UTC()); err != nil {
+		t.Fatalf("store the secret: %v", err)
+	}
+
+	// Nothing readable on the disk, checked here as well as in the repository's
+	// own tests, because this is the row the run is about to use.
+	var ciphertext []byte
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT value_encrypted FROM secret WHERE org_id = $1 AND environment_id = $2`,
+			org, environment).Scan(&ciphertext)
+	}); err != nil {
+		t.Fatalf("read the stored secret: %v", err)
+	}
+	if strings.Contains(string(ciphertext), token) {
+		t.Fatal("the token is readable in the database")
+	}
+
+	s := build(t, db, org)
+
+	status, queued := s.enqueue(t, fmt.Sprintf(
+		`{"scenario_id":%q,"environment_id":%q,"profile":"smoke","params":{"target_vus":1,"plateau_s":2}}`,
+		scenario, environment))
+	if status != http.StatusAccepted {
+		t.Fatalf("POST /runs returned %d", status)
+	}
+
+	s.processOne(ctx, t)
+
+	finished := s.get(t, queued.ID)
+	if finished.Status != string(domain.StatusPassed) {
+		t.Fatalf("the run ended as %s: %s", finished.Status, finished.ErrorMessage)
+	}
+
+	mu.Lock()
+	gotIn, turnedAway := accepted, refused
+	mu.Unlock()
+
+	if gotIn == 0 {
+		t.Fatal("the target was never reached with the credential; the secret did not arrive")
+	}
+	if turnedAway != 0 {
+		t.Errorf("%d requests arrived without the credential", turnedAway)
+	}
+
+	// Nothing the run recorded about itself carries the token.
+	if strings.Contains(finished.ErrorMessage, token) {
+		t.Error("the run's error message carries the token")
 	}
 }
