@@ -81,13 +81,19 @@ func registeredRoutes(t *testing.T) []route {
 	return routes
 }
 
+type operation struct {
+	OperationID string                 `yaml:"operationId"`
+	Security    *[]map[string][]string `yaml:"security"`
+	Responses   map[string]any         `yaml:"responses"`
+}
+
+// A path item holds its operations by method, and may also hold keys that are
+// not operations at all — `parameters`, shared by every method under it, is a
+// sequence rather than a mapping. Decoding into RawNode first and reading only
+// the method keys keeps those from being mistaken for operations.
 type spec struct {
-	Security []map[string][]string `yaml:"security"`
-	Paths    map[string]map[string]struct {
-		OperationID string                 `yaml:"operationId"`
-		Security    *[]map[string][]string `yaml:"security"`
-		Responses   map[string]any         `yaml:"responses"`
-	} `yaml:"paths"`
+	Security []map[string][]string           `yaml:"security"`
+	Paths    map[string]map[string]yaml.Node `yaml:"paths"`
 }
 
 var httpMethods = []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
@@ -110,11 +116,18 @@ func documentedRoutes(t *testing.T) []route {
 	}
 
 	var routes []route
-	for path, operations := range doc.Paths {
-		for method, op := range operations {
+	for path, item := range doc.Paths {
+		for method, node := range item {
 			if !slices.Contains(httpMethods, method) {
 				continue
 			}
+
+			var op operation
+			if err := node.Decode(&op); err != nil {
+				t.Errorf("%s %s cannot be read: %v", strings.ToUpper(method), path, err)
+				continue
+			}
+
 			if op.OperationID == "" {
 				t.Errorf("%s %s has no operationId", strings.ToUpper(method), path)
 			}

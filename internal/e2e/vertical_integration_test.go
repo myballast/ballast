@@ -203,7 +203,7 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 	}
 
 	api := httptest.NewServer(httpadapter.NewRouter(
-		service, auth.NewService(nil, nil, infra.SystemClock{}, log), sessions, web, log,
+		service, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 

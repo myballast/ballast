@@ -9,6 +9,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/http/middleware"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
+	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
@@ -23,6 +24,7 @@ import (
 // on its own line, so that a route added without it stands out in review.
 func NewRouter(
 	runs *run.Service,
+	projects *project.Service,
 	signIn *auth.Service,
 	sessions *session.Manager,
 	web *url.URL,
@@ -31,6 +33,7 @@ func NewRouter(
 	mux := http.NewServeMux()
 
 	runHandler := handler.NewRun(runs, log)
+	projectHandler := handler.NewProject(projects, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
 	protect := middleware.Authenticate(sessions, log)
 
@@ -47,6 +50,15 @@ func NewRouter(
 	// Signed in.
 	mux.Handle("POST /runs", protect(http.HandlerFunc(runHandler.Enqueue)))
 	mux.Handle("GET /runs/{id}", protect(http.HandlerFunc(runHandler.ByID)))
+
+	mux.Handle("GET /projects", protect(http.HandlerFunc(projectHandler.List)))
+	mux.Handle("POST /projects", protect(http.HandlerFunc(projectHandler.Create)))
+	mux.Handle("GET /projects/{projectId}", protect(http.HandlerFunc(projectHandler.ByID)))
+	mux.Handle("PATCH /projects/{projectId}", protect(http.HandlerFunc(projectHandler.Update)))
+	mux.Handle("DELETE /projects/{projectId}", protect(http.HandlerFunc(projectHandler.Delete)))
+	mux.Handle("GET /projects/{projectId}/members", protect(http.HandlerFunc(projectHandler.Members)))
+	mux.Handle("PUT /projects/{projectId}/members/{userId}", protect(http.HandlerFunc(projectHandler.SetMemberRole)))
+	mux.Handle("DELETE /projects/{projectId}/members/{userId}", protect(http.HandlerFunc(projectHandler.RemoveMember)))
 
 	return mux
 }

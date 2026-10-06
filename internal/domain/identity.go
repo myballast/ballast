@@ -50,5 +50,25 @@ func (e ExternalIdentity) Validate() error {
 // membership.role; the permission mask is derived from it in code.
 type Role string
 
-// RoleAdmin is the role of whoever created an organization.
-const RoleAdmin Role = "admin"
+// The four roles, from least to most able. They are cumulative: each grants
+// everything the one before it does, which is what the use case diagram's
+// "inherits from" arrows mean. The values are stored in membership.role and
+// constrained by migration 001.
+const (
+	RoleViewer     Role = "viewer"
+	RoleRunner     Role = "runner"
+	RoleMaintainer Role = "maintainer"
+	// RoleAdmin is also the role of whoever created an organization.
+	RoleAdmin Role = "admin"
+)
+
+// Roles returns the four roles, least able first.
+func Roles() []Role {
+	return []Role{RoleViewer, RoleRunner, RoleMaintainer, RoleAdmin}
+}
+
+// IsValid reports whether r is one of the four.
+func (r Role) IsValid() bool {
+	_, ok := roleMasks[r]
+	return ok
+}

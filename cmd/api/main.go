@@ -20,6 +20,8 @@ import (
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
 	"github.com/youssefmahersi/ballast/internal/infra/oidc"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
+	"github.com/youssefmahersi/ballast/internal/usecase/authz"
+	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 
 	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
@@ -64,6 +66,17 @@ func serve(log *slog.Logger) error {
 		log,
 	)
 
+	memberships := postgres.NewMembershipRepository(db)
+	permissions := authz.NewService(memberships, log)
+
+	projects := project.NewService(
+		postgres.NewProjectRepository(db),
+		memberships,
+		permissions,
+		infra.SystemClock{},
+		log,
+	)
+
 	sessions, err := session.NewManager(cfg.SessionSecret, cfg.SessionTTL, infra.SystemClock{})
 	if err != nil {
 		return err
@@ -82,7 +95,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, signIn, sessions, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, signIn, sessions, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
