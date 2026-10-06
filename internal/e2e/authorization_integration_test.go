@@ -116,6 +116,15 @@ func newWorld(ctx context.Context, t *testing.T) world {
 				p.into.scenarioID, org, p.into.projectID); err != nil {
 				return err
 			}
+			// A run names the version it executed, and that version has to
+			// exist: the schema no longer lets a run point at a script nobody
+			// kept.
+			if _, err := tx.Exec(ctx, `INSERT INTO scenario_version
+				(org_id, scenario_id, version, script, default_profile)
+				VALUES ($1, $2, 1, 'export default function () {}', 'smoke')`,
+				org, p.into.scenarioID); err != nil {
+				return err
+			}
 		}
 
 		// Maintainer of A, and nothing in B. Maintainer on purpose: it is the
@@ -133,7 +142,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		cleanup := context.WithoutCancel(ctx)
 		_ = db.InTenantTx(cleanup, org, func(tx pgx.Tx) error {
 			for _, table := range []string{
-				"run_threshold", "run_metric", "run", "threshold", "scenario",
+				"run_threshold", "run_metric", "run", "threshold", "scenario_version", "scenario",
 				"secret", "environment", "membership", "project_allowed_host",
 				"project", "app_user", "organization",
 			} {
@@ -184,7 +193,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 
 	web, _ := url.Parse("http://web.test")
 	api := httptest.NewServer(httpadapter.NewRouter(
-		runs, projects, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		runs, projects, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 

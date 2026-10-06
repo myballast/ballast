@@ -150,6 +150,17 @@ type Scenario struct {
 	UpdatedAt            time.Time
 }
 
+type ScenarioVersion struct {
+	OrgID                uuid.UUID
+	ScenarioID           uuid.UUID
+	Version              int32
+	Script               string
+	DefaultProfile       string
+	DefaultProfileParams []byte
+	CreatedBy            *uuid.UUID
+	CreatedAt            time.Time
+}
+
 type Secret struct {
 	ID             uuid.UUID
 	OrgID          uuid.UUID

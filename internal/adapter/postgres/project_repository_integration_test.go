@@ -42,7 +42,7 @@ func seedOrgAndUser(ctx context.Context, t *testing.T, db *postgres.DB) (domain.
 		ctx := context.WithoutCancel(ctx)
 		_ = db.InTenantTx(ctx, who.OrgID, func(tx pgx.Tx) error {
 			for _, table := range []string{
-				"run_threshold", "run_metric", "run", "threshold", "scenario",
+				"run_threshold", "run_metric", "run", "threshold", "scenario_version", "scenario",
 				"secret", "environment", "membership", "project_allowed_host",
 				"project", "app_user", "organization",
 			} {
@@ -251,6 +251,12 @@ func TestProjectRepositoryRefusesToDeleteAProjectWithRuns(t *testing.T) {
 		if _, err := tx.Exec(ctx, `INSERT INTO scenario (id, org_id, project_id, name, script)
 			VALUES ($1, $2, $3, 'health', 'export default function () {}')`,
 			scenario, who.OrgID, created.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO scenario_version
+			(org_id, scenario_id, version, script, default_profile)
+			VALUES ($1, $2, 1, 'export default function () {}', 'smoke')`,
+			who.OrgID, scenario); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx, `INSERT INTO run

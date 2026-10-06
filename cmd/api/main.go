@@ -23,6 +23,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
+	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
 
 	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
 )
@@ -78,6 +79,15 @@ func serve(log *slog.Logger) error {
 		log,
 	)
 
+	scenarios := scenario.NewService(
+		postgres.NewScenarioWriteRepository(db),
+		postgres.NewScenarioWriteRepository(db),
+		k6.NewScriptInspector(),
+		permissions,
+		infra.SystemClock{},
+		log,
+	)
+
 	sessions, err := session.NewManager(cfg.SessionSecret, cfg.SessionTTL, infra.SystemClock{})
 	if err != nil {
 		return err
@@ -96,7 +106,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, signIn, permissions, sessions, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, scenarios, signIn, permissions, sessions, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

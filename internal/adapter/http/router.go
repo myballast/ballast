@@ -12,6 +12,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
+	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
 )
 
 // NewRouter wires the HTTP surface.
@@ -31,6 +32,7 @@ import (
 func NewRouter(
 	runs *run.Service,
 	projects *project.Service,
+	scenarios *scenario.Service,
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
 	sessions *session.Manager,
@@ -39,6 +41,7 @@ func NewRouter(
 ) http.Handler {
 	runHandler := handler.NewRun(runs, log)
 	projectHandler := handler.NewProject(projects, log)
+	scenarioHandler := handler.NewScenario(scenarios, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
 
 	handlers := map[string]http.HandlerFunc{
@@ -62,6 +65,16 @@ func NewRouter(
 		"GET /projects/{projectId}/members":             projectHandler.Members,
 		"PUT /projects/{projectId}/members/{userId}":    projectHandler.SetMemberRole,
 		"DELETE /projects/{projectId}/members/{userId}": projectHandler.RemoveMember,
+
+		"GET /projects/{projectId}/scenarios":                                          scenarioHandler.List,
+		"POST /projects/{projectId}/scenarios":                                         scenarioHandler.Create,
+		"GET /projects/{projectId}/scenarios/{scenarioId}":                             scenarioHandler.ByID,
+		"PATCH /projects/{projectId}/scenarios/{scenarioId}":                           scenarioHandler.Update,
+		"DELETE /projects/{projectId}/scenarios/{scenarioId}":                          scenarioHandler.Delete,
+		"GET /projects/{projectId}/scenarios/{scenarioId}/versions":                    scenarioHandler.Versions,
+		"GET /projects/{projectId}/scenarios/{scenarioId}/thresholds":                  scenarioHandler.Thresholds,
+		"POST /projects/{projectId}/scenarios/{scenarioId}/thresholds":                 scenarioHandler.AddThreshold,
+		"DELETE /projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}": scenarioHandler.RemoveThreshold,
 	}
 
 	authenticate := middleware.Authenticate(sessions, log)

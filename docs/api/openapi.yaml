@@ -36,6 +36,12 @@ tags:
     description: Sign-in through an external identity provider. Ballast stores no password.
   - name: runs
     description: Queue load-test runs and read their results.
+  - name: scenarios
+    description: |
+      Versioned k6 scripts. A script never hardcodes what it targets or how
+      hard: it reads `__ENV.BASE_URL` and takes its load from the profile chosen
+      at launch. Every version ever written is kept, because a run names the one
+      it executed.
   - name: projects
     description: |
       Projects, and who belongs to them. What a member may do is decided by
@@ -533,6 +539,316 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/scenarios:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [scenarios]
+      summary: List a project's scenarios
+      description: Without their scripts. Read one to get its script.
+      operationId: listScenarios
+      x-ballast-permission: view_project
+      responses:
+        "200":
+          description: The scenarios, by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScenarioListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [scenarios]
+      summary: Import a scenario
+      description: |
+        The script is inspected before it is stored, and refused with `422` when
+        it exports its own `options`, addresses a host of its own, or never reads
+        `__ENV.BASE_URL`. The response then lists what was wrong.
+
+        A script whose requests carry no `name` tag is accepted and comes back
+        with a warning: without them every endpoint is measured as one, and a
+        threshold cannot single one out.
+      operationId: createScenario
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScenarioRequest"
+      responses:
+        "201":
+          description: Created, as version 1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "400":
+          description: The body is not valid JSON, or the name or the load is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another scenario of this project already uses that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/ScriptRefused"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/{scenarioId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/ScenarioID"
+
+    get:
+      tags: [scenarios]
+      summary: Read a scenario
+      description: |
+        With its current script, and the warnings inspecting it raises. Those are
+        worth reading before launching a run.
+      operationId: getScenario
+      x-ballast-permission: view_project
+      responses:
+        "200":
+          description: The scenario.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      tags: [scenarios]
+      summary: Change a scenario
+      description: |
+        Anything left out stays as it is.
+
+        Changing the script writes a **new version** and overwrites nothing. Runs
+        already recorded keep pointing at the version they executed, and that
+        version can still be read back.
+
+        Renaming writes no version: a name is not something a run executed.
+      operationId: updateScenario
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateScenarioRequest"
+      responses:
+        "200":
+          description: The scenario, at its new version if the script changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+        "400":
+          description: The body is not valid JSON, an id is not a UUID, or the name or load is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ScriptRefused"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [scenarios]
+      summary: Delete a scenario
+      description: |
+        Refused with `409` while the scenario holds any run: its rows cascade, so
+        deleting it would take their history with it.
+      operationId: deleteScenario
+      x-ballast-permission: manage_scenarios
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The scenario still holds runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/{scenarioId}/versions:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/ScenarioID"
+
+    get:
+      tags: [scenarios]
+      summary: List a scenario's versions
+      description: |
+        Newest first. This is how the script a past run executed is read back: a
+        run carries `scenario_version`, and nothing ever overwrites one.
+      operationId: listScenarioVersions
+      x-ballast-permission: view_project
+      responses:
+        "200":
+          description: Every version ever written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScenarioVersionListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/{scenarioId}/thresholds:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/ScenarioID"
+
+    get:
+      tags: [scenarios]
+      summary: List a scenario's thresholds
+      operationId: listThresholds
+      x-ballast-permission: view_project
+      responses:
+        "200":
+          description: The rules this scenario imposes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThresholdListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [scenarios]
+      summary: Impose a threshold
+      description: |
+        The metric accepts k6's tagged syntax, so a rule can single out one
+        endpoint: `http_req_duration{name:POST /login}`.
+
+        What the expression means is k6's to judge. Ballast reads the verdict of
+        each threshold from the run's summary and never recomputes it.
+      operationId: createThreshold
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateThresholdRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThresholdRule"
+        "400":
+          description: The body is not valid JSON, an id is not a UUID, or the rule is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: This scenario already imposes that rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/ScenarioID"
+      - name: thresholdId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    delete:
+      tags: [scenarios]
+      summary: Drop a threshold
+      description: |
+        Runs already recorded keep their verdicts: those were frozen onto the run
+        when it finished, and nothing here touches them.
+      operationId: deleteThreshold
+      x-ballast-permission: manage_scenarios
+      responses:
+        "204":
+          description: Dropped.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     session:
@@ -552,6 +868,12 @@ components:
         type: string
         enum: [github, google]
 
+    ScenarioID:
+      name: scenarioId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
     ProjectID:
       name: projectId
       in: path
@@ -559,6 +881,22 @@ components:
       schema: { type: string, format: uuid }
 
   responses:
+    ScriptRefused:
+      description: |
+        The script was refused, with what was wrong with it. Every fault is
+        listed, so it can be fixed in one pass.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, findings]
+            properties:
+              error: { type: string }
+              findings:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScriptFinding"
+
     Forbidden:
       description: |
         The caller's role does not allow this. A project they are not a member
@@ -698,6 +1036,159 @@ components:
       properties:
         role:
           $ref: "#/components/schemas/Role"
+
+    ScriptFindingCode:
+      type: string
+      description: |
+        - `unparsable` — k6 would not load it either
+        - `declares_options` — the script exports its own options, which Ballast
+          never consults: the load comes from the profile, which is what makes
+          the environment's ceilings binding
+        - `no_base_url` — the script never reads `__ENV.BASE_URL`
+        - `hardcoded_url` — an absolute URL written into the script, which would
+          reach a host no environment vouched for
+        - `no_request_name_tags` — a warning: several requests, none tagged
+      enum:
+        - unparsable
+        - declares_options
+        - no_base_url
+        - hardcoded_url
+        - no_request_name_tags
+
+    ScriptFinding:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          $ref: "#/components/schemas/ScriptFindingCode"
+        message:
+          type: string
+          description: Wording may change; key on the code.
+        detail: { type: string }
+        line:
+          type: integer
+          description: Counting from one. Absent when the finding is about the whole script.
+
+    ScenarioSummary:
+      type: object
+      required: [id, name, version, default_profile, default_params, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 120 }
+        version:
+          type: integer
+          minimum: 1
+          description: The current version. Every earlier one is still readable.
+        default_profile:
+          $ref: "#/components/schemas/ProfileKind"
+        default_params:
+          $ref: "#/components/schemas/ProfileParams"
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ScenarioListResponse:
+      type: object
+      required: [scenarios]
+      properties:
+        scenarios:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScenarioSummary"
+
+    Scenario:
+      allOf:
+        - $ref: "#/components/schemas/ScenarioSummary"
+        - type: object
+          required: [script, warnings]
+          properties:
+            script: { type: string }
+            warnings:
+              type: array
+              description: Worth reading before launching a run. Never a reason the request failed.
+              items:
+                $ref: "#/components/schemas/ScriptFinding"
+
+    CreateScenarioRequest:
+      type: object
+      required: [name, script]
+      properties:
+        name: { type: string, maxLength: 120 }
+        script:
+          type: string
+          description: A k6 script reading `__ENV.BASE_URL`, exporting no options of its own.
+        default_profile:
+          $ref: "#/components/schemas/ProfileKind"
+        default_params:
+          $ref: "#/components/schemas/ProfileParams"
+
+    UpdateScenarioRequest:
+      type: object
+      description: Anything left out stays as it is.
+      properties:
+        name: { type: string, maxLength: 120 }
+        script: { type: string }
+        default_profile:
+          $ref: "#/components/schemas/ProfileKind"
+        default_params:
+          $ref: "#/components/schemas/ProfileParams"
+
+    ScenarioVersion:
+      type: object
+      required: [version, script, default_profile, default_params, created_at]
+      properties:
+        version: { type: integer, minimum: 1 }
+        script: { type: string }
+        default_profile:
+          $ref: "#/components/schemas/ProfileKind"
+        default_params:
+          $ref: "#/components/schemas/ProfileParams"
+        created_by:
+          type: string
+          format: uuid
+          description: Absent once the person who wrote it has been removed.
+        created_at: { type: string, format: date-time }
+
+    ScenarioVersionListResponse:
+      type: object
+      required: [versions]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScenarioVersion"
+
+    # The rule a scenario imposes, as distinct from Threshold below, which is
+    # k6's verdict on it for one run.
+    ThresholdRule:
+      type: object
+      required: [id, metric, expression]
+      properties:
+        id: { type: string, format: uuid }
+        metric:
+          type: string
+          maxLength: 200
+          description: k6's tagged syntax is accepted, e.g. `http_req_duration{name:POST /login}`.
+        expression: { type: string, maxLength: 120 }
+      example:
+        id: 7a1f1e6e-0000-4000-8000-000000000001
+        metric: http_req_duration{name:POST /login}
+        expression: p(95)<300
+
+    ThresholdListResponse:
+      type: object
+      required: [thresholds]
+      properties:
+        thresholds:
+          type: array
+          items:
+            $ref: "#/components/schemas/ThresholdRule"
+
+    CreateThresholdRequest:
+      type: object
+      required: [metric, expression]
+      properties:
+        metric: { type: string, maxLength: 200 }
+        expression: { type: string, maxLength: 120 }
 
     ProvidersResponse:
       type: object

@@ -1,6 +1,12 @@
 package domain
 
-import "github.com/google/uuid"
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // Scenario is a versioned k6 script belonging to a project.
 //
@@ -13,7 +19,44 @@ type Scenario struct {
 	ProjectID uuid.UUID
 	Name      string
 	Script    string
-	// Version is frozen onto every run made from this scenario.
+	// Version is frozen onto every run made from this scenario, and every
+	// version ever written is kept, so what a past run executed can be read
+	// back rather than inferred.
 	Version        int
 	DefaultProfile ProfileKind
+	// DefaultProfileParams is the load this scenario suggests. Whatever is used
+	// is still clamped to the environment's ceilings before a run is written.
+	DefaultProfileParams ProfileParams
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+// ScenarioVersion is one version of a scenario's script, kept for good.
+//
+// Editing a scenario adds one of these. Nothing overwrites one: a run names the
+// version it executed, and that has to keep meaning what it meant.
+type ScenarioVersion struct {
+	ScenarioID           uuid.UUID
+	Version              int
+	Script               string
+	DefaultProfile       ProfileKind
+	DefaultProfileParams ProfileParams
+	// CreatedBy is nil once the person who wrote it has been removed.
+	CreatedBy *uuid.UUID
+	CreatedAt time.Time
+}
+
+const maxScenarioNameLength = 120
+
+// ValidateScenario refuses a name Ballast will not store. The script is checked
+// separately, by something that can parse JavaScript.
+func ValidateScenario(name string) error {
+	switch {
+	case strings.TrimSpace(name) == "":
+		return fmt.Errorf("%w: the name is empty", ErrInvalidScenario)
+	case len(name) > maxScenarioNameLength:
+		return fmt.Errorf("%w: the name is longer than %d characters",
+			ErrInvalidScenario, maxScenarioNameLength)
+	}
+	return nil
 }
