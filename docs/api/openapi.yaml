@@ -36,6 +36,11 @@ tags:
     description: Sign-in through an external identity provider. Ballast stores no password.
   - name: runs
     description: Queue load-test runs and read their results.
+  - name: projects
+    description: |
+      Projects, and who belongs to them. What a member may do is decided by
+      their role, which is cumulative: `viewer`, then `runner`, then
+      `maintainer`, then `admin`.
 
 security:
   - session: []
@@ -252,6 +257,272 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects:
+    get:
+      tags: [projects]
+      summary: List the caller's projects
+      description: |
+        The projects the caller is a member of, and no others. This is not a
+        permission check: a project they do not belong to is simply not theirs,
+        and does not appear.
+      operationId: listProjects
+      responses:
+        "200":
+          description: The projects, by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [projects]
+      summary: Create a project
+      description: |
+        The caller becomes the new project's `admin`.
+
+        Requires `admin` in at least one project of the organization. There is
+        no organization-wide role: every permission in Ballast is held within a
+        project, so the nearest rule that stays scoped is that the caller
+        already administers something here.
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: The body is not valid JSON, or the name or slug is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another project already uses that slug.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [projects]
+      summary: Read a project
+      operationId: getProject
+      responses:
+        "200":
+          description: The project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      tags: [projects]
+      summary: Rename a project
+      description: |
+        Only the display name moves. The slug does not: it appears in URLs and
+        in object storage keys, where changing it would orphan what is already
+        filed under it.
+
+        Requires `admin`.
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectRequest"
+      responses:
+        "200":
+          description: The renamed project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: The body is not valid JSON, the id is not a UUID, or the name is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [projects]
+      summary: Delete a project
+      description: |
+        Refused with `409` while the project holds any run. Its rows cascade, so
+        deleting it would take the whole run history with it, and that is not
+        recoverable.
+
+        Requires `admin`.
+      operationId: deleteProject
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The project still holds runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: this project still holds runs; deleting it would take their history with it
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/members:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [projects]
+      summary: List a project's members
+      operationId: listMembers
+      responses:
+        "200":
+          description: The members, by email address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/members/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - name: userId
+        in: path
+        required: true
+        description: A user of the caller's organization.
+        schema: { type: string, format: uuid }
+
+    put:
+      tags: [projects]
+      summary: Grant or change a role
+      description: |
+        Adds the user to the project, or changes the role they already hold.
+
+        Refused with `409` when it would leave the project with no
+        administrator, including when the caller is demoting themselves: a
+        project nobody can administer cannot be repaired through this API.
+
+        Requires `admin`.
+      operationId: setMemberRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetMemberRoleRequest"
+      responses:
+        "204":
+          description: The role is set.
+        "400":
+          description: The body is not valid JSON, an id is not a UUID, or the role is unknown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No such user in this organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The project would be left with no administrator.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [projects]
+      summary: Remove a member
+      description: |
+        Refused with `409` when it would leave the project with no
+        administrator.
+
+        Requires `admin`.
+      operationId: removeMember
+      responses:
+        "204":
+          description: Removed.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: This user is not a member of this project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The project would be left with no administrator.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     session:
@@ -271,7 +542,32 @@ components:
         type: string
         enum: [github, google]
 
+    ProjectID:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
   responses:
+    Forbidden:
+      description: |
+        The caller's role does not allow this. A project they are not a member
+        of answers the same way as one that does not exist: telling the two
+        apart would reveal that it exists.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: you do not have permission to do that here
+
+    MalformedID:
+      description: An identifier in the path is not a UUID.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
     Unauthenticated:
       description: No valid session.
       content:
@@ -304,6 +600,94 @@ components:
       properties:
         error:
           type: string
+
+    Role:
+      type: string
+      description: |
+        Cumulative: each role grants everything the one before it does.
+
+        - `viewer` reads the project and what its runs measured
+        - `runner` also queues and stops runs
+        - `maintainer` also edits scenarios, thresholds and environments
+        - `admin` also approves targets, manages members, renames and deletes
+      enum: [viewer, runner, maintainer, admin]
+
+    Project:
+      type: object
+      required: [id, name, slug, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 80 }
+        slug:
+          type: string
+          maxLength: 40
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          description: |
+            Appears in URLs and in object storage keys, and never changes after
+            creation.
+        created_at: { type: string, format: date-time }
+
+    ProjectListResponse:
+      type: object
+      required: [projects]
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+
+    CreateProjectRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name: { type: string, maxLength: 80 }
+        slug:
+          type: string
+          maxLength: 40
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      example:
+        name: Checkout service
+        slug: checkout
+
+    UpdateProjectRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 80 }
+
+    Member:
+      type: object
+      required: [user_id, email, role, has_custom_permissions, created_at]
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        role:
+          $ref: "#/components/schemas/Role"
+        has_custom_permissions:
+          type: boolean
+          description: |
+            A set of permissions stored against this membership, which replaces
+            the role's rather than adding to it. Nothing in Ballast writes one;
+            it is reported so that the role shown here is never mistaken for the
+            whole story.
+        created_at: { type: string, format: date-time }
+
+    MemberListResponse:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+
+    SetMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
 
     ProvidersResponse:
       type: object

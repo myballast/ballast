@@ -21,3 +21,12 @@ var ErrTargetNotVerified = errors.New("target environment is not verified")
 // about a scenario and an environment from two different projects of the same
 // organization.
 var ErrCrossProject = errors.New("scenario and environment belong to different projects")
+
+// ErrForbidden reports a request the caller's permissions do not allow. It
+// says nothing about whether the thing asked for exists: for somebody with no
+// business there, the two answers must look the same.
+var ErrForbidden = errors.New("forbidden")
+
+// ErrLastAdministrator reports a change that would leave a project with nobody
+// able to administer it. Recovering from that takes a hand on the database.
+var ErrLastAdministrator = errors.New("the project would be left with no administrator")
