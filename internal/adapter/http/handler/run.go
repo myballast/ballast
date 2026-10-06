@@ -55,8 +55,7 @@ func (h *Run) Enqueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cmd := run.EnqueueCommand{
-		OrgID:         who.OrgID,
-		ActorID:       &who.UserID,
+		Actor:         who,
 		ScenarioID:    scenarioID,
 		EnvironmentID: environmentID,
 		Profile:       domain.ProfileKind(body.Profile),
@@ -95,7 +94,7 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	found, results, err := h.runs.ByID(r.Context(), who.OrgID, id)
+	found, results, err := h.runs.ByID(r.Context(), who, id)
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
@@ -151,6 +150,12 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such run")
+
+	case errors.Is(err, domain.ErrForbidden):
+		// The caller holds no right to run in this project. A run they may not
+		// read answers 404 instead, from ByID; queueing one is a request they
+		// made about a project they named, so there is nothing to hide here.
+		writeError(w, http.StatusForbidden, "you do not have permission to do that here")
 
 	case errors.Is(err, domain.ErrTargetNotVerified):
 		// The refusal the whole product rests on. 403, and the attempt is

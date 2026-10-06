@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -16,49 +17,92 @@ import (
 // NewRouter wires the HTTP surface.
 //
 // net/http's own multiplexer, not a third-party router: since Go 1.22 it
-// matches on method and path pattern, which is the whole of what this API
-// needs.
+// matches on method and path pattern, which is the whole of what this API needs.
 //
-// Everything is behind a session except the health check and the sign-in flow
-// itself. The protected routes are listed below the public ones, each wrapped
-// on its own line, so that a route added without it stands out in review.
+// Nothing is registered here by hand. Every route comes from the table in
+// routes.go, which carries the permission it requires, and a test reads the
+// source of this package to refuse any registration made another way. That is
+// what makes it impossible to add a route without saying what it needs.
+//
+// A route declared with no handler, or a handler with no declaration, panics on
+// startup. Both are wiring mistakes, and a process that refuses to start is a
+// better outcome than an endpoint that silently answers nothing — or worse,
+// answers without being checked.
 func NewRouter(
 	runs *run.Service,
 	projects *project.Service,
 	signIn *auth.Service,
+	permissions middleware.Authorizer,
 	sessions *session.Manager,
 	web *url.URL,
 	log *slog.Logger,
 ) http.Handler {
-	mux := http.NewServeMux()
-
 	runHandler := handler.NewRun(runs, log)
 	projectHandler := handler.NewProject(projects, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
-	protect := middleware.Authenticate(sessions, log)
 
-	// Public.
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	})
-	mux.HandleFunc("GET /auth/providers", authHandler.Providers)
-	mux.HandleFunc("GET /auth/{provider}/login", authHandler.Login)
-	mux.HandleFunc("GET /auth/{provider}/callback", authHandler.Callback)
-	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
+	handlers := map[string]http.HandlerFunc{
+		"GET /healthz": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok\n"))
+		},
+		"GET /auth/providers":           authHandler.Providers,
+		"GET /auth/{provider}/login":    authHandler.Login,
+		"GET /auth/{provider}/callback": authHandler.Callback,
+		"POST /auth/logout":             authHandler.Logout,
 
-	// Signed in.
-	mux.Handle("POST /runs", protect(http.HandlerFunc(runHandler.Enqueue)))
-	mux.Handle("GET /runs/{id}", protect(http.HandlerFunc(runHandler.ByID)))
+		"POST /runs":     runHandler.Enqueue,
+		"GET /runs/{id}": runHandler.ByID,
 
-	mux.Handle("GET /projects", protect(http.HandlerFunc(projectHandler.List)))
-	mux.Handle("POST /projects", protect(http.HandlerFunc(projectHandler.Create)))
-	mux.Handle("GET /projects/{projectId}", protect(http.HandlerFunc(projectHandler.ByID)))
-	mux.Handle("PATCH /projects/{projectId}", protect(http.HandlerFunc(projectHandler.Update)))
-	mux.Handle("DELETE /projects/{projectId}", protect(http.HandlerFunc(projectHandler.Delete)))
-	mux.Handle("GET /projects/{projectId}/members", protect(http.HandlerFunc(projectHandler.Members)))
-	mux.Handle("PUT /projects/{projectId}/members/{userId}", protect(http.HandlerFunc(projectHandler.SetMemberRole)))
-	mux.Handle("DELETE /projects/{projectId}/members/{userId}", protect(http.HandlerFunc(projectHandler.RemoveMember)))
+		"GET /projects":                                 projectHandler.List,
+		"POST /projects":                                projectHandler.Create,
+		"GET /projects/{projectId}":                     projectHandler.ByID,
+		"PATCH /projects/{projectId}":                   projectHandler.Update,
+		"DELETE /projects/{projectId}":                  projectHandler.Delete,
+		"GET /projects/{projectId}/members":             projectHandler.Members,
+		"PUT /projects/{projectId}/members/{userId}":    projectHandler.SetMemberRole,
+		"DELETE /projects/{projectId}/members/{userId}": projectHandler.RemoveMember,
+	}
+
+	authenticate := middleware.Authenticate(sessions, log)
+
+	mux := http.NewServeMux()
+	for _, route := range Routes() {
+		pattern := route.Method + " " + route.Path
+
+		next, ok := handlers[pattern]
+		if !ok {
+			panic(fmt.Sprintf("http: %s is declared in routes.go with no handler", pattern))
+		}
+		delete(handlers, pattern)
+
+		mux.Handle(pattern, wrap(route, http.Handler(next), authenticate, permissions, log))
+	}
+
+	for pattern := range handlers {
+		panic(fmt.Sprintf("http: %s has a handler and is not declared in routes.go", pattern))
+	}
 
 	return mux
+}
+
+// wrap puts a route behind what its scope calls for.
+func wrap(
+	route Route,
+	next http.Handler,
+	authenticate func(http.Handler) http.Handler,
+	permissions middleware.Authorizer,
+	log *slog.Logger,
+) http.Handler {
+	if route.Scope == ScopePublic {
+		return next
+	}
+
+	// The project sits in the path, so the declaration is enforced here rather
+	// than left to the service to remember.
+	if route.Scope == ScopePath {
+		next = middleware.RequirePermission(permissions, route.Permission, route.ProjectParam, log)(next)
+	}
+
+	return authenticate(next)
 }

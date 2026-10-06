@@ -53,6 +53,9 @@ func serve(log *slog.Logger) error {
 	}
 	defer db.Close()
 
+	memberships := postgres.NewMembershipRepository(db)
+	permissions := authz.NewService(memberships, log)
+
 	// The API never executes anything, so it is handed an executor that says
 	// so rather than a Docker connection it would not use.
 	service := run.NewService(
@@ -62,12 +65,10 @@ func serve(log *slog.Logger) error {
 		refusingExecutor{},
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
+		permissions,
 		infra.SystemClock{},
 		log,
 	)
-
-	memberships := postgres.NewMembershipRepository(db)
-	permissions := authz.NewService(memberships, log)
 
 	projects := project.NewService(
 		postgres.NewProjectRepository(db),
@@ -95,7 +96,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, signIn, sessions, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, signIn, permissions, sessions, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

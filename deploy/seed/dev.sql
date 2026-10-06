@@ -71,6 +71,17 @@ $js$,
     'smoke'
 );
 
+-- Without a membership, nothing is permitted: every permission is held within a
+-- project, so a user with no row here is a stranger to their own organization's
+-- projects. admin, so that the whole API can be exercised locally.
+INSERT INTO membership (org_id, user_id, project_id, role)
+VALUES (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000005',
+    '00000000-0000-4000-8000-000000000002',
+    'admin'
+);
+
 INSERT INTO threshold (org_id, scenario_id, metric, expression) VALUES
     ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000003', 'http_req_failed', 'rate<0.01'),
     ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000003', 'http_req_duration', 'p(95)<2000');

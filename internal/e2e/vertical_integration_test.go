@@ -30,6 +30,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
+	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
@@ -105,6 +106,10 @@ func seed(ctx context.Context, t *testing.T, db *postgres.DB, baseURL string, th
 				[]any{env, org, project, baseURL, user}},
 			{`INSERT INTO scenario (id, org_id, project_id, name, script) VALUES ($1, $2, $3, 'health', $4)`,
 				[]any{scenario, org, project, healthScript}},
+			// Without a membership nothing is permitted: every permission is
+			// held within a project.
+			{`INSERT INTO membership (org_id, user_id, project_id, role) VALUES ($1, $2, $3, 'admin')`,
+				[]any{org, user, project}},
 		}
 		for _, threshold := range thresholds {
 			statements = append(statements, struct {
@@ -171,6 +176,8 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
+	permissions := authz.NewService(postgres.NewMembershipRepository(db), log)
+
 	service := run.NewService(
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
@@ -178,6 +185,7 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 		runner,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
+		permissions,
 		infra.SystemClock{},
 		log,
 	)
@@ -203,7 +211,7 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 	}
 
 	api := httptest.NewServer(httpadapter.NewRouter(
-		service, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), sessions, web, log,
+		service, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 

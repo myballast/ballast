@@ -27,22 +27,25 @@ func TestEveryProtectedRouteRequiresASession(t *testing.T) {
 	}
 	web, _ := url.Parse("http://web.test")
 
-	router := httpadapter.NewRouter(nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), sessions, web, log)
+	router := httpadapter.NewRouter(nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, web, log)
 
 	const someID = "00000000-0000-4000-8000-000000000001"
 
-	for _, route := range []struct{ method, path string }{
-		{http.MethodPost, "/runs"},
-		{http.MethodGet, "/runs/" + someID},
-		{http.MethodGet, "/projects"},
-		{http.MethodPost, "/projects"},
-		{http.MethodGet, "/projects/" + someID},
-		{http.MethodPatch, "/projects/" + someID},
-		{http.MethodDelete, "/projects/" + someID},
-		{http.MethodGet, "/projects/" + someID + "/members"},
-		{http.MethodPut, "/projects/" + someID + "/members/" + someID},
-		{http.MethodDelete, "/projects/" + someID + "/members/" + someID},
-	} {
+	// Driven by the table, so a route added tomorrow is swept too.
+	var protected []struct{ method, path string }
+	for _, route := range httpadapter.Routes() {
+		if route.Scope == httpadapter.ScopePublic {
+			continue
+		}
+		path := strings.NewReplacer("{projectId}", someID, "{userId}", someID, "{id}", someID).
+			Replace(route.Path)
+		protected = append(protected, struct{ method, path string }{route.Method, path})
+	}
+	if len(protected) == 0 {
+		t.Fatal("the table declares no protected route; this test would prove nothing")
+	}
+
+	for _, route := range protected {
 		t.Run(route.method+" "+route.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, httptest.NewRequest(route.method, route.path, strings.NewReader("{}")))
