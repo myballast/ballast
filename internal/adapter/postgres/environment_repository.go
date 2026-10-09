@@ -38,15 +38,10 @@ func (r *EnvironmentRepository) EnvironmentByID(
 			return fmt.Errorf("read the environment: %w", err)
 		}
 
-		found = domain.Environment{
-			ID:                 row.ID,
-			ProjectID:          row.ProjectID,
-			Name:               row.Name,
-			BaseURL:            row.BaseUrl,
-			VerificationStatus: domain.VerificationStatus(row.VerificationStatus),
-			MaxVUs:             int(row.MaxVus),
-			MaxDurationS:       int(row.MaxDurationS),
-		}
+		// The same mapping the write side uses. Two of them would drift, and the
+		// first thing to go missing would be the allowed window — read here, on
+		// the path that decides whether a run may start at all.
+		found = toDomainEnvironment(row)
 		return nil
 	})
 

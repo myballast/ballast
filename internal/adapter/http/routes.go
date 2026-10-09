@@ -168,5 +168,42 @@ func Routes() []Route {
 			Path:   "/projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}",
 			Scope:  ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
+
+		// Environments, nested under the project for the same reason as the
+		// scenarios. The secrets take the permission to manage environments even
+		// to be listed: the name of a key says how the target expects to be
+		// authenticated, which is not a thing to show every reader of a project.
+		{
+			Method: "GET", Path: "/projects/{projectId}/environments",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/environments",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
+		{
+			Method: "GET", Path: "/projects/{projectId}/environments/{environmentId}",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "PATCH", Path: "/projects/{projectId}/environments/{environmentId}",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/environments/{environmentId}",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
+		{
+			Method: "GET", Path: "/projects/{projectId}/environments/{environmentId}/secrets",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
+		{
+			Method: "PUT", Path: "/projects/{projectId}/environments/{environmentId}/secrets/{key}",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/environments/{environmentId}/secrets/{key}",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
 	}
 }

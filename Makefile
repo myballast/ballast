@@ -147,6 +147,14 @@ api: export BALLAST_SESSION_SECRET ?= development-only-session-secret-do-not-dep
 api: export BALLAST_PUBLIC_URL ?= http://localhost:8080
 api: export BALLAST_WEB_URL ?= http://localhost:3000
 
+# Encrypts the secrets of an environment at rest. Both processes need it, and it
+# has to be the same one on both, or the worker cannot open what the API wrote.
+# This value is in a public repository: it is for this machine and nothing else.
+# Generate a real one with `openssl rand -base64 32`.
+DEV_SECRET_KEY := YmFsbGFzdC1kZXZlbG9wbWVudC1rZXktZG8tbm90LXU=
+api: export BALLAST_SECRET_KEY ?= $(DEV_SECRET_KEY)
+worker: export BALLAST_SECRET_KEY ?= $(DEV_SECRET_KEY)
+
 # The organization deploy/seed/dev.sql creates, and the route that lets a
 # generator reach a server on this machine. The worker serves one organization
 # until the queue can serve them all.

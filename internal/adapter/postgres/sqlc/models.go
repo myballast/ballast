@@ -31,19 +31,22 @@ type AuditLog struct {
 }
 
 type Environment struct {
-	ID                 uuid.UUID
-	OrgID              uuid.UUID
-	ProjectID          uuid.UUID
-	Name               string
-	BaseUrl            string
-	VerificationToken  string
-	VerificationStatus string
-	VerifiedAt         *time.Time
-	VerifiedBy         *uuid.UUID
-	MaxVus             int32
-	MaxDurationS       int32
-	RunnerID           *uuid.UUID
-	CreatedAt          time.Time
+	ID                       uuid.UUID
+	OrgID                    uuid.UUID
+	ProjectID                uuid.UUID
+	Name                     string
+	BaseUrl                  string
+	VerificationToken        string
+	VerificationStatus       string
+	VerifiedAt               *time.Time
+	VerifiedBy               *uuid.UUID
+	MaxVus                   int32
+	MaxDurationS             int32
+	RunnerID                 *uuid.UUID
+	CreatedAt                time.Time
+	AllowedWindowStartMinute *int16
+	AllowedWindowEndMinute   *int16
+	AllowedWindowTz          string
 }
 
 type Membership struct {
@@ -168,6 +171,7 @@ type Secret struct {
 	Key            string
 	ValueEncrypted []byte
 	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type Threshold struct {

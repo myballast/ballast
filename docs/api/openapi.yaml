@@ -42,6 +42,12 @@ tags:
       hard: it reads `__ENV.BASE_URL` and takes its load from the profile chosen
       at launch. Every version ever written is kept, because a run names the one
       it executed.
+  - name: environments
+    description: |
+      Target environments: what a project is allowed to load, how hard, during
+      which hours, and with which credentials. No run may be sent at a target
+      whose ownership has not been proved and approved, and no endpoint ever
+      returns the value of a secret.
   - name: projects
     description: |
       Projects, and who belongs to them. What a member may do is decided by
@@ -191,7 +197,10 @@ paths:
         it is stored. The run is executed later by the worker.
 
         Refused with `403` when the environment's ownership has not been
-        verified; the attempt is logged.
+        verified, and when the environment declares an allowed window that the
+        run does not fit inside — either because it is shut now, or because the
+        run would still be generating load after it closes. The length compared
+        is the clamped one. Both refusals are logged.
       operationId: enqueueRun
       x-ballast-permission: run_test
       requestBody:
@@ -219,13 +228,20 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
-          description: The environment has not been verified.
+          description: |
+            The environment has not been verified, or its allowed window does not
+            have room for this run.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-              example:
-                error: this environment has not been verified
+              examples:
+                unverified:
+                  value:
+                    error: this environment has not been verified
+                outsideWindow:
+                  value:
+                    error: "the environment accepts no load at this hour: it closes in 10m0s and the run would last 20m0s"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -849,6 +865,292 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/environments:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [environments]
+      summary: List a project's target environments
+      operationId: listEnvironments
+      x-ballast-permission: view_project
+      responses:
+        "200":
+          description: The environments, by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [environments]
+      summary: Declare a target environment
+      description: |
+        The environment is created `pending`, whatever the request says, and no run
+        may be sent to it until its ownership has been proved and an `admin` has
+        approved it.
+
+        `max_vus` and `max_duration_s` are the ceilings every run here is clamped
+        to before it is written, so a profile asking for more is lowered rather
+        than refused.
+      operationId: createEnvironment
+      x-ballast-permission: manage_environments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEnvironmentRequest"
+      responses:
+        "201":
+          description: Declared, pending verification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+        "400":
+          description: |
+            The body is not valid JSON, or the name, the base URL, the ceilings or
+            the window are refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another environment of this project already uses that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/environments/{environmentId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/EnvironmentID"
+
+    get:
+      tags: [environments]
+      summary: Read one environment
+      operationId: getEnvironment
+      x-ballast-permission: view_project
+      responses:
+        "200":
+          description: The environment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      tags: [environments]
+      summary: Change an environment
+      description: |
+        Anything left out stays as it is. `allowed_window` sent as `null` removes
+        the window, which is how a target goes back to taking load at any hour.
+
+        **Pointing the environment at another origin resets its verification to
+        `pending`.** The proof was served by the old scheme, host and port and says
+        nothing about the next, so the target has to be proved and approved again
+        before any run may be sent there. Editing the path below the host leaves
+        the verification standing.
+      operationId: updateEnvironment
+      x-ballast-permission: manage_environments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEnvironmentRequest"
+      responses:
+        "200":
+          description: The environment as it now stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+        "400":
+          description: The body is not valid JSON, or one of the values is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Another environment of this project already uses that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [environments]
+      summary: Remove an environment
+      description: |
+        Refused with `409` while any run exists against this target: the rows
+        cascade, so deleting it would take the history of everything ever measured
+        there with it.
+      operationId: deleteEnvironment
+      x-ballast-permission: manage_environments
+      responses:
+        "204":
+          description: Removed, with its secrets.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The environment still holds runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/environments/{environmentId}/secrets:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/EnvironmentID"
+
+    get:
+      tags: [environments]
+      summary: List the keys set on an environment
+      description: |
+        The keys and when they were set. **No endpoint returns the value of a
+        secret**: it is encrypted on its way in and decrypted only into the
+        generator's own environment.
+
+        This takes `manage_environments` rather than `view_project`, because the
+        name of a key says how the target expects to be authenticated.
+      operationId: listSecrets
+      x-ballast-permission: manage_environments
+      responses:
+        "200":
+          description: The keys, in alphabetical order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/environments/{environmentId}/secrets/{key}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/EnvironmentID"
+      - $ref: "#/components/parameters/SecretKey"
+
+    put:
+      tags: [environments]
+      summary: Set a secret
+      description: |
+        Stores the value under `key`, replacing whatever was there. It is
+        encrypted with AES-256-GCM before it reaches a disk, and the response
+        carries the key and its dates — never the value.
+
+        The key becomes an environment variable of the generator's container, so
+        it must read as one: upper case letters, digits and underscores, starting
+        with a letter. Two families of name are refused with `400`:
+
+        - anything starting with `K6_`, because those configure k6 itself and take
+          precedence over the options Ballast generates — `K6_VUS` would walk past
+          the environment's own ceilings, `K6_OUT` would stream the metrics
+          somewhere of the caller's choosing;
+        - `BASE_URL`, which Ballast injects from the verified target.
+      operationId: setSecret
+      x-ballast-permission: manage_environments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetSecretRequest"
+      responses:
+        "200":
+          description: Stored. The value is not echoed back.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Secret"
+        "400":
+          description: |
+            The body is not valid JSON, or the key or the value is refused. The
+            message names the key and never the value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [environments]
+      summary: Drop a secret
+      operationId: deleteSecret
+      x-ballast-permission: manage_environments
+      responses:
+        "204":
+          description: Dropped.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     session:
@@ -879,6 +1181,26 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+
+    EnvironmentID:
+      name: environmentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+    SecretKey:
+      name: key
+      in: path
+      required: true
+      description: |
+        The environment variable the generator will read it as. Upper case
+        letters, digits and underscores, starting with a letter; `K6_*` and
+        `BASE_URL` are refused.
+      schema:
+        type: string
+        pattern: "^[A-Z][A-Z0-9_]*$"
+        maxLength: 128
+      example: API_TOKEN
 
   responses:
     ScriptRefused:
@@ -1318,3 +1640,165 @@ components:
           example: p(95)<2000
         passed:
           type: boolean
+
+    AllowedWindow:
+      type: object
+      description: |
+        The stretch of the day a target accepts load, read in its own timezone. A
+        `start` after an `end` crosses midnight: `22:00` to `06:00` is the night.
+
+        `start` is inclusive and `end` is not. A run must fit **entirely** inside
+        the window: one asked for while it is shut is refused with `403`, and so
+        is one that would still be generating load after it closes. The check is
+        made again before the generator starts, because a run accepted inside the
+        window can wait in the queue until there is no longer room for it.
+
+        The hours are real hours, not clock minutes: on the night the clocks go
+        forward, a window open until `04:00` holds one hour less than it reads.
+      required: [start, end, timezone]
+      properties:
+        start:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          example: "22:00"
+        end:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          example: "06:00"
+        timezone:
+          type: string
+          description: An IANA name. The window is wall-clock time there, daylight saving included.
+          example: Europe/Paris
+
+    Environment:
+      type: object
+      description: A target a project may be allowed to send load to.
+      required:
+        - id
+        - name
+        - base_url
+        - verification_status
+        - max_vus
+        - max_duration_s
+        - created_at
+      properties:
+        id: { type: string, format: uuid }
+        name:
+          type: string
+          maxLength: 120
+          example: staging
+        base_url:
+          type: string
+          format: uri
+          description: |
+            What a scenario reads as `__ENV.BASE_URL`. `http` or `https`, a host,
+            and no credentials, query string or fragment.
+          example: https://staging.example.test
+        verification_status:
+          type: string
+          enum: [pending, proof_ok, verified, verification_failed]
+          description: |
+            Only `verified` lets load through. `proof_ok` means the challenge was
+            served and nobody has approved it yet, which is deliberately not
+            enough.
+        max_vus:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        max_duration_s:
+          type: integer
+          minimum: 1
+          maximum: 86400
+        allowed_window:
+          $ref: "#/components/schemas/AllowedWindow"
+        created_at: { type: string, format: date-time }
+
+    EnvironmentListResponse:
+      type: object
+      required: [environments]
+      properties:
+        environments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Environment"
+
+    CreateEnvironmentRequest:
+      type: object
+      required: [name, base_url, max_vus, max_duration_s]
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          example: staging
+        base_url:
+          type: string
+          format: uri
+          example: https://staging.example.test
+        max_vus:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          example: 50
+        max_duration_s:
+          type: integer
+          minimum: 1
+          maximum: 86400
+          example: 600
+        allowed_window:
+          $ref: "#/components/schemas/AllowedWindow"
+
+    UpdateEnvironmentRequest:
+      type: object
+      description: |
+        Anything left out stays as it is. `allowed_window` sent as `null` removes
+        the window; left out, it is untouched.
+      properties:
+        name: { type: string, maxLength: 120 }
+        base_url: { type: string, format: uri }
+        max_vus: { type: integer, minimum: 1, maximum: 100000 }
+        max_duration_s: { type: integer, minimum: 1, maximum: 86400 }
+        allowed_window:
+          oneOf:
+            - $ref: "#/components/schemas/AllowedWindow"
+            - type: "null"
+
+    Secret:
+      type: object
+      description: |
+        A stored credential, as far as the API will ever describe one: its key and
+        its dates. There is no field for the value, and no endpoint returns it.
+      required: [id, key, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        key:
+          type: string
+          pattern: "^[A-Z][A-Z0-9_]*$"
+          example: API_TOKEN
+        created_at: { type: string, format: date-time }
+        updated_at:
+          type: string
+          format: date-time
+          description: When the value was last replaced.
+
+    SecretListResponse:
+      type: object
+      required: [secrets]
+      properties:
+        secrets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Secret"
+
+    SetSecretRequest:
+      type: object
+      description: The one value that travels into Ballast and never back out.
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: |
+            Encrypted at rest with AES-256-GCM. No control characters: it becomes
+            one entry of the generator's environment.
+          example: a-token-for-the-test-account

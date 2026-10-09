@@ -11,16 +11,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/infra/config"
+	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
 	"github.com/youssefmahersi/ballast/internal/infra/oidc"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
+	"github.com/youssefmahersi/ballast/internal/usecase/environment"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
@@ -57,12 +61,21 @@ func serve(log *slog.Logger) error {
 	memberships := postgres.NewMembershipRepository(db)
 	permissions := authz.NewService(memberships, log)
 
+	cipher, err := crypto.NewCipher(cfg.SecretKey)
+	if err != nil {
+		return err
+	}
+	secrets := postgres.NewSecretRepository(db, cipher)
+
 	// The API never executes anything, so it is handed an executor that says
 	// so rather than a Docker connection it would not use.
 	service := run.NewService(
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
 		postgres.NewEnvironmentRepository(db),
+		// The API accepts runs and never executes one, so it is given a reader
+		// that refuses rather than the one that can decrypt a secret.
+		refusingSecrets{},
 		refusingExecutor{},
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
@@ -88,6 +101,15 @@ func serve(log *slog.Logger) error {
 		log,
 	)
 
+	environments := environment.NewService(
+		postgres.NewEnvironmentWriteRepository(db),
+		secrets,
+		crypto.NewRandomTokens(),
+		permissions,
+		infra.SystemClock{},
+		log,
+	)
+
 	sessions, err := session.NewManager(cfg.SessionSecret, cfg.SessionTTL, infra.SystemClock{})
 	if err != nil {
 		return err
@@ -106,7 +128,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, scenarios, signIn, permissions, sessions, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, signIn, permissions, sessions, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -156,4 +178,17 @@ func (refusingExecutor) Execute(
 	context.Context, run.Job, chan<- domain.LogLine,
 ) (run.Outcome, error) {
 	return run.Outcome{}, errors.New("the api does not execute runs; that is the worker's job")
+}
+
+// refusingSecrets stands in for the secret reader in the API process.
+//
+// The API writes secrets, through a port that has no method for reading one back.
+// It is wired to this rather than to the repository that can decrypt, so that the
+// capability is absent from the process rather than merely unused by it.
+type refusingSecrets struct{}
+
+func (refusingSecrets) SecretsOf(
+	context.Context, uuid.UUID, uuid.UUID,
+) (map[string]string, error) {
+	return nil, errors.New("the api does not decrypt secrets; that is the worker's job")
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/http/middleware"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
+	"github.com/youssefmahersi/ballast/internal/usecase/environment"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
@@ -33,6 +34,7 @@ func NewRouter(
 	runs *run.Service,
 	projects *project.Service,
 	scenarios *scenario.Service,
+	environments *environment.Service,
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
 	sessions *session.Manager,
@@ -42,6 +44,7 @@ func NewRouter(
 	runHandler := handler.NewRun(runs, log)
 	projectHandler := handler.NewProject(projects, log)
 	scenarioHandler := handler.NewScenario(scenarios, log)
+	environmentHandler := handler.NewEnvironment(environments, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
 
 	handlers := map[string]http.HandlerFunc{
@@ -75,6 +78,15 @@ func NewRouter(
 		"GET /projects/{projectId}/scenarios/{scenarioId}/thresholds":                  scenarioHandler.Thresholds,
 		"POST /projects/{projectId}/scenarios/{scenarioId}/thresholds":                 scenarioHandler.AddThreshold,
 		"DELETE /projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}": scenarioHandler.RemoveThreshold,
+
+		"GET /projects/{projectId}/environments":                                  environmentHandler.List,
+		"POST /projects/{projectId}/environments":                                 environmentHandler.Create,
+		"GET /projects/{projectId}/environments/{environmentId}":                  environmentHandler.ByID,
+		"PATCH /projects/{projectId}/environments/{environmentId}":                environmentHandler.Update,
+		"DELETE /projects/{projectId}/environments/{environmentId}":               environmentHandler.Delete,
+		"GET /projects/{projectId}/environments/{environmentId}/secrets":          environmentHandler.Secrets,
+		"PUT /projects/{projectId}/environments/{environmentId}/secrets/{key}":    environmentHandler.SetSecret,
+		"DELETE /projects/{projectId}/environments/{environmentId}/secrets/{key}": environmentHandler.RemoveSecret,
 	}
 
 	authenticate := middleware.Authenticate(sessions, log)

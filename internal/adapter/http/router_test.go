@@ -27,7 +27,7 @@ func TestEveryProtectedRouteRequiresASession(t *testing.T) {
 	}
 	web, _ := url.Parse("http://web.test")
 
-	router := httpadapter.NewRouter(nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, web, log)
+	router := httpadapter.NewRouter(nil, nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, web, log)
 
 	const someID = "00000000-0000-4000-8000-000000000001"
 
@@ -40,6 +40,7 @@ func TestEveryProtectedRouteRequiresASession(t *testing.T) {
 		path := strings.NewReplacer(
 			"{projectId}", someID, "{userId}", someID, "{id}", someID,
 			"{scenarioId}", someID, "{thresholdId}", someID,
+			"{environmentId}", someID, "{key}", "API_TOKEN",
 		).
 			Replace(route.Path)
 		protected = append(protected, struct{ method, path string }{route.Method, path})

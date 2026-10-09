@@ -41,3 +41,23 @@ var ErrInvalidThreshold = errors.New("invalid threshold")
 // ErrScenarioNotEmpty reports an attempt to delete a scenario that still holds
 // runs. Its rows cascade, so deleting it would take their history with it.
 var ErrScenarioNotEmpty = errors.New("the scenario still holds runs")
+
+// ErrInvalidEnvironment reports an environment Ballast will not store. It says
+// nothing about whether anybody owns the target: that is the verification's
+// answer to give.
+var ErrInvalidEnvironment = errors.New("invalid environment")
+
+// ErrInvalidSecret reports a secret Ballast will not store. Nothing wrapping it
+// ever repeats the value.
+var ErrInvalidSecret = errors.New("invalid secret")
+
+// ErrEnvironmentNotEmpty reports an attempt to delete an environment that still
+// holds runs. Their rows cascade, so deleting it would take the history of
+// everything ever measured against that target with it.
+var ErrEnvironmentNotEmpty = errors.New("the environment still holds runs")
+
+// ErrOutsideAllowedWindow reports a run asked for outside the hours its target
+// tolerates load. It is checked when the run is queued and again before the
+// generator starts, because a run can wait in the queue until the window has
+// closed behind it.
+var ErrOutsideAllowedWindow = errors.New("the environment accepts no load at this hour")

@@ -165,7 +165,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) (Run, erro
 }
 
 const getEnvironment = `-- name: GetEnvironment :one
-SELECT id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at FROM environment WHERE org_id = $1 AND id = $2
+SELECT id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz FROM environment WHERE org_id = $1 AND id = $2
 `
 
 type GetEnvironmentParams struct {
@@ -190,6 +190,9 @@ func (q *Queries) GetEnvironment(ctx context.Context, arg GetEnvironmentParams) 
 		&i.MaxDurationS,
 		&i.RunnerID,
 		&i.CreatedAt,
+		&i.AllowedWindowStartMinute,
+		&i.AllowedWindowEndMinute,
+		&i.AllowedWindowTz,
 	)
 	return i, err
 }
