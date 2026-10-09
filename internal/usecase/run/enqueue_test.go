@@ -445,3 +445,47 @@ func TestEnqueueAcceptsARunWhenNoWindowWasDeclared(t *testing.T) {
 		t.Fatalf("a run against an environment with no window was refused: %v", err)
 	}
 }
+
+// The fixture's clock reads midnight UTC. A window closing at one o'clock takes
+// a short run and refuses a long one, which is the rule this covers: the hour
+// alone is not the question.
+func TestEnqueueRefusesARunThatWouldOutlastTheWindow(t *testing.T) {
+	f := newFixture(t, func(_ *domain.Scenario, env *domain.Environment) {
+		env.Window = &domain.AllowedWindow{StartMinute: 0, EndMinute: 60, Zone: "UTC"}
+		// Room for the run below to be refused by the window rather than clamped
+		// by the ceiling.
+		env.MaxDurationS = 7200
+	})
+
+	cmd := f.command()
+	cmd.Params = &domain.ProfileParams{TargetVUs: 1, PlateauS: 90 * 60}
+
+	_, err := f.service.Enqueue(context.Background(), cmd)
+	if !errors.Is(err, domain.ErrOutsideAllowedWindow) {
+		t.Fatalf("got %v, want ErrOutsideAllowedWindow", err)
+	}
+	if f.runs.created.ScenarioID != uuid.Nil {
+		t.Fatal("the run was queued anyway")
+	}
+}
+
+// The clamp runs first, so a run asking for longer than the environment allows is
+// measured against the window at its clamped length, not at the length asked for.
+func TestTheWindowIsAskedAboutTheClampedLength(t *testing.T) {
+	f := newFixture(t, func(_ *domain.Scenario, env *domain.Environment) {
+		env.Window = &domain.AllowedWindow{StartMinute: 0, EndMinute: 60, Zone: "UTC"}
+		env.MaxDurationS = 300
+	})
+
+	cmd := f.command()
+	// Two hours asked for, five minutes allowed: it fits once clamped.
+	cmd.Params = &domain.ProfileParams{TargetVUs: 1, PlateauS: 2 * 3600}
+
+	queued, err := f.service.Enqueue(context.Background(), cmd)
+	if err != nil {
+		t.Fatalf("a run clamped to five minutes was refused: %v", err)
+	}
+	if queued.ProfileParams.TotalDuration() != 300 {
+		t.Fatalf("the stored run lasts %ds", queued.ProfileParams.TotalDuration())
+	}
+}

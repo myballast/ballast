@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -77,18 +78,6 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		return domain.Run{}, domain.ErrTargetNotVerified
 	}
 
-	// The hours the target tolerates being loaded. Checked here so that a run
-	// asked for outside them is refused rather than queued, and checked again by
-	// the worker, because the queue is not instantaneous.
-	if now := s.clock.Now(); !environment.AllowsAt(now) {
-		s.log.InfoContext(ctx, "run refused outside the target's window",
-			"org_id", cmd.Actor.OrgID,
-			"environment_id", environment.ID,
-			"at", now,
-		)
-		return domain.Run{}, domain.ErrOutsideAllowedWindow
-	}
-
 	if err := params.Validate(); err != nil {
 		return domain.Run{}, err
 	}
@@ -96,6 +85,23 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	// Clamped before the run is written, never after. What is stored is what
 	// will actually be executed.
 	params = params.ClampTo(environment)
+
+	// The hours the target tolerates being loaded, asked after the clamp because
+	// the clamp is what decides how long the run really is. Checked here so that
+	// a run that cannot fit is refused rather than queued, and checked again by
+	// the worker, because the queue is not instantaneous.
+	now := s.clock.Now()
+	runFor := time.Duration(params.TotalDuration()) * time.Second
+	if err := environment.RequireWindowAllows(now, runFor); err != nil {
+		s.log.InfoContext(ctx, "run refused by the target's window",
+			"org_id", cmd.Actor.OrgID,
+			"environment_id", environment.ID,
+			"at", now,
+			"duration_s", params.TotalDuration(),
+			"reason", err.Error(),
+		)
+		return domain.Run{}, err
+	}
 
 	created, err := s.runs.Create(ctx, domain.NewRun(
 		cmd.Actor.OrgID, scenario, environment, cmd.Profile, params, &cmd.Actor.UserID,

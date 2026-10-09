@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -115,9 +116,12 @@ func (s *Service) buildJob(ctx context.Context, orgID uuid.UUID, current domain.
 	// Checked again here for the same reason, and this one is not belt and
 	// braces: a run accepted at five in the afternoon can still be waiting in the
 	// queue at three in the morning, and the window exists precisely to say that
-	// three in the morning is not a time to load this target.
-	if !environment.AllowsAt(s.clock.Now()) {
-		return Job{}, domain.ErrOutsideAllowedWindow
+	// three in the morning is not a time to load this target. The length comes
+	// from the run rather than the scenario, because what was frozen at launch is
+	// what is about to be executed.
+	runFor := time.Duration(current.ProfileParams.TotalDuration()) * time.Second
+	if err := environment.RequireWindowAllows(s.clock.Now(), runFor); err != nil {
+		return Job{}, err
 	}
 
 	thresholds, err := s.scenarios.ScenarioThresholds(ctx, orgID, current.ScenarioID)

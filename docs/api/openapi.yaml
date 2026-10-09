@@ -197,7 +197,10 @@ paths:
         it is stored. The run is executed later by the worker.
 
         Refused with `403` when the environment's ownership has not been
-        verified; the attempt is logged.
+        verified, and when the environment declares an allowed window that the
+        run does not fit inside — either because it is shut now, or because the
+        run would still be generating load after it closes. The length compared
+        is the clamped one. Both refusals are logged.
       operationId: enqueueRun
       x-ballast-permission: run_test
       requestBody:
@@ -225,13 +228,20 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
-          description: The environment has not been verified.
+          description: |
+            The environment has not been verified, or its allowed window does not
+            have room for this run.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-              example:
-                error: this environment has not been verified
+              examples:
+                unverified:
+                  value:
+                    error: this environment has not been verified
+                outsideWindow:
+                  value:
+                    error: "the environment accepts no load at this hour: it closes in 10m0s and the run would last 20m0s"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1637,9 +1647,14 @@ components:
         The stretch of the day a target accepts load, read in its own timezone. A
         `start` after an `end` crosses midnight: `22:00` to `06:00` is the night.
 
-        `start` is inclusive and `end` is not. A run asked for outside the window
-        is refused with `403`, and a run that was accepted inside it and is still
-        queued when it closes does not start.
+        `start` is inclusive and `end` is not. A run must fit **entirely** inside
+        the window: one asked for while it is shut is refused with `403`, and so
+        is one that would still be generating load after it closes. The check is
+        made again before the generator starts, because a run accepted inside the
+        window can wait in the queue until there is no longer room for it.
+
+        The hours are real hours, not clock minutes: on the night the clocks go
+        forward, a window open until `04:00` holds one hour less than it reads.
       required: [start, end, timezone]
       properties:
         start:

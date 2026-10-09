@@ -101,13 +101,79 @@ func (w AllowedWindow) Contains(t time.Time) bool {
 	return minute >= w.StartMinute || minute < w.EndMinute
 }
 
-// AllowsAt reports whether this environment accepts load at t. An environment
-// that declared no window accepts it at any hour.
-func (e Environment) AllowsAt(t time.Time) bool {
-	if e.Window == nil {
-		return true
+// RemainingAt is how much of the window is left at t, and zero when t falls
+// outside it.
+//
+// Computed from the end instant in the window's own zone rather than by
+// subtracting minutes of the clock, so a window that spans a daylight-saving
+// change reports the hours that will actually pass. On the night the clocks go
+// forward, a window open until four has one hour less in it than the clock says.
+func (w AllowedWindow) RemainingAt(t time.Time) time.Duration {
+	zone, err := time.LoadLocation(w.Zone)
+	if err != nil {
+		return 0
 	}
-	return e.Window.Contains(t)
+
+	local := t.In(zone)
+	if !w.Contains(local) {
+		return 0
+	}
+
+	end := time.Date(local.Year(), local.Month(), local.Day(),
+		w.EndMinute/60, w.EndMinute%60, 0, 0, zone)
+	// Already past today's closing time, so the window is one that crosses
+	// midnight and closes tomorrow.
+	if !end.After(local) {
+		end = end.AddDate(0, 0, 1)
+	}
+
+	return end.Sub(local)
+}
+
+// RequireWindowAllows refuses a run of runFor that may not start at t.
+//
+// There is deliberately no way to ask only about the starting instant. A window
+// that let a run begin inside it and finish hours outside it would be a rule
+// about one minute of the day rather than about the hours a target tolerates
+// load — and that was exactly the hole here: a two hour run accepted at five to
+// six against a window closing at six.
+//
+// The answer is a refusal rather than a shortened run. Load parameters are
+// clamped to the environment's ceilings, but those are about how hard; cutting a
+// two hour soak down to eight minutes because of the hour would hand somebody a
+// measurement of nothing under the name they asked for. Clamping here would also
+// mean rewriting what is frozen on the run, which is the one thing a run's record
+// must never do.
+//
+// An environment that declared no window takes load at any hour, for any length.
+func (e Environment) RequireWindowAllows(t time.Time, runFor time.Duration) error {
+	if e.Window == nil {
+		return nil
+	}
+
+	if !e.Window.Contains(t) {
+		return fmt.Errorf("%w: it is open from %s to %s in %s",
+			ErrOutsideAllowedWindow,
+			clock(e.Window.StartMinute), clock(e.Window.EndMinute), e.Window.Zone)
+	}
+
+	// A run of no length is not a run; validation refuses one long before here,
+	// and the containment above is the whole question for it.
+	if runFor <= 0 {
+		return nil
+	}
+
+	if left := e.Window.RemainingAt(t); runFor > left {
+		return fmt.Errorf("%w: it closes in %s and the run would last %s",
+			ErrOutsideAllowedWindow, left.Round(time.Second), runFor.Round(time.Second))
+	}
+
+	return nil
+}
+
+// clock renders minutes since midnight as HH:MM, for a message somebody reads.
+func clock(minute int) string {
+	return fmt.Sprintf("%02d:%02d", minute/60, minute%60)
 }
 
 const (

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -12,6 +13,13 @@ func windowed(t *testing.T, start, end int, zone string) Environment {
 	return Environment{
 		Window: &AllowedWindow{StartMinute: start, EndMinute: end, Zone: zone},
 	}
+}
+
+// allowsAt answers the question the old tests asked -- may load start at this
+// instant -- for a run short enough that only the hour decides. The length is
+// what the tests further down are about.
+func allowsAt(e Environment, t time.Time) bool {
+	return e.RequireWindowAllows(t, time.Minute) == nil
 }
 
 func at(t *testing.T, clock string) time.Time {
@@ -28,7 +36,7 @@ func TestAnEnvironmentWithNoWindowTakesLoadAtAnyHour(t *testing.T) {
 	t.Parallel()
 
 	var anytime Environment
-	if !anytime.AllowsAt(at(t, "2026-10-06T03:17:00Z")) {
+	if !allowsAt(anytime, at(t, "2026-10-06T03:17:00Z")) {
 		t.Fatal("an environment that declared no window refused a run")
 	}
 }
@@ -54,7 +62,7 @@ func TestAWindowWithinOneDay(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := env.AllowsAt(at(t, tc.clock)); got != tc.allowed {
+			if got := allowsAt(env, at(t, tc.clock)); got != tc.allowed {
 				t.Fatalf("%s: allowed=%v, wanted %v", tc.clock, got, tc.allowed)
 			}
 		})
@@ -86,7 +94,7 @@ func TestAWindowThatCrossesMidnight(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := env.AllowsAt(at(t, tc.clock)); got != tc.allowed {
+			if got := allowsAt(env, at(t, tc.clock)); got != tc.allowed {
 				t.Fatalf("%s: allowed=%v, wanted %v", tc.clock, got, tc.allowed)
 			}
 		})
@@ -101,10 +109,10 @@ func TestTheWindowIsReadInItsOwnZone(t *testing.T) {
 	// 22:00 to 23:00 in Paris, which in October is 20:00 to 21:00 UTC.
 	env := windowed(t, 22*60, 23*60, "Europe/Paris")
 
-	if !env.AllowsAt(at(t, "2026-10-06T20:30:00Z")) {
+	if !allowsAt(env, at(t, "2026-10-06T20:30:00Z")) {
 		t.Fatal("22:30 in Paris was refused by a window that is open from 22:00 to 23:00 there")
 	}
-	if env.AllowsAt(at(t, "2026-10-06T22:30:00Z")) {
+	if allowsAt(env, at(t, "2026-10-06T22:30:00Z")) {
 		t.Fatal("the window was read in UTC rather than in its own zone")
 	}
 }
@@ -118,10 +126,10 @@ func TestTheWindowFollowsDaylightSaving(t *testing.T) {
 	env := windowed(t, 22*60, 23*60, "Europe/Paris")
 
 	// Same local hour, July: Paris is two hours ahead of UTC.
-	if !env.AllowsAt(at(t, "2026-07-06T20:30:00Z")) {
+	if !allowsAt(env, at(t, "2026-07-06T20:30:00Z")) {
 		t.Fatal("22:30 in Paris in July was refused")
 	}
-	if env.AllowsAt(at(t, "2026-07-06T21:30:00Z")) {
+	if allowsAt(env, at(t, "2026-07-06T21:30:00Z")) {
 		t.Fatal("the window did not follow summer time")
 	}
 }
@@ -132,7 +140,7 @@ func TestAZoneThatCannotBeLoadedRefusesTheRun(t *testing.T) {
 	t.Parallel()
 
 	env := windowed(t, 0, 60, "Mars/Olympus_Mons")
-	if env.AllowsAt(at(t, "2026-10-06T00:30:00Z")) {
+	if allowsAt(env, at(t, "2026-10-06T00:30:00Z")) {
 		t.Fatal("an unresolvable zone let a run through; it must fail closed")
 	}
 }
@@ -223,5 +231,119 @@ func TestCeilingsBallastWillNotStore(t *testing.T) {
 				t.Fatalf("%s was accepted: %v", name, err)
 			}
 		})
+	}
+}
+
+// The hole this closes: the window used to gate the starting instant alone, so a
+// two hour run accepted at five to six against a window closing at six ran until
+// twenty to eight — outside the hours the target had agreed to.
+func TestARunThatWouldOutlastTheWindowIsRefused(t *testing.T) {
+	t.Parallel()
+
+	// 22:00 to 06:00 UTC.
+	env := windowed(t, 22*60, 6*60, "UTC")
+
+	cases := map[string]struct {
+		clock   string
+		runFor  time.Duration
+		allowed bool
+	}{
+		"well inside":              {"2026-10-06T22:30:00Z", 2 * time.Hour, true},
+		"finishing on the minute":  {"2026-10-07T04:00:00Z", 2 * time.Hour, true},
+		"a minute too long":        {"2026-10-07T04:00:00Z", 2*time.Hour + time.Minute, false},
+		"five to six, two hours":   {"2026-10-07T05:55:00Z", 2 * time.Hour, false},
+		"five to six, two minutes": {"2026-10-07T05:55:00Z", 2 * time.Minute, true},
+		"the window already shut":  {"2026-10-07T07:00:00Z", time.Minute, false},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := env.RequireWindowAllows(at(t, tc.clock), tc.runFor)
+			if tc.allowed && err != nil {
+				t.Fatalf("a %s run at %s was refused: %v", tc.runFor, tc.clock, err)
+			}
+			if !tc.allowed && !errors.Is(err, ErrOutsideAllowedWindow) {
+				t.Fatalf("a %s run at %s answered %v", tc.runFor, tc.clock, err)
+			}
+		})
+	}
+}
+
+// The refusal has to say which of the two things went wrong, because they are
+// fixed differently: wait, or ask for a shorter run.
+func TestTheRefusalSaysWhyTheWindowSaidNo(t *testing.T) {
+	t.Parallel()
+
+	env := windowed(t, 22*60, 6*60, "Europe/Paris")
+
+	shut := env.RequireWindowAllows(at(t, "2026-10-07T12:00:00Z"), time.Minute)
+	if shut == nil {
+		t.Fatal("midday was allowed")
+	}
+	for _, want := range []string{"22:00", "06:00", "Europe/Paris"} {
+		if !strings.Contains(shut.Error(), want) {
+			t.Fatalf("the refusal does not mention %s: %v", want, shut)
+		}
+	}
+
+	tooLong := env.RequireWindowAllows(at(t, "2026-10-07T03:30:00Z"), 3*time.Hour)
+	if tooLong == nil {
+		t.Fatal("a three hour run half an hour before closing was allowed")
+	}
+	if !strings.Contains(tooLong.Error(), "closes in") {
+		t.Fatalf("the refusal does not say how long is left: %v", tooLong)
+	}
+}
+
+func TestAnEnvironmentWithNoWindowTakesARunOfAnyLength(t *testing.T) {
+	t.Parallel()
+
+	var anytime Environment
+	if err := anytime.RequireWindowAllows(at(t, "2026-10-06T03:17:00Z"), 24*time.Hour); err != nil {
+		t.Fatalf("an environment that declared no window refused a long run: %v", err)
+	}
+}
+
+func TestHowMuchOfTheWindowIsLeft(t *testing.T) {
+	t.Parallel()
+
+	within := AllowedWindow{StartMinute: 20 * 60, EndMinute: 23 * 60, Zone: "UTC"}
+	if left := within.RemainingAt(at(t, "2026-10-06T21:00:00Z")); left != 2*time.Hour {
+		t.Fatalf("two hours before closing, %s is left", left)
+	}
+	if left := within.RemainingAt(at(t, "2026-10-06T19:00:00Z")); left != 0 {
+		t.Fatalf("before it opens, %s is left", left)
+	}
+
+	crossing := AllowedWindow{StartMinute: 22 * 60, EndMinute: 6 * 60, Zone: "UTC"}
+	if left := crossing.RemainingAt(at(t, "2026-10-06T23:00:00Z")); left != 7*time.Hour {
+		t.Fatalf("an hour after a midnight-crossing window opened, %s is left", left)
+	}
+	if left := crossing.RemainingAt(at(t, "2026-10-07T05:30:00Z")); left != 30*time.Minute {
+		t.Fatalf("half an hour before closing, %s is left", left)
+	}
+}
+
+// The night the clocks go forward, a window open until four holds one hour less
+// than the clock suggests. Counting minutes of the clock would let a run through
+// that then runs past the end of the window.
+func TestAWindowLosesAnHourWhenTheClocksGoForward(t *testing.T) {
+	t.Parallel()
+
+	// Paris springs forward at 02:00 on 29 March 2026: 02:00 becomes 03:00.
+	window := AllowedWindow{StartMinute: 60, EndMinute: 4 * 60, Zone: "Europe/Paris"}
+
+	// 01:30 local, which is 00:30 UTC. The clock says two and a half hours to
+	// four o'clock; only an hour and a half will pass.
+	left := window.RemainingAt(at(t, "2026-03-29T00:30:00Z"))
+	if left != 90*time.Minute {
+		t.Fatalf("%s is left; the real figure is 1h30m", left)
+	}
+
+	env := Environment{Window: &window}
+	if err := env.RequireWindowAllows(at(t, "2026-03-29T00:30:00Z"), 2*time.Hour); !errors.Is(err, ErrOutsideAllowedWindow) {
+		t.Fatalf("a two hour run was allowed into an hour and a half: %v", err)
 	}
 }

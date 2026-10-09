@@ -195,3 +195,45 @@ func TestSecretsThatCannotBeReadStopTheRun(t *testing.T) {
 		t.Fatal("a job was built although the secrets could not be decrypted")
 	}
 }
+
+// A run accepted while it still fitted, started once it no longer does. The
+// queue is not instantaneous, and the length comes from what was frozen on the
+// run rather than from the scenario.
+func TestARunThatCanNoLongerFinishInTheWindowDoesNotStart(t *testing.T) {
+	target := verifiedTarget()
+	target.Window = &domain.AllowedWindow{StartMinute: 22 * 60, EndMinute: 23 * 60, Zone: "UTC"}
+
+	tenToEleven, err := time.Parse(time.RFC3339, "2026-10-06T22:50:00Z")
+	if err != nil {
+		t.Fatalf("the test's own timestamp is wrong: %v", err)
+	}
+
+	f := newJobFixture(target, map[string]string{"API_TOKEN": "a-token"}, tenToEleven)
+	// Twenty minutes of load, ten minutes before the window shuts.
+	f.run.ProfileParams = domain.ProfileParams{TargetVUs: 1, PlateauS: 20 * 60}
+
+	_, err = f.service.buildJob(context.Background(), f.orgID, f.run)
+	if !errors.Is(err, domain.ErrOutsideAllowedWindow) {
+		t.Fatalf("a run that would outlast the window built a job: %v", err)
+	}
+	if f.secrets.asked != 0 {
+		t.Fatal("the secrets were decrypted for a run that is not allowed to start")
+	}
+}
+
+func TestARunThatStillFitsStarts(t *testing.T) {
+	target := verifiedTarget()
+	target.Window = &domain.AllowedWindow{StartMinute: 22 * 60, EndMinute: 23 * 60, Zone: "UTC"}
+
+	tenToEleven, err := time.Parse(time.RFC3339, "2026-10-06T22:50:00Z")
+	if err != nil {
+		t.Fatalf("the test's own timestamp is wrong: %v", err)
+	}
+
+	f := newJobFixture(target, nil, tenToEleven)
+	f.run.ProfileParams = domain.ProfileParams{TargetVUs: 1, PlateauS: 5 * 60}
+
+	if _, err := f.service.buildJob(context.Background(), f.orgID, f.run); err != nil {
+		t.Fatalf("a five minute run ten minutes before closing was refused: %v", err)
+	}
+}

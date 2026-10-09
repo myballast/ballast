@@ -162,6 +162,12 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		// logged above, in the service.
 		writeError(w, http.StatusForbidden, "this environment has not been verified")
 
+	case errors.Is(err, domain.ErrOutsideAllowedWindow):
+		// The hours the target agreed to be loaded. The message carries the
+		// window, or how much of it is left against how long the run would
+		// last, because the two are fixed differently: wait, or ask for less.
+		writeError(w, http.StatusForbidden, err.Error())
+
 	case errors.Is(err, domain.ErrCrossProject):
 		writeError(w, http.StatusBadRequest, "the scenario and the environment belong to different projects")
 

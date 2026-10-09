@@ -476,6 +476,69 @@ func TestVerticalSkeletonRefusesAnUnverifiedTarget(t *testing.T) {
 	}
 }
 
+// The window, through the whole stack rather than through a double. The refusal
+// is born in the domain, travels as a wrapped sentinel, and has to arrive as a
+// 403 with something readable in it — a handler that does not know the error
+// answers 500, which is how this very mapping was missing until it was looked
+// for.
+func TestVerticalSkeletonRefusesARunTheWindowHasNoRoomFor(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	db, err := postgres.Open(ctx, dsn())
+	if err != nil {
+		t.Fatalf("open the database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	org, scenario, environment := seed(ctx, t, db, "http://unused.example.test", nil)
+
+	// A window that shut an hour ago and opened two hours before that, in UTC,
+	// whatever hour the suite happens to run at.
+	now := time.Now().UTC()
+	closed := (now.Hour()*60 + now.Minute() - 60 + 24*60) % (24 * 60)
+	opened := (closed - 120 + 24*60) % (24 * 60)
+
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE environment
+			SET allowed_window_start_minute = $2,
+			    allowed_window_end_minute = $3,
+			    allowed_window_tz = 'UTC'
+			WHERE id = $1`, environment, opened, closed)
+		return err
+	}); err != nil {
+		t.Fatalf("set the window: %v", err)
+	}
+
+	s := build(t, db, org)
+
+	res := s.do(t, http.MethodPost, "/runs", strings.NewReader(fmt.Sprintf(
+		`{"scenario_id":%q,"environment_id":%q,"profile":"smoke"}`, scenario, environment)))
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("POST /runs returned %d, want 403", res.StatusCode)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read the body: %v", err)
+	}
+	if !strings.Contains(string(body), "no load at this hour") {
+		t.Fatalf("the refusal says nothing about the window: %s", body)
+	}
+
+	var runs int
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT count(*) FROM run").Scan(&runs)
+	}); err != nil {
+		t.Fatalf("count the runs: %v", err)
+	}
+	if runs != 0 {
+		t.Errorf("%d run(s) were written outside the target's window", runs)
+	}
+}
+
 // secretScript authenticates with a credential it never contains: the token
 // arrives as an environment variable, which is the whole point of storing one.
 const secretScript = `

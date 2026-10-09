@@ -522,10 +522,15 @@ func TestTheRunSideReadsTheWindowToo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the test's own timestamp is wrong: %v", err)
 	}
-	if !read.AllowsAt(night) {
-		t.Error("half past eleven at night was refused by a window open from 22:00")
+	if err := read.RequireWindowAllows(night, 30*time.Minute); err != nil {
+		t.Errorf("half past eleven at night was refused by a window open from 22:00: %v", err)
 	}
-	if read.AllowsAt(night.Add(10 * time.Hour)) {
+	if err := read.RequireWindowAllows(night.Add(10*time.Hour), 30*time.Minute); err == nil {
 		t.Error("half past nine in the morning was allowed")
+	}
+	// And the length is part of the question, through the type the run service
+	// actually holds.
+	if err := read.RequireWindowAllows(night, 8*time.Hour); err == nil {
+		t.Error("an eight hour run was allowed into a window closing at 06:00")
 	}
 }
