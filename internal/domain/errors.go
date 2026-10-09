@@ -61,3 +61,18 @@ var ErrEnvironmentNotEmpty = errors.New("the environment still holds runs")
 // generator starts, because a run can wait in the queue until the window has
 // closed behind it.
 var ErrOutsideAllowedWindow = errors.New("the environment accepts no load at this hour")
+
+// ErrVerificationFailed reports a verification attempt that did not prove
+// anything: the challenge was not served, or not served correctly, or the target
+// could not be reached at all. What exactly went wrong is wrapped with it,
+// because the reasons are fixed differently.
+var ErrVerificationFailed = errors.New("the target's ownership could not be verified")
+
+// ErrNotProven reports an approval asked for before any proof was served.
+// Proving and approving are two steps on purpose.
+var ErrNotProven = errors.New("the target's ownership has not been proved")
+
+// ErrAlreadyVerified reports an attempt to verify or approve a target that is
+// already approved. Re-verifying one would take its approval away, and
+// re-approving it would rewrite who gave the approval.
+var ErrAlreadyVerified = errors.New("the target is already verified")

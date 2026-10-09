@@ -205,5 +205,22 @@ func Routes() []Route {
 			Method: "DELETE", Path: "/projects/{projectId}/environments/{environmentId}/secrets/{key}",
 			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
 		},
+
+		// Target verification. Proving and approving are deliberately two
+		// permissions: a maintainer declares a target and runs the check, and
+		// only an admin says load may be sent at it. Were it one right, whoever
+		// creates an environment approves their own.
+		{
+			Method: "GET", Path: "/projects/{projectId}/environments/{environmentId}/verification",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/environments/{environmentId}/verify",
+			Scope: ScopePath, Permission: domain.PermManageEnvironments, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/environments/{environmentId}/approve",
+			Scope: ScopePath, Permission: domain.PermApproveTarget, ProjectParam: "projectId",
+		},
 	}
 }

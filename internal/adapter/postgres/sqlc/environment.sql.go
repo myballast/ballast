@@ -12,6 +12,78 @@ import (
 	"github.com/google/uuid"
 )
 
+const allowHostForProject = `-- name: AllowHostForProject :exec
+INSERT INTO project_allowed_host (org_id, project_id, host)
+VALUES ($1, $2, $3)
+ON CONFLICT (org_id, project_id, host) DO NOTHING
+`
+
+type AllowHostForProjectParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	Host      string
+}
+
+// The hosts a project's generators are allowed to reach. Two environments of one
+// project may well point at the same host, so a second approval is not a
+// conflict.
+func (q *Queries) AllowHostForProject(ctx context.Context, arg AllowHostForProjectParams) error {
+	_, err := q.db.Exec(ctx, allowHostForProject, arg.OrgID, arg.ProjectID, arg.Host)
+	return err
+}
+
+const approveEnvironment = `-- name: ApproveEnvironment :one
+UPDATE environment
+SET verification_status = 'verified', verified_at = $4, verified_by = $3
+WHERE org_id = $1 AND id = $2 AND verification_status = 'proof_ok'
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+`
+
+type ApproveEnvironmentParams struct {
+	OrgID      uuid.UUID
+	ID         uuid.UUID
+	VerifiedBy *uuid.UUID
+	VerifiedAt *time.Time
+}
+
+// The human decision that lets load reach a target.
+//
+// The WHERE clause carries the rule rather than trusting the caller to have
+// checked it: a target whose proof is not in cannot be approved, whatever the
+// code above believed when it read the row. It also closes the window between
+// that read and this write.
+//
+// The three columns move together because migration 001 holds them to each
+// other: a row that says verified with no approver is refused by the schema.
+func (q *Queries) ApproveEnvironment(ctx context.Context, arg ApproveEnvironmentParams) (Environment, error) {
+	row := q.db.QueryRow(ctx, approveEnvironment,
+		arg.OrgID,
+		arg.ID,
+		arg.VerifiedBy,
+		arg.VerifiedAt,
+	)
+	var i Environment
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.Name,
+		&i.BaseUrl,
+		&i.VerificationToken,
+		&i.VerificationStatus,
+		&i.VerifiedAt,
+		&i.VerifiedBy,
+		&i.MaxVus,
+		&i.MaxDurationS,
+		&i.RunnerID,
+		&i.CreatedAt,
+		&i.AllowedWindowStartMinute,
+		&i.AllowedWindowEndMinute,
+		&i.AllowedWindowTz,
+	)
+	return i, err
+}
+
 const countEnvironmentRuns = `-- name: CountEnvironmentRuns :one
 SELECT count(*) FROM run WHERE org_id = $1 AND environment_id = $2
 `
@@ -265,6 +337,80 @@ func (q *Queries) ListSecrets(ctx context.Context, arg ListSecretsParams) ([]Sec
 		return nil, err
 	}
 	return items, nil
+}
+
+const markEnvironmentProofFailed = `-- name: MarkEnvironmentProofFailed :one
+UPDATE environment
+SET verification_status = 'verification_failed', verified_at = NULL, verified_by = NULL
+WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+`
+
+type MarkEnvironmentProofFailedParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+func (q *Queries) MarkEnvironmentProofFailed(ctx context.Context, arg MarkEnvironmentProofFailedParams) (Environment, error) {
+	row := q.db.QueryRow(ctx, markEnvironmentProofFailed, arg.OrgID, arg.ID)
+	var i Environment
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.Name,
+		&i.BaseUrl,
+		&i.VerificationToken,
+		&i.VerificationStatus,
+		&i.VerifiedAt,
+		&i.VerifiedBy,
+		&i.MaxVus,
+		&i.MaxDurationS,
+		&i.RunnerID,
+		&i.CreatedAt,
+		&i.AllowedWindowStartMinute,
+		&i.AllowedWindowEndMinute,
+		&i.AllowedWindowTz,
+	)
+	return i, err
+}
+
+const markEnvironmentProven = `-- name: MarkEnvironmentProven :one
+UPDATE environment SET verification_status = 'proof_ok'
+WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+`
+
+type MarkEnvironmentProvenParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// The outcome of a verification attempt. Two statements rather than one taking
+// the status as a parameter: neither of them can write 'verified', so the only
+// way into that state is the approval below.
+func (q *Queries) MarkEnvironmentProven(ctx context.Context, arg MarkEnvironmentProvenParams) (Environment, error) {
+	row := q.db.QueryRow(ctx, markEnvironmentProven, arg.OrgID, arg.ID)
+	var i Environment
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.Name,
+		&i.BaseUrl,
+		&i.VerificationToken,
+		&i.VerificationStatus,
+		&i.VerifiedAt,
+		&i.VerifiedBy,
+		&i.MaxVus,
+		&i.MaxDurationS,
+		&i.RunnerID,
+		&i.CreatedAt,
+		&i.AllowedWindowStartMinute,
+		&i.AllowedWindowEndMinute,
+		&i.AllowedWindowTz,
+	)
+	return i, err
 }
 
 const updateEnvironment = `-- name: UpdateEnvironment :one

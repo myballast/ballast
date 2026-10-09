@@ -26,9 +26,32 @@ type Repository interface {
 	// ceilings and its window. resetVerification clears the proof and the
 	// approval, for when the target itself has changed.
 	Save(ctx context.Context, orgID uuid.UUID, updated domain.Environment, resetVerification bool) (domain.Environment, error)
+	// RecordProofOK and RecordProofFailed write the outcome of a verification
+	// attempt.
+	//
+	// Two methods rather than one taking a status, so that nothing on this port
+	// can write "verified". Approve is the only way into that state, and it
+	// stands behind a permission of its own.
+	RecordProofOK(ctx context.Context, orgID, id uuid.UUID) (domain.Environment, error)
+	RecordProofFailed(ctx context.Context, orgID, id uuid.UUID) (domain.Environment, error)
+	// Approve records the human decision that lets load reach a target, and
+	// adds its host to the project's allowlist, in one transaction. A target
+	// whose proof is not in is refused by the statement itself.
+	Approve(ctx context.Context, orgID, id uuid.UUID, by domain.Identity, at time.Time, host string) (domain.Environment, error)
 	// Delete refuses an environment that still holds runs, and checks that in
 	// the transaction that would have deleted it.
 	Delete(ctx context.Context, orgID, id uuid.UUID) error
+}
+
+// ProofReader fetches the challenge a target has to serve, and reports whether
+// it holds the token.
+//
+// It reads an address somebody else chose, from inside Ballast's own network.
+// Everything that makes that safe — refusing addresses that are not publicly
+// routable, refusing a redirect to another host, a short timeout, a bound on the
+// response — lives behind this interface, in adapter/verifier.
+type ProofReader interface {
+	ReadProof(ctx context.Context, proofURL, expected string) error
 }
 
 // Secrets stores the credentials a scenario needs against one target.

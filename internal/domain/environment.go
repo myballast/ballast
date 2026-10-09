@@ -25,14 +25,27 @@ type Environment struct {
 	// target and an administrator approved it. Anything but Verified means no
 	// load may be sent here.
 	VerificationStatus VerificationStatus
+	// VerificationToken is the challenge this target has to serve to prove
+	// somebody owns it.
+	//
+	// Unlike a secret, it is meant to be published: it ends up in a file on the
+	// target's own web server. It is unguessable all the same, so that nobody
+	// can serve a file in advance for an environment they do not own. Kept out
+	// of the environment's own API response, and out of every log.
+	VerificationToken string
 	// MaxVUs is the most virtual users this environment tolerates.
 	MaxVUs int
 	// MaxDurationS is the longest a run may last here, in seconds.
 	MaxDurationS int
 	// Window is the hours this target tolerates being loaded. Nil means any
 	// hour.
-	Window    *AllowedWindow
-	CreatedAt time.Time
+	Window *AllowedWindow
+	// VerifiedAt and VerifiedBy are set together with the verified status, and
+	// migration 001 refuses any other combination: an approval always says when
+	// and by whom.
+	VerifiedAt *time.Time
+	VerifiedBy *uuid.UUID
+	CreatedAt  time.Time
 }
 
 // AllowedWindow is the stretch of the day an environment accepts load.

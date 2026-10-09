@@ -24,6 +24,14 @@ type fakeEnvironments struct {
 	resets  int
 	deleted []uuid.UUID
 	refuse  error
+
+	// What the verification did, so a test can say that an approval happened
+	// once, by whom, and for which host.
+	proofs      int
+	failures    int
+	approved    int
+	approvedBy  uuid.UUID
+	allowedHost string
 }
 
 func (f *fakeEnvironments) Create(
@@ -63,6 +71,45 @@ func (f *fakeEnvironments) Save(
 	f.saved = &updated
 	f.byID[updated.ID] = updated
 	return updated, nil
+}
+
+// RecordProofOK and RecordProofFailed are two methods rather than one taking a
+// status, so that no caller can write "verified" through the verification path.
+// Approving is the only way into that state, and it is a different method with
+// a different permission in front of it.
+func (f *fakeEnvironments) RecordProofOK(
+	_ context.Context, _, id uuid.UUID,
+) (domain.Environment, error) {
+	f.proofs++
+	return f.move(id, domain.VerificationProofOK)
+}
+
+func (f *fakeEnvironments) RecordProofFailed(
+	_ context.Context, _, id uuid.UUID,
+) (domain.Environment, error) {
+	f.failures++
+	return f.move(id, domain.VerificationFailed)
+}
+
+func (f *fakeEnvironments) Approve(
+	_ context.Context, _, id uuid.UUID, by domain.Identity, _ time.Time, host string,
+) (domain.Environment, error) {
+	f.approved++
+	f.approvedBy = by.UserID
+	f.allowedHost = host
+	return f.move(id, domain.VerificationVerified)
+}
+
+func (f *fakeEnvironments) move(
+	id uuid.UUID, to domain.VerificationStatus,
+) (domain.Environment, error) {
+	found, ok := f.byID[id]
+	if !ok {
+		return domain.Environment{}, domain.ErrNotFound
+	}
+	found.VerificationStatus = to
+	f.byID[id] = found
+	return found, nil
 }
 
 func (f *fakeEnvironments) Delete(_ context.Context, _, id uuid.UUID) error {
@@ -152,6 +199,7 @@ type fixture struct {
 	service      *Service
 	environments *fakeEnvironments
 	secrets      *fakeSecrets
+	proof        *fakeProof
 	logged       *bytes.Buffer
 	who          domain.Identity
 	projectID    uuid.UUID
@@ -163,12 +211,14 @@ func newFixture(authz Authorizer) fixture {
 		tokens: map[uuid.UUID]string{},
 	}
 	secrets := &fakeSecrets{values: map[string]string{}}
+	proof := &fakeProof{}
 	logged := &bytes.Buffer{}
 
 	return fixture{
 		service: NewService(
 			environments, secrets,
 			fixedTokens{token: "challenge-token"},
+			proof,
 			authz,
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			// Everything the service logs, at every level, so a test can read it.
@@ -176,6 +226,7 @@ func newFixture(authz Authorizer) fixture {
 		),
 		environments: environments,
 		secrets:      secrets,
+		proof:        proof,
 		logged:       logged,
 		who:          domain.Identity{UserID: uuid.New(), OrgID: uuid.New()},
 		projectID:    uuid.New(),

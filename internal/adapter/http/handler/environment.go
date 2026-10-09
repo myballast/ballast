@@ -326,6 +326,19 @@ func (h *Environment) writeDomainError(w http.ResponseWriter, r *http.Request, e
 	case errors.Is(err, domain.ErrAlreadyExists):
 		writeError(w, http.StatusConflict, "an environment of this project already uses that name")
 
+	// The attempt was made and proved nothing. The message is the one thing the
+	// caller can act on, and it never carries the token.
+	case errors.Is(err, domain.ErrVerificationFailed):
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+
+	case errors.Is(err, domain.ErrNotProven):
+		writeError(w, http.StatusConflict,
+			"this target has not served its challenge yet; verify it before approving it")
+
+	case errors.Is(err, domain.ErrAlreadyVerified):
+		writeError(w, http.StatusConflict,
+			"this target is already verified; edit its base URL if you mean to point it elsewhere")
+
 	// The message of an invalid secret names the key and never the value: the
 	// domain builds it that way, which is what makes returning it safe.
 	case errors.Is(err, domain.ErrInvalidEnvironment), errors.Is(err, domain.ErrInvalidSecret):
@@ -335,4 +348,73 @@ func (h *Environment) writeDomainError(w http.ResponseWriter, r *http.Request, e
 		h.log.ErrorContext(r.Context(), "request failed", "path", r.URL.Path, "error", err)
 		writeError(w, http.StatusInternalServerError, "something went wrong")
 	}
+}
+
+// Challenge handles reading what a target has to serve.
+func (h *Environment) Challenge(w http.ResponseWriter, r *http.Request) {
+	who, projectID, id, ok := environmentRequest(w, r)
+	if !ok {
+		return
+	}
+
+	found, err := h.environments.Challenge(r.Context(), who, projectID, id)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	proofURL, err := found.ProofURL()
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	body := dto.VerificationChallenge{
+		Status:     string(found.VerificationStatus),
+		Token:      found.VerificationToken,
+		URL:        proofURL,
+		VerifiedAt: found.VerifiedAt,
+	}
+	if found.VerifiedBy != nil {
+		body.VerifiedBy = found.VerifiedBy.String()
+	}
+
+	writeJSON(w, http.StatusOK, body)
+}
+
+// Verify handles fetching the challenge from the target.
+//
+// A target that served it answers 200 with the environment in proof_ok — which
+// is not yet a target load may be sent to. One that did not answers 422 with the
+// reason, because the reasons are fixed differently: put the file there, correct
+// its contents, give the host a publicly reachable address, stop redirecting.
+func (h *Environment) Verify(w http.ResponseWriter, r *http.Request) {
+	who, projectID, id, ok := environmentRequest(w, r)
+	if !ok {
+		return
+	}
+
+	proven, err := h.environments.Verify(r.Context(), who, projectID, id)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, environmentOf(proven))
+}
+
+// Approve handles the decision that lets load reach a target.
+func (h *Environment) Approve(w http.ResponseWriter, r *http.Request) {
+	who, projectID, id, ok := environmentRequest(w, r)
+	if !ok {
+		return
+	}
+
+	approved, err := h.environments.Approve(r.Context(), who, projectID, id)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, environmentOf(approved))
 }
