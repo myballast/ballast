@@ -72,3 +72,40 @@ RETURNING id, org_id, environment_id, key, created_at, updated_at;
 
 -- name: DeleteSecret :execrows
 DELETE FROM secret WHERE org_id = $1 AND environment_id = $2 AND key = $3;
+
+-- The outcome of a verification attempt. Two statements rather than one taking
+-- the status as a parameter: neither of them can write 'verified', so the only
+-- way into that state is the approval below.
+-- name: MarkEnvironmentProven :one
+UPDATE environment SET verification_status = 'proof_ok'
+WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
+RETURNING *;
+
+-- name: MarkEnvironmentProofFailed :one
+UPDATE environment
+SET verification_status = 'verification_failed', verified_at = NULL, verified_by = NULL
+WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
+RETURNING *;
+
+-- The human decision that lets load reach a target.
+--
+-- The WHERE clause carries the rule rather than trusting the caller to have
+-- checked it: a target whose proof is not in cannot be approved, whatever the
+-- code above believed when it read the row. It also closes the window between
+-- that read and this write.
+--
+-- The three columns move together because migration 001 holds them to each
+-- other: a row that says verified with no approver is refused by the schema.
+-- name: ApproveEnvironment :one
+UPDATE environment
+SET verification_status = 'verified', verified_at = $4, verified_by = $3
+WHERE org_id = $1 AND id = $2 AND verification_status = 'proof_ok'
+RETURNING *;
+
+-- The hosts a project's generators are allowed to reach. Two environments of one
+-- project may well point at the same host, so a second approval is not a
+-- conflict.
+-- name: AllowHostForProject :exec
+INSERT INTO project_allowed_host (org_id, project_id, host)
+VALUES ($1, $2, $3)
+ON CONFLICT (org_id, project_id, host) DO NOTHING;

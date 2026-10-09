@@ -1151,6 +1151,162 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/environments/{environmentId}/verification:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/EnvironmentID"
+
+    get:
+      tags: [environments]
+      summary: Read the challenge a target has to serve
+      description: |
+        Create a file at `url`, holding `token` and nothing else, then call
+        `verify`. `/.well-known` sits at the root of the origin, so a base URL
+        with a path does not change where Ballast looks.
+
+        The token is not a credential — it is meant to be published, on the
+        target's own web server — but it is unguessable, so that nobody can serve
+        a file in advance for an environment they do not own. It is returned here
+        and nowhere else: the environment's own response does not carry it.
+      operationId: getVerificationChallenge
+      x-ballast-permission: manage_environments
+      responses:
+        "200":
+          description: The challenge, and where the target stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationChallenge"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/environments/{environmentId}/verify:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/EnvironmentID"
+
+    post:
+      tags: [environments]
+      summary: Fetch the challenge from the target
+      description: |
+        Ballast reads `/.well-known/ballast-<token>` on the target and checks that
+        it holds the token. The contents decide, not the status code: a great many
+        servers answer `200` to every path.
+
+        A target that served it moves to `proof_ok`, and **that is still not a
+        target load may be sent to**. An administrator has to approve it, which is
+        a separate call under a separate permission.
+
+        The fetch is bounded on purpose, since the address was chosen by whoever
+        declared the environment. Refused with `422` when the target does not
+        resolve to a publicly routable address — its own network, a private
+        range, or the cloud metadata service — when it redirects to another host,
+        when it does not answer within a few seconds, or when the file is not
+        there or does not hold the token. The reason comes back in the body.
+
+        Refused with `409` on a target that is already verified: recording a proof
+        would move it back to `proof_ok` and take its approval away. Edit its base
+        URL instead, which resets the verification by itself.
+      operationId: verifyEnvironment
+      x-ballast-permission: manage_environments
+      responses:
+        "200":
+          description: The target served its challenge. It is now `proof_ok`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The target is already verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The attempt was made and proved nothing. The environment is now
+            `verification_failed`, and the message says what to fix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                missing:
+                  value:
+                    error: "the target's ownership could not be verified: the challenge file was not served: the target answered 404"
+                privateAddress:
+                  value:
+                    error: "the target's ownership could not be verified: the target does not resolve to a publicly routable address: 10.0.0.1"
+                redirected:
+                  value:
+                    error: "the target's ownership could not be verified: the target redirected the request elsewhere: staging.example.test sent it to 169.254.169.254"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/environments/{environmentId}/approve:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/EnvironmentID"
+
+    post:
+      tags: [environments]
+      summary: Approve a target for load
+      description: |
+        The decision that lets traffic leave Ballast's servers for this host, and
+        the last gate in front of it.
+
+        Reserved to `admin`, which is deliberate: a `maintainer` declares targets
+        and runs their verification, and only an administrator says load may be
+        sent at one. Were it the same right, whoever creates an environment would
+        approve their own and the challenge would be decorative.
+
+        Approving also adds the target's host to the project's allowlist, in the
+        same transaction. Only a `proof_ok` target can be approved — `409`
+        otherwise, including when it is already verified, since approving twice
+        would rewrite who gave the approval and when.
+      operationId: approveEnvironment
+      x-ballast-permission: approve_target
+      responses:
+        "200":
+          description: Approved. Runs may now be queued against this target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            The target has not served its challenge yet, or was approved already.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     session:
@@ -1802,3 +1958,33 @@ components:
             Encrypted at rest with AES-256-GCM. No control characters: it becomes
             one entry of the generator's environment.
           example: a-token-for-the-test-account
+
+    VerificationChallenge:
+      type: object
+      description: |
+        What a target has to serve for Ballast to believe somebody owns it, and
+        where that stands.
+      required: [verification_status, token, url]
+      properties:
+        verification_status:
+          type: string
+          enum: [pending, proof_ok, verified, verification_failed]
+        token:
+          type: string
+          description: |
+            43 characters of base64url. The file must hold this and nothing else;
+            a trailing newline is tolerated.
+          example: 7sJ2kQ9vXr4mN1pZ8tLbYw3hG6fD0aEcUiOqRsTuVwY
+        url:
+          type: string
+          format: uri
+          description: Exactly where Ballast will look, at the root of the origin.
+          example: https://staging.example.test/.well-known/ballast-7sJ2kQ9vXr4mN1pZ8tLbYw3hG6fD0aEcUiOqRsTuVwY
+        verified_at:
+          type: string
+          format: date-time
+          description: Absent until an administrator approves the target.
+        verified_by:
+          type: string
+          format: uuid
+          description: Who approved it. Absent until then.

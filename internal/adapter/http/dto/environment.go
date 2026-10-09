@@ -81,3 +81,24 @@ type SecretListResponse struct {
 type SetSecretRequest struct {
 	Value string `json:"value"`
 }
+
+// VerificationChallenge is what a target has to serve for Ballast to believe
+// somebody owns it.
+//
+// The token is not a credential — it is meant to be published, on the target's
+// own web server — but it is unguessable, so that nobody can serve a file in
+// advance for an environment they do not own. It is returned here and nowhere
+// else: the environment's own response does not carry it.
+type VerificationChallenge struct {
+	// Status is where the target stands: pending, proof_ok, verified or
+	// verification_failed. Only verified lets load through.
+	Status string `json:"verification_status"`
+	Token  string `json:"token"`
+	// URL is exactly where Ballast will look, and the file must hold the token.
+	// /.well-known sits at the root of the origin, so a base URL with a path
+	// does not change it.
+	URL string `json:"url"`
+	// VerifiedAt and VerifiedBy are absent until an administrator approves.
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	VerifiedBy string     `json:"verified_by,omitempty"`
+}

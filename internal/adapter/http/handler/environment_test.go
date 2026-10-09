@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -27,7 +28,8 @@ func discard() *slog.Logger {
 }
 
 type stubEnvironments struct {
-	environment domain.Environment
+	environment  domain.Environment
+	approvedHost string
 }
 
 func (s *stubEnvironments) Create(
@@ -54,6 +56,35 @@ func (s *stubEnvironments) Save(
 }
 
 func (s *stubEnvironments) Delete(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+
+func (s *stubEnvironments) RecordProofOK(
+	_ context.Context, _, _ uuid.UUID,
+) (domain.Environment, error) {
+	s.environment.VerificationStatus = domain.VerificationProofOK
+	return s.environment, nil
+}
+
+func (s *stubEnvironments) RecordProofFailed(
+	_ context.Context, _, _ uuid.UUID,
+) (domain.Environment, error) {
+	s.environment.VerificationStatus = domain.VerificationFailed
+	return s.environment, nil
+}
+
+func (s *stubEnvironments) Approve(
+	_ context.Context, _, _ uuid.UUID, by domain.Identity, at time.Time, host string,
+) (domain.Environment, error) {
+	s.environment.VerificationStatus = domain.VerificationVerified
+	s.environment.VerifiedAt, s.environment.VerifiedBy = &at, &by.UserID
+	s.approvedHost = host
+	return s.environment, nil
+}
+
+// stubProof answers whatever the test set up. What a real one refuses is tested
+// in adapter/verifier.
+type stubProof struct{ err error }
+
+func (s stubProof) ReadProof(context.Context, string, string) error { return s.err }
 
 // stubSecrets accepts whatever it is handed. What it will not do is hand a value
 // back, because the port it satisfies has no method that could.
@@ -102,13 +133,20 @@ func (permissive) Can(context.Context, domain.Identity, domain.Permission, uuid.
 }
 
 type environmentFixture struct {
-	handler   *handler.Environment
-	secrets   *stubSecrets
-	projectID uuid.UUID
-	id        uuid.UUID
+	handler      *handler.Environment
+	secrets      *stubSecrets
+	environments *stubEnvironments
+	projectID    uuid.UUID
+	id           uuid.UUID
 }
 
 func newEnvironmentFixture(t *testing.T) environmentFixture {
+	t.Helper()
+
+	return newEnvironmentFixtureWithProof(t, nil)
+}
+
+func newEnvironmentFixtureWithProof(t *testing.T, proofErr error) environmentFixture {
 	t.Helper()
 
 	projectID, id := uuid.New(), uuid.New()
@@ -118,6 +156,7 @@ func newEnvironmentFixture(t *testing.T) environmentFixture {
 		Name:               "staging",
 		BaseURL:            "https://staging.example.test",
 		VerificationStatus: domain.VerificationPending,
+		VerificationToken:  "a-challenge-token",
 		MaxVUs:             10,
 		MaxDurationS:       60,
 	}}
@@ -125,13 +164,14 @@ func newEnvironmentFixture(t *testing.T) environmentFixture {
 
 	return environmentFixture{
 		handler: handler.NewEnvironment(environment.NewService(
-			environments, secrets, stubTokens{}, permissive{},
+			environments, secrets, stubTokens{}, stubProof{err: proofErr}, permissive{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			discard(),
 		), discard()),
-		secrets:   secrets,
-		projectID: projectID,
-		id:        id,
+		secrets:      secrets,
+		environments: environments,
+		projectID:    projectID,
+		id:           id,
 	}
 }
 
@@ -289,5 +329,120 @@ func TestADeclaredEnvironmentIsNeverCreatedVerified(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"verification_status":"pending"`) {
 		t.Fatalf("a request asked for verified and got: %s", rec.Body.String())
+	}
+}
+
+func (f environmentFixture) environmentPath() map[string]string {
+	return map[string]string{
+		"projectId":     f.projectID.String(),
+		"environmentId": f.id.String(),
+	}
+}
+
+func TestTheChallengeSaysWhatToServeAndWhere(t *testing.T) {
+	f := newEnvironmentFixture(t)
+
+	rec := httptest.NewRecorder()
+	f.handler.Challenge(rec, f.request(http.MethodGet, "", f.environmentPath()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"token":"a-challenge-token"`,
+		`"url":"https://staging.example.test/.well-known/ballast-a-challenge-token"`,
+		`"verification_status":"pending"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("the challenge does not carry %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+// A served challenge leaves the target proven and not approved. The response has
+// to say so plainly, or somebody reads a 200 as permission to run.
+func TestAServedChallengeAnswersProvenAndNotVerified(t *testing.T) {
+	f := newEnvironmentFixture(t)
+
+	rec := httptest.NewRecorder()
+	f.handler.Verify(rec, f.request(http.MethodPost, "", f.environmentPath()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"verification_status":"proof_ok"`) {
+		t.Fatalf("the response is %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"verified"`) {
+		t.Fatalf("a served challenge answered verified: %s", rec.Body.String())
+	}
+}
+
+// The reason travels to the caller: this is the whole difference between an
+// endpoint somebody can use and one that says no.
+func TestAFailedVerificationAnswers422WithTheReason(t *testing.T) {
+	f := newEnvironmentFixtureWithProof(t,
+		errors.New("the target does not resolve to a publicly routable address"))
+
+	rec := httptest.NewRecorder()
+	f.handler.Verify(rec, f.request(http.MethodPost, "", f.environmentPath()))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status %d, want 422: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "publicly routable") {
+		t.Fatalf("the refusal lost its reason: %s", rec.Body.String())
+	}
+	// The challenge token has no business in an error body either.
+	if strings.Contains(rec.Body.String(), "a-challenge-token") {
+		t.Fatalf("the refusal carries the token: %s", rec.Body.String())
+	}
+}
+
+func TestApprovingWithoutAProofAnswers409(t *testing.T) {
+	f := newEnvironmentFixture(t)
+
+	rec := httptest.NewRecorder()
+	f.handler.Approve(rec, f.request(http.MethodPost, "", f.environmentPath()))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if f.environments.approvedHost != "" {
+		t.Fatalf("the host %q was allowed anyway", f.environments.approvedHost)
+	}
+}
+
+func TestApprovingAProvenTargetAnswersVerifiedAndAllowsItsHost(t *testing.T) {
+	f := newEnvironmentFixture(t)
+	f.environments.environment.VerificationStatus = domain.VerificationProofOK
+
+	rec := httptest.NewRecorder()
+	f.handler.Approve(rec, f.request(http.MethodPost, "", f.environmentPath()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"verification_status":"verified"`) {
+		t.Fatalf("the response is %s", rec.Body.String())
+	}
+	if f.environments.approvedHost != "staging.example.test" {
+		t.Fatalf("the project allows %q", f.environments.approvedHost)
+	}
+}
+
+// The environment's own response must not carry the challenge token: it is read
+// through the verification endpoint, which asks for a different permission.
+func TestTheEnvironmentResponseDoesNotCarryTheToken(t *testing.T) {
+	f := newEnvironmentFixture(t)
+
+	rec := httptest.NewRecorder()
+	f.handler.ByID(rec, f.request(http.MethodGet, "", f.environmentPath()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "a-challenge-token") {
+		t.Fatalf("the environment response carries the token: %s", rec.Body.String())
 	}
 }

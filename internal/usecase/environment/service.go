@@ -16,6 +16,7 @@ type Service struct {
 	environments Repository
 	secrets      Secrets
 	tokens       Tokens
+	proof        ProofReader
 	authz        Authorizer
 	clock        Clock
 	log          *slog.Logger
@@ -26,6 +27,7 @@ func NewService(
 	environments Repository,
 	secrets Secrets,
 	tokens Tokens,
+	proof ProofReader,
 	authz Authorizer,
 	clock Clock,
 	log *slog.Logger,
@@ -34,6 +36,7 @@ func NewService(
 		environments: environments,
 		secrets:      secrets,
 		tokens:       tokens,
+		proof:        proof,
 		authz:        authz,
 		clock:        clock,
 		log:          log,

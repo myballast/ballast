@@ -16,6 +16,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
+	"github.com/youssefmahersi/ballast/internal/adapter/verifier"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/infra/config"
@@ -105,6 +106,11 @@ func serve(log *slog.Logger) error {
 		postgres.NewEnvironmentWriteRepository(db),
 		secrets,
 		crypto.NewRandomTokens(),
+		// The one component that makes an outbound request to an address
+		// somebody else chose. It refuses anything that does not resolve
+		// publicly, which is what keeps the endpoint from being a way to read
+		// Ballast's own network.
+		verifier.New(),
 		permissions,
 		infra.SystemClock{},
 		log,

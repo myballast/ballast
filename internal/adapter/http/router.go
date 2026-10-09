@@ -87,6 +87,10 @@ func NewRouter(
 		"GET /projects/{projectId}/environments/{environmentId}/secrets":          environmentHandler.Secrets,
 		"PUT /projects/{projectId}/environments/{environmentId}/secrets/{key}":    environmentHandler.SetSecret,
 		"DELETE /projects/{projectId}/environments/{environmentId}/secrets/{key}": environmentHandler.RemoveSecret,
+
+		"GET /projects/{projectId}/environments/{environmentId}/verification": environmentHandler.Challenge,
+		"POST /projects/{projectId}/environments/{environmentId}/verify":      environmentHandler.Verify,
+		"POST /projects/{projectId}/environments/{environmentId}/approve":     environmentHandler.Approve,
 	}
 
 	authenticate := middleware.Authenticate(sessions, log)

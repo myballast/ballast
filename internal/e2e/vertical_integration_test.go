@@ -653,3 +653,51 @@ func TestASecretReachesTheGeneratorAndNothingElse(t *testing.T) {
 		t.Error("the run's error message carries the token")
 	}
 }
+
+// The second acceptance criterion of the verification ticket, through the whole
+// stack: a target that served its challenge file correctly, and that nobody has
+// approved, is still not a target load may be sent at.
+//
+// proof_ok is the state that looks most like success, which is exactly why it
+// has to be refused: the two steps are separate because automatic approval falls
+// the day somebody finds a way to serve a file on a domain that is not theirs.
+func TestVerticalSkeletonRefusesAProvenButUnapprovedTarget(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	db, err := postgres.Open(ctx, dsn())
+	if err != nil {
+		t.Fatalf("open the database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	org, scenario, environment := seed(ctx, t, db, "http://unused.example.test", nil)
+
+	// The proof is in, the approval is not.
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE environment
+			SET verification_status = 'proof_ok', verified_at = NULL, verified_by = NULL
+			WHERE id = $1`, environment)
+		return err
+	}); err != nil {
+		t.Fatalf("record the proof: %v", err)
+	}
+
+	s := build(t, db, org)
+
+	status, _ := s.enqueue(t, fmt.Sprintf(
+		`{"scenario_id":%q,"environment_id":%q,"profile":"smoke"}`, scenario, environment))
+	if status != http.StatusForbidden {
+		t.Fatalf("POST /runs returned %d for a proven but unapproved target, want 403", status)
+	}
+
+	var runs int
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, "SELECT count(*) FROM run").Scan(&runs)
+	}); err != nil {
+		t.Fatalf("count the runs: %v", err)
+	}
+	if runs != 0 {
+		t.Errorf("%d run(s) were written for a target nobody approved", runs)
+	}
+}

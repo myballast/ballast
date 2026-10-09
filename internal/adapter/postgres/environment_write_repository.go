@@ -40,6 +40,9 @@ func toDomainEnvironment(row sqlc.Environment) domain.Environment {
 		Name:               row.Name,
 		BaseURL:            row.BaseUrl,
 		VerificationStatus: domain.VerificationStatus(row.VerificationStatus),
+		VerificationToken:  row.VerificationToken,
+		VerifiedAt:         row.VerifiedAt,
+		VerifiedBy:         row.VerifiedBy,
 		MaxVUs:             int(row.MaxVus),
 		MaxDurationS:       int(row.MaxDurationS),
 		CreatedAt:          row.CreatedAt,
@@ -246,4 +249,101 @@ func writeError(err error, what string) error {
 		return domain.ErrAlreadyExists
 	}
 	return fmt.Errorf("%s: %w", what, err)
+}
+
+// RecordProofOK records that the target served its challenge.
+//
+// It leaves the environment in proof_ok, which is not a state load may be sent
+// in. The statement refuses an already approved target, so this cannot be used
+// to take an approval away.
+func (r *EnvironmentWriteRepository) RecordProofOK(
+	ctx context.Context, orgID, id uuid.UUID,
+) (domain.Environment, error) {
+	return r.recordProof(ctx, orgID, func(queries *sqlc.Queries) (sqlc.Environment, error) {
+		return queries.MarkEnvironmentProven(ctx,
+			sqlc.MarkEnvironmentProvenParams{OrgID: orgID, ID: id})
+	})
+}
+
+// RecordProofFailed records an attempt that proved nothing.
+func (r *EnvironmentWriteRepository) RecordProofFailed(
+	ctx context.Context, orgID, id uuid.UUID,
+) (domain.Environment, error) {
+	return r.recordProof(ctx, orgID, func(queries *sqlc.Queries) (sqlc.Environment, error) {
+		return queries.MarkEnvironmentProofFailed(ctx,
+			sqlc.MarkEnvironmentProofFailedParams{OrgID: orgID, ID: id})
+	})
+}
+
+func (r *EnvironmentWriteRepository) recordProof(
+	ctx context.Context, orgID uuid.UUID,
+	write func(*sqlc.Queries) (sqlc.Environment, error),
+) (domain.Environment, error) {
+	var recorded domain.Environment
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		row, err := write(sqlc.New(tx))
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Either there is no such environment, or it is already approved.
+			// The service checks the second before coming here, so by the time
+			// this is reached the two are the same answer.
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("record the verification attempt: %w", err)
+		}
+
+		recorded = toDomainEnvironment(row)
+		return nil
+	})
+
+	return recorded, err
+}
+
+// Approve records the decision that lets load reach a target, and allows its
+// host for the project.
+//
+// Both in one transaction, and in this order. A target approved while the
+// allowlist that bounds it stays empty would be a run refused for a reason
+// nobody can see; an allowlist entry with no approval behind it would be an
+// egress permission nobody granted.
+func (r *EnvironmentWriteRepository) Approve(
+	ctx context.Context, orgID, id uuid.UUID, by domain.Identity, at time.Time, host string,
+) (domain.Environment, error) {
+	var approved domain.Environment
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+
+		row, err := queries.ApproveEnvironment(ctx, sqlc.ApproveEnvironmentParams{
+			OrgID:      orgID,
+			ID:         id,
+			VerifiedBy: &by.UserID,
+			VerifiedAt: &at,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The statement requires proof_ok, so a row that exists and did not
+			// match had no proof in. Said as such rather than as absent: the
+			// caller asked about something they can see.
+			return fmt.Errorf("%w: nothing was approved", domain.ErrNotProven)
+		}
+		if err != nil {
+			return fmt.Errorf("approve the environment: %w", err)
+		}
+
+		// From the row rather than from an argument: the project is whatever the
+		// environment that was just approved belongs to.
+		if err := queries.AllowHostForProject(ctx, sqlc.AllowHostForProjectParams{
+			OrgID:     orgID,
+			ProjectID: row.ProjectID,
+			Host:      host,
+		}); err != nil {
+			return fmt.Errorf("allow the host for the project: %w", err)
+		}
+
+		approved = toDomainEnvironment(row)
+		return nil
+	})
+
+	return approved, err
 }
