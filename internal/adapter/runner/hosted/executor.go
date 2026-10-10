@@ -22,10 +22,11 @@ func (r *Runner) Execute(
 	ctx context.Context, job run.Job, logs chan<- domain.LogLine,
 ) (run.Outcome, error) {
 	result, err := r.Run(ctx, Job{
-		RunID:   job.RunID,
-		Script:  job.Script,
-		Options: job.Options,
-		Env:     job.Env,
+		RunID:        job.RunID,
+		Script:       job.Script,
+		Options:      job.Options,
+		Env:          job.Env,
+		AllowedHosts: job.AllowedHosts,
 	}, logs)
 	if err != nil {
 		return run.Outcome{}, err

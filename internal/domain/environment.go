@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -273,4 +274,27 @@ const (
 // IsVerified reports whether load may be sent to this target at all.
 func (e Environment) IsVerified() bool {
 	return e.VerificationStatus == VerificationVerified
+}
+
+// HostPort is the target as the egress proxy's allowlist holds it: the host and
+// the port traffic would actually go to.
+//
+// The port is part of what was approved. A tunnel to another port of the same
+// machine is not the target an administrator looked at, so the default for the
+// scheme is written out rather than left implicit.
+func (e Environment) HostPort() (string, error) {
+	parsed, err := url.Parse(e.BaseURL)
+	if err != nil || parsed.Hostname() == "" {
+		return "", fmt.Errorf("%w: the base URL names no host", ErrInvalidEnvironment)
+	}
+
+	port := parsed.Port()
+	if port == "" {
+		port = "80"
+		if strings.EqualFold(parsed.Scheme, "https") {
+			port = "443"
+		}
+	}
+
+	return net.JoinHostPort(strings.ToLower(parsed.Hostname()), port), nil
 }

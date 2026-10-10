@@ -193,3 +193,37 @@ func TestNoErrorRepeatsTheToken(t *testing.T) {
 		}
 	}
 }
+
+// What the egress proxy's allowlist holds: the host and the port traffic would
+// really go to. The default for the scheme is written out, because a proxy
+// matches on what it is asked for and a request to port 443 does not say "the
+// default for https" — it says 443.
+func TestTheHostAndPortAnAllowlistHolds(t *testing.T) {
+	cases := map[string]string{
+		"https://staging.example.test":            "staging.example.test:443",
+		"http://staging.example.test":             "staging.example.test:80",
+		"https://staging.example.test/api/v2":     "staging.example.test:443",
+		"http://staging.example.test:8080/deeper": "staging.example.test:8080",
+		"https://staging.example.test:8443":       "staging.example.test:8443",
+		"https://STAGING.Example.Test":            "staging.example.test:443",
+	}
+
+	for baseURL, want := range cases {
+		env := target(VerificationPending)
+		env.BaseURL = baseURL
+
+		got, err := env.HostPort()
+		if err != nil {
+			t.Fatalf("%s: %v", baseURL, err)
+		}
+		if got != want {
+			t.Errorf("%s gave %q, want %q", baseURL, got, want)
+		}
+	}
+
+	env := target(VerificationPending)
+	env.BaseURL = "not a url at all"
+	if _, err := env.HostPort(); err == nil {
+		t.Error("a host and port were read out of something that is not a URL")
+	}
+}

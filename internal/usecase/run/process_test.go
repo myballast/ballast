@@ -30,22 +30,38 @@ func (staticOptions) Build(domain.ProfileKind, domain.ProfileParams, []domain.Th
 	return []byte(`{"scenarios":{}}`), nil
 }
 
+// fakeAllowlist stands in for the project's network allowlist, which an
+// approval writes and a run reads.
+type fakeAllowlist struct {
+	hosts []string
+	err   error
+}
+
+func (f *fakeAllowlist) AllowedHosts(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
+	return f.hosts, f.err
+}
+
 type jobFixture struct {
-	service *Service
-	secrets *fakeSecrets
-	run     domain.Run
-	orgID   uuid.UUID
+	service   *Service
+	secrets   *fakeSecrets
+	allowlist *fakeAllowlist
+	run       domain.Run
+	orgID     uuid.UUID
 }
 
 func newJobFixture(environment domain.Environment, secrets map[string]string, at time.Time) jobFixture {
 	orgID := uuid.New()
 	secretReader := &fakeSecrets{values: secrets}
+	// Approved by default, which is the ordinary case; the tests that are about
+	// a disagreement set it themselves.
+	allowlist := &fakeAllowlist{hosts: []string{"staging.example.test"}}
 
 	return jobFixture{
 		service: NewService(
 			&fakeRuns{},
 			fakeScenarios{scenario: domain.Scenario{Script: "export default function () {}"}},
 			fakeEnvironments{environment: environment},
+			allowlist,
 			secretReader,
 			nil,
 			staticOptions{},
@@ -54,7 +70,8 @@ func newJobFixture(environment domain.Environment, secrets map[string]string, at
 			fixedClock{at: at},
 			discardLogger(),
 		),
-		secrets: secretReader,
+		secrets:   secretReader,
+		allowlist: allowlist,
 		run: domain.Run{
 			ID:            uuid.New(),
 			EnvironmentID: environment.ID,
@@ -235,5 +252,42 @@ func TestARunThatStillFitsStarts(t *testing.T) {
 
 	if _, err := f.service.buildJob(context.Background(), f.orgID, f.run); err != nil {
 		t.Fatalf("a five minute run ten minutes before closing was refused: %v", err)
+	}
+}
+
+// The two records of "this target was approved" have to agree. An environment
+// that says it is verified while its host is absent from the project's network
+// allowlist means one of them was changed behind the other's back, and a run is
+// not the moment to decide which to believe.
+func TestARunWhoseTargetIsNotInTheProjectsAllowlistDoesNotStart(t *testing.T) {
+	f := newJobFixture(verifiedTarget(), nil, time.Unix(0, 0).UTC())
+	f.allowlist.hosts = []string{"somewhere-else.example.test"}
+
+	_, err := f.service.buildJob(context.Background(), f.orgID, f.run)
+	if !errors.Is(err, domain.ErrTargetNotVerified) {
+		t.Fatalf("got %v, want ErrTargetNotVerified", err)
+	}
+	if f.secrets.asked != 0 {
+		t.Fatal("the secrets were decrypted for a run that cannot start")
+	}
+}
+
+// And what the generator is allowed to reach is the one target, with its port,
+// rather than everything the project ever approved: a run against staging has no
+// business emitting traffic at production.
+func TestTheGeneratorIsAllowedOneHostAndOnePort(t *testing.T) {
+	target := verifiedTarget()
+	target.BaseURL = "https://staging.example.test:8443/api"
+
+	f := newJobFixture(target, nil, time.Unix(0, 0).UTC())
+	f.allowlist.hosts = []string{"staging.example.test", "production.example.test"}
+
+	job, err := f.service.buildJob(context.Background(), f.orgID, f.run)
+	if err != nil {
+		t.Fatalf("build the job: %v", err)
+	}
+
+	if len(job.AllowedHosts) != 1 || job.AllowedHosts[0] != "staging.example.test:8443" {
+		t.Fatalf("the generator may reach %v", job.AllowedHosts)
 	}
 }

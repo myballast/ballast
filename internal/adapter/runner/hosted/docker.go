@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 
@@ -39,7 +40,15 @@ const (
 	// The image's own user. A k6 script is arbitrary code someone uploaded, so
 	// it never runs as root.
 	containerUser = "12345:12345"
+
+	// The name the generator reaches the proxy by, on the run's own network.
+	proxyAlias = "egress"
+	proxyPort  = "3128"
 )
+
+// DefaultProxyImage is the egress proxy, built by `make proxy-image` from
+// deploy/proxy/Dockerfile. Not a registry tag: it is this repository's own code.
+const DefaultProxyImage = "ballast/egress-proxy:dev"
 
 // Config holds what every run of this runner shares.
 type Config struct {
@@ -55,11 +64,21 @@ type Config struct {
 	// TTL is the hard ceiling on a container's life. Defaults to 15 minutes.
 	TTL time.Duration
 	// ExtraHosts is passed straight to Docker, in the host:ip form. It exists
-	// so a development or test run can reach a server on the host machine. The
-	// network is otherwise Docker's default bridge: restricting it to the
-	// project's allowed hosts is a separate piece of work, and until it lands
-	// this runner does not constrain where a script connects.
+	// so a development or test run can reach a server on the host machine.
 	ExtraHosts []string
+	// ProxyImage is the egress proxy, defaulting to DefaultProxyImage. It is
+	// built from this repository rather than pulled, so a machine that has not
+	// built it cannot run anything — which is the right failure: a run with no
+	// proxy would be a run with no way out, or worse, one with an unguarded one.
+	ProxyImage string
+	// AllowedCIDRs names networks the proxy may reach although they are not
+	// publicly routable, in CIDR form.
+	//
+	// **Empty in production, and it has to stay that way.** It exists for a run
+	// launched on a developer's machine, whose target is on that machine, and
+	// for the tests that predate the run network. Naming a private range here
+	// lets a generator reach it.
+	AllowedCIDRs []string
 	// WorkDir is where per-run directories are created. Defaults to the
 	// operating system's temporary directory.
 	WorkDir string
@@ -81,6 +100,9 @@ func (c Config) withDefaults() Config {
 	if c.TTL <= 0 {
 		c.TTL = 15 * time.Minute
 	}
+	if c.ProxyImage == "" {
+		c.ProxyImage = DefaultProxyImage
+	}
 	return c
 }
 
@@ -94,6 +116,13 @@ type Job struct {
 	// Env is injected into the container. It carries the environment's secrets,
 	// so nothing here is ever logged.
 	Env map[string]string
+	// AllowedHosts are the host:port pairs this run may reach. Everything else
+	// is refused by the proxy, and unreachable by the network in any case.
+	AllowedHosts []string
+	// Network is the run network to use. Left empty, Run makes one and removes
+	// it; given one, the caller owns its removal. Only the tests give one, so
+	// that a target container can be attached to it before the run starts.
+	Network string
 }
 
 func (j Job) validate() error {
@@ -104,6 +133,11 @@ func (j Job) validate() error {
 		return fmt.Errorf("%w: the scenario is empty", ErrInvalidJob)
 	case len(j.Options) == 0:
 		return fmt.Errorf("%w: no k6 options", ErrInvalidJob)
+	case len(j.AllowedHosts) == 0:
+		// A run that may reach nothing is a wiring mistake, not a run. Refused
+		// here rather than started and left to fail every request, which looks
+		// like a target being down.
+		return fmt.Errorf("%w: no allowed hosts", ErrInvalidJob)
 	}
 	return nil
 }
@@ -167,13 +201,35 @@ func (r *Runner) Run(ctx context.Context, job Job, logs chan<- domain.LogLine) (
 		return Result{}, err
 	}
 
+	// The run's own network, with no route out of it, and the proxy that is the
+	// only thing on it with one. Both before the generator exists: a generator
+	// on a network that can reach the internet is the thing this prevents, and
+	// it must never exist even briefly.
+	networkName := job.Network
+	if networkName == "" {
+		created, removeNetwork, err := r.NewRunNetwork(ctx, job.RunID)
+		if err != nil {
+			return Result{}, err
+		}
+		// Whoever makes a network removes it. A caller that supplied one owns
+		// its removal instead, which only the tests do.
+		defer removeNetwork()
+		networkName = created
+	}
+
+	proxyID, err := r.startProxy(ctx, job, networkName)
+	if err != nil {
+		return Result{}, err
+	}
+	defer r.remove(ctx, proxyID)
+
 	dir, err := r.writeScripts(job)
 	if err != nil {
 		return Result{}, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	id, err := r.create(ctx, job, dir)
+	id, err := r.create(ctx, job, dir, networkName)
 	if err != nil {
 		return Result{}, err
 	}
@@ -261,15 +317,19 @@ func (r *Runner) writeScripts(job Job) (string, error) {
 // useInit is addressable because the Docker API wants a pointer.
 var useInit = true
 
-func (r *Runner) create(ctx context.Context, job Job, dir string) (string, error) {
+func (r *Runner) create(ctx context.Context, job Job, dir, networkName string) (string, error) {
 	ttl := strconv.Itoa(int(r.cfg.TTL.Seconds()))
 
 	// The time limit runs inside the container. A context deadline on this side
 	// only helps while this process is alive; a worker killed mid-run leaves a
 	// generator hammering someone's staging environment, and this is what stops
 	// that.
+	// --no-usage-report because k6 otherwise calls stats.grafana.org on every
+	// run. The proxy refuses it, so it was never going anywhere; what it left
+	// was a misleading refusal in the log of every single run, and an attempt to
+	// tell a third party how Ballast's customers use it.
 	command := fmt.Sprintf(
-		"timeout -s KILL %s k6 run --no-color %s/%s",
+		"timeout -s KILL %s k6 run --no-color --no-usage-report %s/%s",
 		ttl, scriptDir, entryName,
 	)
 
@@ -277,7 +337,7 @@ func (r *Runner) create(ctx context.Context, job Job, dir string) (string, error
 		&container.Config{
 			Image:      r.cfg.Image,
 			Entrypoint: []string{"sh", "-c", command},
-			Env:        environ(job.Env),
+			Env:        environ(job.Env, proxyEnv()),
 			User:       containerUser,
 			Labels:     map[string]string{RunIDLabel: job.RunID.String()},
 		},
@@ -307,8 +367,16 @@ func (r *Runner) create(ctx context.Context, job Job, dir string) (string, error
 			// Removal is explicit, below. Letting the daemon do it would race
 			// with reading the exit code.
 			AutoRemove: false,
+
+			// This network and no other. It has no gateway, so the generator
+			// has no default route: the proxy is not the recommended way out,
+			// it is the only one that exists.
+			NetworkMode: container.NetworkMode(networkName),
 		},
-		nil, nil, "",
+		&network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+			networkName: {},
+		}},
+		nil, "",
 	)
 	if err != nil {
 		return "", fmt.Errorf("create the container: %w", err)
@@ -354,14 +422,22 @@ func (r *Runner) remove(ctx context.Context, id string) {
 
 // environ renders the injected variables. The values are an environment's
 // secrets; they are handed to Docker and never written anywhere else.
-func environ(env map[string]string) []string {
-	if len(env) == 0 {
-		return nil
-	}
-
-	out := make([]string, 0, len(env))
-	for key, value := range env {
+//
+// Ballast's own variables are written last, after the secrets, so that a secret
+// cannot be named HTTPS_PROXY and point the generator at a way out of its own
+// choosing. Storing such a key is refused where secrets are written; this is
+// what holds if that check is ever widened.
+func environ(secrets, ours map[string]string) []string {
+	out := make([]string, 0, len(secrets)+len(ours))
+	for key, value := range secrets {
+		if _, taken := ours[key]; taken {
+			continue
+		}
 		out = append(out, key+"="+value)
 	}
+	for key, value := range ours {
+		out = append(out, key+"="+value)
+	}
+
 	return out
 }

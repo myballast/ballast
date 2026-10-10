@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -136,6 +137,13 @@ func (s *Service) buildJob(ctx context.Context, orgID uuid.UUID, current domain.
 		return Job{}, fmt.Errorf("build the generator options: %w", err)
 	}
 
+	// What the generator is allowed to reach, which the hosted runner turns into
+	// the only route its network has.
+	allowed, err := s.allowedTarget(ctx, orgID, environment)
+	if err != nil {
+		return Job{}, err
+	}
+
 	// The environment's credentials, decrypted here and handed to the generator
 	// in its environment. This is the last place in Ballast where they exist as
 	// anything readable.
@@ -145,11 +153,56 @@ func (s *Service) buildJob(ctx context.Context, orgID uuid.UUID, current domain.
 	}
 
 	return Job{
-		RunID:   current.ID,
-		Script:  []byte(scenario.Script),
-		Options: options,
-		Env:     injected(secrets, environment),
+		RunID:        current.ID,
+		Script:       []byte(scenario.Script),
+		Options:      options,
+		Env:          injected(secrets, environment),
+		AllowedHosts: allowed,
 	}, nil
+}
+
+// allowedTarget is the one host:port this run may reach.
+//
+// Narrower than the project's allowlist on purpose: a run against staging has no
+// business emitting traffic at production, even though both are approved for the
+// project. The script inspector already refuses a scenario that writes a host of
+// its own, so BASE_URL is the only address a script can ask for anyway.
+//
+// The project's list is still read, and the environment's host has to be in it.
+// The two records of "this target was approved" must agree: a verified
+// environment whose host is absent from the allowlist means one of them was
+// changed behind the other's back, and a run is not the moment to decide which
+// to believe.
+func (s *Service) allowedTarget(
+	ctx context.Context, orgID uuid.UUID, environment domain.Environment,
+) ([]string, error) {
+	hostPort, err := environment.HostPort()
+	if err != nil {
+		return nil, err
+	}
+
+	host, err := environment.Host()
+	if err != nil {
+		return nil, err
+	}
+
+	approved, err := s.allowlist.AllowedHosts(ctx, orgID, environment.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("read the project's allowed hosts: %w", err)
+	}
+
+	for _, allowed := range approved {
+		if strings.EqualFold(allowed, host) {
+			return []string{hostPort}, nil
+		}
+	}
+
+	s.log.ErrorContext(ctx, "a verified target is absent from its project's allowlist",
+		"org_id", orgID, "project_id", environment.ProjectID,
+		"environment_id", environment.ID, "host", host)
+
+	return nil, fmt.Errorf("%w: %s is not among the hosts this project may reach",
+		domain.ErrTargetNotVerified, host)
 }
 
 // injected builds the generator's environment: the secrets first, then what

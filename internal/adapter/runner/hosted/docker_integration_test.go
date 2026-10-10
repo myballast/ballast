@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -73,6 +74,12 @@ func newRunner(t *testing.T, ttl time.Duration) *hosted.Runner {
 		CPUs:       1,
 		MemoryMB:   256,
 		ExtraHosts: []string{hostAlias + ":host-gateway"},
+		// These tests serve their target from the test process itself, on the
+		// machine running them, so the proxy has to be allowed to reach a
+		// private address. Empty in production, and the tests written for the
+		// run network do not set it: those prove the strict path, with a target
+		// container whose address is inside the subnet the worker created.
+		AllowedCIDRs: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 	})
 	if err != nil {
 		t.Fatalf("connect to docker: %v", err)
@@ -80,6 +87,25 @@ func newRunner(t *testing.T, ttl time.Duration) *hosted.Runner {
 	t.Cleanup(func() { _ = runner.Close() })
 
 	return runner
+}
+
+// reachesNothing is for the jobs below whose script makes no request at all —
+// the time limit, the cancellation, the log stream. The field is required
+// because a run allowed to reach nothing is a wiring mistake rather than a run,
+// and naming a host these scripts never ask for says so.
+var reachesNothing = []string{"unreachable.example.test:80"}
+
+// allowing is the host:port of a target, which is what the proxy's allowlist
+// holds. A run that may reach nothing is refused before it starts, so every job
+// below names the one target it is about.
+func allowing(t *testing.T, target string) []string {
+	t.Helper()
+
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("the test's own target is not a URL: %v", err)
+	}
+	return []string{parsed.Host}
 }
 
 // A server bound to every interface, because 127.0.0.1 is not reachable from
@@ -175,10 +201,11 @@ export default function () {
 	wg, gathered := drain(logs)
 
 	result, err := newRunner(t, 2*time.Minute).Run(ctx, hosted.Job{
-		RunID:   uuid.New(),
-		Script:  script,
-		Options: smokeOptions(t, "3s"),
-		Env:     map[string]string{"BASE_URL": target},
+		RunID:        uuid.New(),
+		Script:       script,
+		Options:      smokeOptions(t, "3s"),
+		Env:          map[string]string{"BASE_URL": target},
+		AllowedHosts: allowing(t, target),
 	}, logs)
 	close(logs)
 	wg.Wait()
@@ -252,10 +279,11 @@ export default function () {
 
 	started := time.Now()
 	result, err := newRunner(t, 2*time.Minute).Run(ctx, hosted.Job{
-		RunID:   uuid.New(),
-		Script:  script,
-		Options: smokeOptions(t, "3s"),
-		Env:     map[string]string{"BASE_URL": target},
+		RunID:        uuid.New(),
+		Script:       script,
+		Options:      smokeOptions(t, "3s"),
+		Env:          map[string]string{"BASE_URL": target},
+		AllowedHosts: allowing(t, target),
 	}, nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -291,9 +319,10 @@ export default function () { sleep(60); }
 
 	started := time.Now()
 	result, err := newRunner(t, 5*time.Second).Run(ctx, hosted.Job{
-		RunID:   uuid.New(),
-		Script:  script,
-		Options: smokeOptions(t, "120s"),
+		RunID:        uuid.New(),
+		Script:       script,
+		Options:      smokeOptions(t, "120s"),
+		AllowedHosts: reachesNothing,
 	}, nil)
 	elapsed := time.Since(started)
 
@@ -324,9 +353,10 @@ export default function () { sleep(60); }
 	done := make(chan error, 1)
 	go func() {
 		_, err := newRunner(t, 2*time.Minute).Run(ctx, hosted.Job{
-			RunID:   runID,
-			Script:  script,
-			Options: smokeOptions(t, "120s"),
+			RunID:        runID,
+			Script:       script,
+			Options:      smokeOptions(t, "120s"),
+			AllowedHosts: reachesNothing,
 		}, nil)
 		done <- err
 	}()
@@ -382,9 +412,10 @@ export default function () {
 	wg, gathered := drain(logs)
 
 	if _, err := newRunner(t, time.Minute).Run(ctx, hosted.Job{
-		RunID:   uuid.New(),
-		Script:  script,
-		Options: smokeOptions(t, "1s"),
+		RunID:        uuid.New(),
+		Script:       script,
+		Options:      smokeOptions(t, "1s"),
+		AllowedHosts: reachesNothing,
 	}, logs); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

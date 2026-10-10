@@ -127,6 +127,12 @@ func seed(ctx context.Context, t *testing.T, db *postgres.DB, baseURL string, th
 			// held within a project.
 			{`INSERT INTO membership (org_id, user_id, project_id, role) VALUES ($1, $2, $3, 'admin')`,
 				[]any{org, user, project}},
+			// The network allowlist, which an approval writes and a run reads.
+			// This seed makes a verified environment directly in SQL, so it has
+			// to write the other half of that fact too: a verified target whose
+			// host the project may not reach stops a run, deliberately.
+			{`INSERT INTO project_allowed_host (org_id, project_id, host) VALUES ($1, $2, $3)`,
+				[]any{org, project, hostAlias}},
 		}
 		for _, threshold := range thresholds {
 			statements = append(statements, struct {
@@ -185,6 +191,11 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 		CPUs:       1,
 		MemoryMB:   256,
 		ExtraHosts: []string{hostAlias + ":host-gateway"},
+		// This suite serves its target from the test process, on the machine
+		// running it, so the egress proxy has to be allowed a private address.
+		// Empty in production. The tests written for the run network do not set
+		// it: those prove the strict path with a containerised target.
+		AllowedCIDRs: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 	})
 	if err != nil {
 		t.Fatalf("connect to docker: %v", err)
@@ -198,6 +209,7 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 	service := run.NewService(
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
+		postgres.NewEnvironmentRepository(db),
 		postgres.NewEnvironmentRepository(db),
 		// A real cipher over a real key: what the generator is handed has to come
 		// back out of the database the way it went in, and that is part of what

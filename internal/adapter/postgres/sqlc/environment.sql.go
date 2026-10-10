@@ -251,6 +251,39 @@ func (q *Queries) ListEnvironmentsInProject(ctx context.Context, arg ListEnviron
 	return items, nil
 }
 
+const listProjectAllowedHosts = `-- name: ListProjectAllowedHosts :many
+SELECT host FROM project_allowed_host
+WHERE org_id = $1 AND project_id = $2
+ORDER BY host
+`
+
+type ListProjectAllowedHostsParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+// The hosts a project's generators may reach at all. Written by an approval,
+// read by the worker before a run starts.
+func (q *Queries) ListProjectAllowedHosts(ctx context.Context, arg ListProjectAllowedHostsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listProjectAllowedHosts, arg.OrgID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var host string
+		if err := rows.Scan(&host); err != nil {
+			return nil, err
+		}
+		items = append(items, host)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretKeys = `-- name: ListSecretKeys :many
 SELECT id, org_id, environment_id, key, created_at, updated_at FROM secret
 WHERE org_id = $1 AND environment_id = $2

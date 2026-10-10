@@ -50,6 +50,17 @@ type SecretReader interface {
 	SecretsOf(ctx context.Context, orgID, environmentID uuid.UUID) (map[string]string, error)
 }
 
+// AllowlistReader reads the hosts a project's generators may reach at all.
+//
+// The list is written when an administrator approves a target, and read here
+// before a run starts. Two records of the same fact have to agree: an
+// environment that says it is verified while its host is absent from the
+// project's allowlist is an inconsistency, and a run is not the moment to paper
+// over it.
+type AllowlistReader interface {
+	AllowedHosts(ctx context.Context, orgID, projectID uuid.UUID) ([]string, error)
+}
+
 // Job is one execution handed to a generator.
 type Job struct {
 	RunID uuid.UUID
@@ -59,6 +70,10 @@ type Job struct {
 	Options []byte
 	// Env is injected into the generator. It carries an environment's secrets.
 	Env map[string]string
+	// AllowedHosts are the host:port pairs this run may reach. Everything else
+	// is refused, and in the hosted runner unreachable: the generator sits on a
+	// network with no route of its own.
+	AllowedHosts []string
 }
 
 // Outcome is what a finished generator left behind.

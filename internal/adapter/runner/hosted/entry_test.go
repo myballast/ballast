@@ -115,15 +115,21 @@ func TestJobValidation(t *testing.T) {
 	script := []byte("export default function () {}")
 	options := []byte(`{"scenarios":{}}`)
 
+	allowed := []string{"staging.example.test:443"}
+
 	cases := []struct {
 		name    string
 		job     Job
 		wantErr bool
 	}{
-		{"complete", Job{RunID: uuid.New(), Script: script, Options: options}, false},
-		{"no run id", Job{Script: script, Options: options}, true},
-		{"no scenario", Job{RunID: uuid.New(), Options: options}, true},
-		{"no options", Job{RunID: uuid.New(), Script: script}, true},
+		{"complete", Job{RunID: uuid.New(), Script: script, Options: options, AllowedHosts: allowed}, false},
+		{"no run id", Job{Script: script, Options: options, AllowedHosts: allowed}, true},
+		{"no scenario", Job{RunID: uuid.New(), Options: options, AllowedHosts: allowed}, true},
+		{"no options", Job{RunID: uuid.New(), Script: script, AllowedHosts: allowed}, true},
+		// A run allowed to reach nothing is a wiring mistake rather than a run:
+		// it would start and fail every request, which reads as a target being
+		// down.
+		{"no allowed hosts", Job{RunID: uuid.New(), Script: script, Options: options}, true},
 	}
 
 	for _, c := range cases {

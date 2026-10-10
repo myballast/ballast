@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -67,68 +66,16 @@ func stubbed(rt http.RoundTripper) *Verifier {
 const proofURL = "https://staging.example.test/.well-known/ballast-" + token
 
 // ---------------------------------------------------------------------------
-// The address guard. This is the acceptance criterion of the ticket, and the
-// reason the guard sits on the dialer rather than in front of the request: the
-// address checked is the one the kernel is about to connect to, so a DNS answer
-// that changes between the check and the connection has nothing to change.
+// The address guard, and the reason it sits on the dialer rather than in front
+// of the request: the address checked is the one the kernel is about to connect
+// to, so a DNS answer that changes between the check and the connection has
+// nothing left to change.
 // ---------------------------------------------------------------------------
 
-func TestAnAddressThatIsNotPubliclyRoutableIsRefused(t *testing.T) {
-	t.Parallel()
-
-	refused := map[string]string{
-		"the loopback":            "127.0.0.1",
-		"anywhere in 127/8":       "127.9.9.9",
-		"the IPv6 loopback":       "::1",
-		"private 10/8":            "10.0.0.1",
-		"private 172.16/12":       "172.16.5.4",
-		"private 192.168/16":      "192.168.1.1",
-		"link-local":              "169.254.1.1",
-		"the cloud metadata host": "169.254.169.254",
-		"IPv6 link-local":         "fe80::1",
-		"IPv6 unique local":       "fc00::1",
-		"the unspecified address": "0.0.0.0",
-		"IPv6 unspecified":        "::",
-		"multicast":               "224.0.0.1",
-		"IPv6 multicast":          "ff02::1",
-		// A v4 address wearing a v6 costume, which is the shape that used to
-		// slip past a guard like this one.
-		"the loopback mapped into IPv6":       "::ffff:127.0.0.1",
-		"the metadata host mapped into IPv6":  "::ffff:169.254.169.254",
-		"private 10/8 mapped into IPv6":       "::ffff:10.0.0.1",
-		"private 192.168/16 mapped into IPv6": "::ffff:192.168.1.1",
-	}
-
-	for name, raw := range refused {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			addr, err := netip.ParseAddr(raw)
-			if err != nil {
-				t.Fatalf("the test's own address is wrong: %v", err)
-			}
-			if err := publiclyRoutable(addr); err == nil {
-				t.Fatalf("%s (%s) was allowed", name, raw)
-			}
-		})
-	}
-}
-
-// Without this, a guard that refuses everything would pass every test above and
-// no run would ever be verifiable.
-func TestAPublicAddressIsAllowed(t *testing.T) {
-	t.Parallel()
-
-	for _, raw := range []string{"8.8.8.8", "93.184.216.34", "1.1.1.1", "2606:4700::1111"} {
-		addr, err := netip.ParseAddr(raw)
-		if err != nil {
-			t.Fatalf("the test's own address is wrong: %v", err)
-		}
-		if err := publiclyRoutable(addr); err != nil {
-			t.Fatalf("%s is a public address and was refused: %v", raw, err)
-		}
-	}
-}
+// The address table that used to be here moved to infra/netguard, where the
+// predicate now lives: the egress proxy asks the same question, and one of the
+// two copies would have gone stale. What stays here is the half netguard cannot
+// answer — that the predicate is wired to the dialer at all.
 
 // The guard, reached the way it will be in production: through a real socket.
 // A test server listens on the loopback, so pointing the verifier at it must
