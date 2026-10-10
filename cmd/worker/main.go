@@ -48,9 +48,10 @@ func work(log *slog.Logger) error {
 	defer db.Close()
 
 	runner, err := hosted.New(hosted.Config{
-		Image:      cfg.K6Image,
-		TTL:        cfg.RunTTL,
-		ExtraHosts: cfg.ExtraHosts,
+		Image:        cfg.K6Image,
+		TTL:          cfg.RunTTL,
+		ExtraHosts:   cfg.ExtraHosts,
+		AllowedCIDRs: cfg.EgressAllowedCIDRs,
 	})
 	if err != nil {
 		return err
@@ -65,6 +66,7 @@ func work(log *slog.Logger) error {
 	service := run.NewService(
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
+		postgres.NewEnvironmentRepository(db),
 		postgres.NewEnvironmentRepository(db),
 		postgres.NewSecretRepository(db, cipher),
 		runner,

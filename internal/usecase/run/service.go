@@ -10,6 +10,7 @@ type Service struct {
 	runs      Repository
 	scenarios ScenarioReader
 	envs      EnvironmentReader
+	allowlist AllowlistReader
 	secrets   SecretReader
 	executor  Executor
 	options   OptionsBuilder
@@ -25,6 +26,7 @@ func NewService(
 	runs Repository,
 	scenarios ScenarioReader,
 	envs EnvironmentReader,
+	allowlist AllowlistReader,
 	secrets SecretReader,
 	executor Executor,
 	options OptionsBuilder,
@@ -37,6 +39,7 @@ func NewService(
 		runs:      runs,
 		scenarios: scenarios,
 		envs:      envs,
+		allowlist: allowlist,
 		secrets:   secrets,
 		executor:  executor,
 		options:   options,

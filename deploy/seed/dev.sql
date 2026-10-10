@@ -51,6 +51,18 @@ INSERT INTO environment (
     'verified', now(), '00000000-0000-4000-8000-000000000005', 5, 120
 );
 
+-- The network allowlist: the hosts this project's generators may reach at all.
+--
+-- An approval writes this, in the same transaction that verifies a target. This
+-- seed makes a verified environment directly, so it writes the other half of
+-- that fact too — a verified target whose host the project may not reach stops a
+-- run, which is the check working rather than failing.
+INSERT INTO project_allowed_host (org_id, project_id, host) VALUES (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    'host.docker.internal'
+);
+
 INSERT INTO scenario (id, org_id, project_id, name, script, version, default_profile)
 VALUES (
     '00000000-0000-4000-8000-000000000003',

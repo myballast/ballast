@@ -10,6 +10,7 @@ import (
 
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres/sqlc"
 	"github.com/youssefmahersi/ballast/internal/domain"
+	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
 // EnvironmentRepository reads target environments.
@@ -46,4 +47,30 @@ func (r *EnvironmentRepository) EnvironmentByID(
 	})
 
 	return found, err
+}
+
+// Compile-time proof that this repository also answers what a run may reach.
+var _ run.AllowlistReader = (*EnvironmentRepository)(nil)
+
+// AllowedHosts reads the hosts a project's generators may reach.
+//
+// On the same repository as the target itself, and read-only like it: this is
+// the worker's side of the verification, and it has no business writing either.
+func (r *EnvironmentRepository) AllowedHosts(
+	ctx context.Context, orgID, projectID uuid.UUID,
+) ([]string, error) {
+	var hosts []string
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		found, err := sqlc.New(tx).ListProjectAllowedHosts(ctx,
+			sqlc.ListProjectAllowedHostsParams{OrgID: orgID, ProjectID: projectID})
+		if err != nil {
+			return fmt.Errorf("read the project's allowed hosts: %w", err)
+		}
+
+		hosts = found
+		return nil
+	})
+
+	return hosts, err
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/youssefmahersi/ballast/internal/infra/netguard"
 )
 
 // What this package refuses, as sentinels, because the four are fixed four
@@ -111,35 +113,22 @@ func allowAddress(_, address string, _ syscall.RawConn) error {
 }
 
 // publiclyRoutable refuses everything that is not a public address.
+//
+// The predicate itself lives in infra/netguard, because the egress proxy asks
+// the same question before dialing for a generator, and a second copy of it
+// would drift from this one. Built with no named networks, and there is no way
+// to give it any: a verification that could be pointed at a private address is
+// not a verification.
 func publiclyRoutable(addr netip.Addr) error {
-	// An IPv4 address wearing an IPv6 costume, ::ffff:10.0.0.1. With the older
-	// net.IP this was the classic hole in a guard like this one; netip's own
-	// predicates account for it — checked, not assumed — so unmapping here
-	// changes no answer today. It is kept for two smaller reasons: the refusal
-	// below then names the address as the v4 one it really is, and a predicate
-	// added later that does not account for 4-in-6 cannot reopen the hole.
-	addr = addr.Unmap()
-
-	switch {
-	case !addr.IsValid():
-		return fmt.Errorf("%w: not an address", ErrAddressRefused)
-
-	// IsPrivate covers RFC 1918 for IPv4 and RFC 4193 — fc00::/7 — for IPv6.
-	// IsLinkLocalUnicast covers 169.254/16, and with it the cloud metadata
-	// service at 169.254.169.254, which is the address this whole guard is
-	// most urgently about.
-	case addr.IsLoopback(),
-		addr.IsPrivate(),
-		addr.IsLinkLocalUnicast(),
-		addr.IsLinkLocalMulticast(),
-		addr.IsInterfaceLocalMulticast(),
-		addr.IsMulticast(),
-		addr.IsUnspecified():
-		return fmt.Errorf("%w: %s", ErrAddressRefused, addr)
+	if err := strict.Allow(addr); err != nil {
+		return fmt.Errorf("%w: %v", ErrAddressRefused, err)
 	}
-
 	return nil
 }
+
+// strict is the guard with no exceptions, which is the only kind this package
+// has any use for.
+var strict = netguard.New()
 
 // sameHostOnly refuses a redirect that leaves the host, and stops a chain that
 // does not end.

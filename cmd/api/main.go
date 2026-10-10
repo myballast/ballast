@@ -74,6 +74,7 @@ func serve(log *slog.Logger) error {
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
 		postgres.NewEnvironmentRepository(db),
+		postgres.NewEnvironmentRepository(db),
 		// The API accepts runs and never executes one, so it is given a reader
 		// that refuses rather than the one that can decrypt a secret.
 		refusingSecrets{},

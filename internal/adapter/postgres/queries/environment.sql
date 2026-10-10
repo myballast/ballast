@@ -109,3 +109,10 @@ RETURNING *;
 INSERT INTO project_allowed_host (org_id, project_id, host)
 VALUES ($1, $2, $3)
 ON CONFLICT (org_id, project_id, host) DO NOTHING;
+
+-- The hosts a project's generators may reach at all. Written by an approval,
+-- read by the worker before a run starts.
+-- name: ListProjectAllowedHosts :many
+SELECT host FROM project_allowed_host
+WHERE org_id = $1 AND project_id = $2
+ORDER BY host;

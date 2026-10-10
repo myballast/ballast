@@ -37,6 +37,12 @@ help: ## List the available targets
 
 ## --- Local dependencies ---------------------------------------------------
 
+# The egress proxy is built from this repository rather than pulled: it is our
+# own code, and a proxy from a registry could not re-resolve a host and refuse a
+# private address. A machine that has not built it cannot run anything, which is
+# the right failure — a run with no proxy would be a run with no way out.
+PROXY_IMAGE := ballast/egress-proxy:dev
+
 .PHONY: up
 up: ## Start the local services and wait for them to be healthy
 	docker compose up --detach --wait
@@ -75,8 +81,12 @@ test: ## Run the unit tests
 
 # Export DATABASE_URL to target another database; the default DSN lives next
 # to the tests that use it.
+.PHONY: proxy-image
+proxy-image: ## Build the egress proxy image, the only way out of a run's network
+	docker build --quiet -f deploy/proxy/Dockerfile -t $(PROXY_IMAGE) .
+
 .PHONY: test-int
-test-int: ## Run the integration tests, requires `make up`
+test-int: proxy-image ## Run the integration tests, requires `make up`
 	go test -tags=integration -count=1 ./...
 
 .PHONY: lint
@@ -160,6 +170,11 @@ worker: export BALLAST_SECRET_KEY ?= $(DEV_SECRET_KEY)
 # until the queue can serve them all.
 worker: export BALLAST_WORKER_ORG_ID ?= 00000000-0000-4000-8000-000000000001
 worker: export BALLAST_EXTRA_HOST ?= host.docker.internal:host-gateway
+# A run launched here targets a server on this machine, whose address is private.
+# The egress proxy refuses those unless the network is named, and this names the
+# ranges a host gateway falls in. **Empty in production**: naming a private range
+# lets a generator reach it.
+worker: export BALLAST_EGRESS_ALLOWED_CIDRS ?= 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 
 # The seed is left out on purpose: it deletes the development organization, and
 # every run with it. Run `make seed` once, by hand.
@@ -167,6 +182,7 @@ worker: export BALLAST_EXTRA_HOST ?= host.docker.internal:host-gateway
 dev: web/node_modules ## Start Postgres, migrate, then run the API, the worker and the front-end together
 	$(MAKE) --no-print-directory up
 	$(MAKE) --no-print-directory migrate
+	$(MAKE) --no-print-directory proxy-image
 	$(MAKE) --no-print-directory -j3 api worker web
 
 .PHONY: api

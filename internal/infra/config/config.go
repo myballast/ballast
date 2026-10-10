@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/youssefmahersi/ballast/internal/infra/crypto"
+	"github.com/youssefmahersi/ballast/internal/infra/netguard"
 )
 
 // Config is everything the API and the worker read from their environment.
@@ -30,6 +32,14 @@ type Config struct {
 	// SecretKey encrypts the secrets of an environment at rest. Both processes
 	// need it: the API writes them, the worker hands them to the generator.
 	SecretKey []byte
+	// EgressAllowedCIDRs names networks the egress proxy may reach although
+	// they are not publicly routable, in CIDR form.
+	//
+	// **Empty in production.** It exists so that a run launched on a
+	// developer's machine can reach a target on that machine, whose address is
+	// private. Naming a range here lets a generator — running a user's script —
+	// reach it.
+	EgressAllowedCIDRs []string
 }
 
 // Load reads the configuration, refusing to start rather than guessing at
@@ -58,6 +68,13 @@ func Load() (Config, error) {
 		cfg.ExtraHosts = []string{host}
 	}
 
+	cfg.EgressAllowedCIDRs = list(env("BALLAST_EGRESS_ALLOWED_CIDRS", ""))
+	// Read here rather than left to the proxy, so a typo stops the worker
+	// instead of every run it takes.
+	if _, err := netguard.ParsePrefixes(cfg.EgressAllowedCIDRs); err != nil {
+		return Config{}, fmt.Errorf("BALLAST_EGRESS_ALLOWED_CIDRS: %w", err)
+	}
+
 	// No default and no starting without it. A process that came up with no key
 	// would run until somebody set their first secret, and then fail somewhere
 	// far from the cause; worse, a default would be a key in the repository, used
@@ -74,6 +91,17 @@ func Load() (Config, error) {
 	cfg.SecretKey = key
 
 	return cfg, nil
+}
+
+// list reads a comma-separated setting.
+func list(raw string) []string {
+	var entries []string
+	for _, entry := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(entry); trimmed != "" {
+			entries = append(entries, trimmed)
+		}
+	}
+	return entries
 }
 
 func env(key, fallback string) string {

@@ -173,6 +173,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		postgres.NewRunRepository(db),
 		postgres.NewScenarioRepository(db),
 		postgres.NewEnvironmentRepository(db),
+		postgres.NewEnvironmentRepository(db),
 		neverReadsSecrets{t: t},
 		neverRuns{t: t},
 		k6.NewOptionsBuilder(),
