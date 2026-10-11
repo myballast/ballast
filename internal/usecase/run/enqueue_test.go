@@ -47,10 +47,21 @@ type fakeRuns struct {
 	journal *journal
 	// next is what ClaimNextQueued hands over. Nil means an empty queue.
 	next *domain.Run
-	// finished is the status Finish was given, and finishErr what it fails
-	// with — domain.ErrNotFound when somebody else ended the run first.
-	finished  domain.RunStatus
-	finishErr error
+	// cancelled is what Cancel answers, and cancelErr what it fails with.
+	cancelled domain.CancelOutcome
+	cancelErr error
+	// cancelCalls counts the cancellations asked for.
+	cancelCalls int
+	// stoppedQueued and stoppedRunning are what CancelEverything reports.
+	stoppedQueued, stoppedRunning int
+	// everythingStopped counts the emergency stops performed.
+	everythingStopped int
+	// finished is the status Finish was given, finishedMessage the reason it
+	// was given with, and finishErr what it fails with — domain.ErrNotFound
+	// when somebody else ended the run first.
+	finished        domain.RunStatus
+	finishedMessage string
+	finishErr       error
 }
 
 func (f *fakeRuns) Create(_ context.Context, run domain.Run) (domain.Run, error) {
@@ -77,12 +88,12 @@ func (f *fakeRuns) ClaimNextQueued(context.Context, uuid.UUID, time.Time) (domai
 }
 
 func (f *fakeRuns) Finish(
-	_ context.Context, _, _ uuid.UUID, status domain.RunStatus, _ time.Time, _ string,
+	_ context.Context, _, _ uuid.UUID, status domain.RunStatus, _ time.Time, message string,
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.finished = status
+	f.finished, f.finishedMessage = status, message
 	return f.finishErr
 }
 
@@ -204,9 +215,10 @@ func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)
 			fakeEnvironments{environment: environment},
 			&fakeAllowlist{hosts: []string{"staging.example.test"}},
 			noSecrets{},
-			nil, nil, nil, nil,
+			nil, nil, nil, nil, nil,
 			allowAll{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
+			Accepting(true),
 			discardLogger(),
 		),
 		runs:     runs,
@@ -344,9 +356,10 @@ func serviceWith(t *testing.T, authz Authorizer, scenario domain.Scenario, envir
 		fakeEnvironments{environment: environment},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
 		authz,
 		fixedClock{at: time.Unix(0, 0).UTC()},
+		Accepting(true),
 		discardLogger(),
 	), runs
 }
@@ -436,9 +449,10 @@ func TestByIDHidesARunTheCallerMayNotSee(t *testing.T) {
 		fakeEnvironments{environment: f.env},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
 		refuseAll{},
 		fixedClock{at: time.Unix(0, 0).UTC()},
+		Accepting(true),
 		discardLogger(),
 	)
 
@@ -586,4 +600,24 @@ func (f *fakeRuns) beatsRecorded() int {
 	defer f.mu.Unlock()
 
 	return f.beats
+}
+
+func (f *fakeRuns) Cancel(
+	_ context.Context, _, _ uuid.UUID, _ time.Time, _ string,
+) (domain.CancelOutcome, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.cancelCalls++
+	return f.cancelled, f.cancelErr
+}
+
+func (f *fakeRuns) CancelEverything(
+	_ context.Context, _ uuid.UUID, _ time.Time, _ string,
+) (int, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.everythingStopped++
+	return f.stoppedQueued, f.stoppedRunning, f.err
 }

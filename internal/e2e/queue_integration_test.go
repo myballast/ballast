@@ -102,10 +102,12 @@ func worker(t *testing.T, db *postgres.DB, executor run.Executor) *run.Service {
 		// No collector: these tests are about the queue, and nothing in them
 		// leaves a container behind.
 		nil,
+		postgres.NewProjectRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),
 		infra.SystemClock{},
+		run.Accepting(true),
 		log,
 	)
 }

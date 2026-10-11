@@ -57,8 +57,10 @@ func NewRouter(
 		"GET /auth/{provider}/callback": authHandler.Callback,
 		"POST /auth/logout":             authHandler.Logout,
 
-		"POST /runs":     runHandler.Enqueue,
-		"GET /runs/{id}": runHandler.ByID,
+		"POST /runs":          runHandler.Enqueue,
+		"GET /runs/{id}":      runHandler.ByID,
+		"DELETE /runs/{id}":   runHandler.Cancel,
+		"POST /runs/stop-all": runHandler.StopAll,
 
 		"GET /projects":                                 projectHandler.List,
 		"POST /projects":                                projectHandler.Create,

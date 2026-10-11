@@ -61,13 +61,115 @@ func (q *Queries) AcquireEnvironmentLock(ctx context.Context, arg AcquireEnviron
 	return i, err
 }
 
+const cancelEveryQueuedRun = `-- name: CancelEveryQueuedRun :many
+UPDATE run
+SET status = 'cancelled', ended_at = $2, error_message = $3, cancel_requested_at = $2
+WHERE org_id = $1 AND status = 'queued'
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+`
+
+type CancelEveryQueuedRunParams struct {
+	OrgID        uuid.UUID
+	EndedAt      *time.Time
+	ErrorMessage *string
+}
+
+// The emergency stop, first half: nothing else starts.
+func (q *Queries) CancelEveryQueuedRun(ctx context.Context, arg CancelEveryQueuedRunParams) ([]Run, error) {
+	rows, err := q.db.Query(ctx, cancelEveryQueuedRun, arg.OrgID, arg.EndedAt, arg.ErrorMessage)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Run{}
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.ScenarioID,
+			&i.EnvironmentID,
+			&i.ScheduleID,
+			&i.ScenarioVersion,
+			&i.Profile,
+			&i.ProfileParams,
+			&i.Status,
+			&i.TriggeredBy,
+			&i.EgressBytes,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.HeartbeatAt,
+			&i.CancelRequestedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cancelQueuedRun = `-- name: CancelQueuedRun :one
+UPDATE run
+SET status = 'cancelled', ended_at = $3, error_message = $4, cancel_requested_at = $3
+WHERE org_id = $1 AND id = $2 AND status = 'queued'
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+`
+
+type CancelQueuedRunParams struct {
+	OrgID        uuid.UUID
+	ID           uuid.UUID
+	EndedAt      *time.Time
+	ErrorMessage *string
+}
+
+// Cancel a run nothing has started.
+//
+// Immediate, and safe to be: a queued run holds no environment lock and has no
+// container, so there is nothing whose stopping has to be waited for.
+func (q *Queries) CancelQueuedRun(ctx context.Context, arg CancelQueuedRunParams) (Run, error) {
+	row := q.db.QueryRow(ctx, cancelQueuedRun,
+		arg.OrgID,
+		arg.ID,
+		arg.EndedAt,
+		arg.ErrorMessage,
+	)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ScenarioID,
+		&i.EnvironmentID,
+		&i.ScheduleID,
+		&i.ScenarioVersion,
+		&i.Profile,
+		&i.ProfileParams,
+		&i.Status,
+		&i.TriggeredBy,
+		&i.EgressBytes,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
 const createRun = `-- name: CreateRun :one
 
 INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
     scenario_version, profile, profile_params, triggered_by, status
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued')
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
 `
 
 type CreateRunParams struct {
@@ -115,6 +217,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -123,7 +226,7 @@ const failOrphanedRun = `-- name: FailOrphanedRun :one
 UPDATE run
 SET status = 'errored', ended_at = $3, error_message = $4
 WHERE org_id = $1 AND id = $2 AND status = 'orphaned'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
 `
 
 type FailOrphanedRunParams struct {
@@ -163,6 +266,7 @@ func (q *Queries) FailOrphanedRun(ctx context.Context, arg FailOrphanedRunParams
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -171,7 +275,7 @@ const finishRun = `-- name: FinishRun :one
 UPDATE run
 SET status = $3, ended_at = $4, error_message = $5
 WHERE org_id = $1 AND id = $2 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
 `
 
 type FinishRunParams struct {
@@ -211,6 +315,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) (Run, erro
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -249,7 +354,7 @@ func (q *Queries) GetEnvironment(ctx context.Context, arg GetEnvironmentParams) 
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at FROM run WHERE org_id = $1 AND id = $2
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at FROM run WHERE org_id = $1 AND id = $2
 `
 
 type GetRunParams struct {
@@ -278,6 +383,7 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (Run, error) {
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -362,7 +468,7 @@ func (q *Queries) InsertRunThresholds(ctx context.Context, arg InsertRunThreshol
 }
 
 const listOrphanedRuns = `-- name: ListOrphanedRuns :many
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at FROM run
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at FROM run
 WHERE org_id = $1 AND status = 'orphaned'
 ORDER BY created_at
 `
@@ -396,6 +502,7 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 			&i.StartedAt,
 			&i.EndedAt,
 			&i.HeartbeatAt,
+			&i.CancelRequestedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -557,7 +664,7 @@ func (q *Queries) LiveRunIDs(ctx context.Context, arg LiveRunIDsParams) ([]uuid.
 }
 
 const nextClaimableRun = `-- name: NextClaimableRun :one
-SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at FROM run AS r
+SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at, r.cancel_requested_at FROM run AS r
 WHERE r.org_id = $1 AND r.status = 'queued'
   AND NOT EXISTS (
     SELECT 1 FROM environment_lock AS held
@@ -605,6 +712,7 @@ func (q *Queries) NextClaimableRun(ctx context.Context, arg NextClaimableRunPara
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -614,7 +722,7 @@ UPDATE run
 SET status = 'orphaned'
 WHERE org_id = $1 AND status = 'running'
   AND (heartbeat_at IS NULL OR heartbeat_at <= $2)
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
 `
 
 type OrphanStaleRunsParams struct {
@@ -663,6 +771,7 @@ func (q *Queries) OrphanStaleRuns(ctx context.Context, arg OrphanStaleRunsParams
 			&i.StartedAt,
 			&i.EndedAt,
 			&i.HeartbeatAt,
+			&i.CancelRequestedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -695,11 +804,110 @@ func (q *Queries) ReleaseEnvironmentLock(ctx context.Context, arg ReleaseEnviron
 	return result.RowsAffected(), nil
 }
 
+const requestEveryRunningCancellation = `-- name: RequestEveryRunningCancellation :many
+UPDATE run
+SET cancel_requested_at = coalesce(cancel_requested_at, $2)
+WHERE org_id = $1 AND status = 'running'
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+`
+
+type RequestEveryRunningCancellationParams struct {
+	OrgID             uuid.UUID
+	CancelRequestedAt *time.Time
+}
+
+// The emergency stop, second half: everything under way is asked to stop. Each
+// worker sees its own run's request and takes its own container down, which is
+// the only place that can be done.
+func (q *Queries) RequestEveryRunningCancellation(ctx context.Context, arg RequestEveryRunningCancellationParams) ([]Run, error) {
+	rows, err := q.db.Query(ctx, requestEveryRunningCancellation, arg.OrgID, arg.CancelRequestedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Run{}
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.ScenarioID,
+			&i.EnvironmentID,
+			&i.ScheduleID,
+			&i.ScenarioVersion,
+			&i.Profile,
+			&i.ProfileParams,
+			&i.Status,
+			&i.TriggeredBy,
+			&i.EgressBytes,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.HeartbeatAt,
+			&i.CancelRequestedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const requestRunCancellation = `-- name: RequestRunCancellation :one
+UPDATE run
+SET cancel_requested_at = coalesce(cancel_requested_at, $3)
+WHERE org_id = $1 AND id = $2 AND status = 'running'
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+`
+
+type RequestRunCancellationParams struct {
+	OrgID             uuid.UUID
+	ID                uuid.UUID
+	CancelRequestedAt *time.Time
+}
+
+// Ask a run being executed to stop.
+//
+// coalesce keeps the first request's instant: asking twice is one decision, and
+// the second asker must not move the moment it was taken. No row means the run
+// is not being executed — finished, or still queued, which the caller handles
+// with the statement below.
+func (q *Queries) RequestRunCancellation(ctx context.Context, arg RequestRunCancellationParams) (Run, error) {
+	row := q.db.QueryRow(ctx, requestRunCancellation, arg.OrgID, arg.ID, arg.CancelRequestedAt)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ScenarioID,
+		&i.EnvironmentID,
+		&i.ScheduleID,
+		&i.ScenarioVersion,
+		&i.Profile,
+		&i.ProfileParams,
+		&i.Status,
+		&i.TriggeredBy,
+		&i.EgressBytes,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
+}
+
 const startRun = `-- name: StartRun :one
 UPDATE run
 SET status = 'running', started_at = $3, heartbeat_at = $3
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
 `
 
 type StartRunParams struct {
@@ -731,6 +939,7 @@ func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (Run, error)
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }

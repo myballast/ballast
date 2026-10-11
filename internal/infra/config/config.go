@@ -36,6 +36,12 @@ type Config struct {
 	// SecretKey encrypts the secrets of an environment at rest. Both processes
 	// need it: the API writes them, the worker hands them to the generator.
 	SecretKey []byte
+	// AcceptingRuns is the platform's switch. Set to false, no new run is
+	// taken: the API refuses one and the worker leaves the queue alone. Runs
+	// already under way are not touched — stopping those is what the emergency
+	// stop is for, and restarting a process must never be a way of killing a
+	// run that is measuring something.
+	AcceptingRuns bool
 	// EgressAllowedCIDRs names networks the egress proxy may reach although
 	// they are not publicly routable, in CIDR form.
 	//
@@ -77,6 +83,15 @@ func Load() (Config, error) {
 	if host := env("BALLAST_EXTRA_HOST", ""); host != "" {
 		cfg.ExtraHosts = []string{host}
 	}
+
+	// On unless somebody said otherwise, and read the same way by both
+	// processes: an installation where the API refuses runs while the worker
+	// keeps starting queued ones would be the worst of both.
+	accepting, err := boolean("BALLAST_ACCEPTING_RUNS", true)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AcceptingRuns = accepting
 
 	cfg.EgressAllowedCIDRs = list(env("BALLAST_EGRESS_ALLOWED_CIDRS", ""))
 	// Read here rather than left to the proxy, so a typo stops the worker
@@ -136,6 +151,24 @@ func duration(key string, fallback time.Duration) (time.Duration, error) {
 	parsed, err := time.ParseDuration(raw)
 	if err != nil {
 		return 0, fmt.Errorf("%s is not a duration: %w", key, err)
+	}
+	return parsed, nil
+}
+
+// boolean reads a switch, refusing a value it cannot read rather than guessing.
+//
+// A typo in the variable that stops an installation from taking runs must not
+// quietly mean "on": somebody throwing that switch during an incident has to be
+// told their spelling was wrong, by a process that refuses to start.
+func boolean(key string, fallback bool) (bool, error) {
+	raw := env(key, "")
+	if raw == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s is not a boolean: %q", key, raw)
 	}
 	return parsed, nil
 }

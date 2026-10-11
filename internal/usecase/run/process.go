@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,15 @@ import (
 // long as the execution lasts, this worker says so every ten seconds; stop
 // saying it and a collector ends the run and destroys what is left of it.
 func (s *Service) ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- domain.LogLine) (bool, error) {
+	// The platform's switch, at the worker's door. The API refuses a new run at
+	// its own; this is what keeps a queue that was filled before the switch was
+	// thrown from draining itself afterwards. Runs already under way are left
+	// alone: stopping those is the emergency stop's job, and restarting a
+	// worker must not be a way of killing them.
+	if !s.accepting {
+		return false, nil
+	}
+
 	claimed, ok, err := s.runs.ClaimNextQueued(ctx, orgID, s.clock.Now())
 	if err != nil || !ok {
 		return false, err
@@ -42,12 +52,27 @@ func (s *Service) ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- 
 	defer lost()
 	beating := s.beat(executing, orgID, claimed.ID, lost)
 
+	// And the other watcher, reading rather than writing: it is what makes a
+	// cancellation take effect in seconds. Two goroutines rather than one
+	// because the two have different costs — a write every ten seconds is
+	// affordable, a write every two would not be, and a read by primary key is.
+	seen := &cancellation{}
+	watching := s.watch(executing, orgID, claimed.ID, lost, seen)
+
 	status, message := s.execute(executing, orgID, claimed, logs)
 
 	// Before anything is written about the run: nothing must still be touching
-	// its heartbeat once it is finished.
+	// its heartbeat, or deciding its fate, once it is finished.
 	lost()
 	<-beating
+	<-watching
+
+	// The execution ended in a cancelled context, and this is what knows why.
+	// Without it the run would record "context canceled", which tells whoever
+	// reads its history nothing about the decision somebody took.
+	if status == domain.StatusCancelled && seen.requested() {
+		message = cancelledMessage
+	}
 
 	if !claimed.Status.CanTransitionTo(status) {
 		return true, fmt.Errorf("a run cannot go from %s to %s", claimed.Status, status)
@@ -290,6 +315,88 @@ func (s *Service) beat(
 				s.log.ErrorContext(ctx, "this run was taken from this worker; stopping it",
 					"run_id", runID)
 				lost()
+				return
+			}
+		}
+	}()
+
+	return stopped
+}
+
+// cancellation records that the run being executed was asked to stop, so that
+// its ending can say so in words.
+type cancellation struct {
+	mu    sync.Mutex
+	asked bool
+}
+
+func (c *cancellation) record() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.asked = true
+}
+
+func (c *cancellation) requested() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.asked
+}
+
+// watch ends the execution as soon as the run is asked to stop.
+//
+// It reads the run every couple of seconds and never writes: the promise is
+// that a cancellation takes effect in under five seconds, and a container takes
+// a moment of that to destroy. The heartbeat would notice a run taken away
+// eventually; this notices a decision, and quickly.
+//
+// It returns a channel closed once it has stopped, so the caller can be certain
+// nothing is still deciding the run's fate after the execution is over.
+func (s *Service) watch(
+	ctx context.Context, orgID, runID uuid.UUID, stop func(), seen *cancellation,
+) <-chan struct{} {
+	stopped := make(chan struct{})
+
+	go func() {
+		defer close(stopped)
+
+		ticker := time.NewTicker(s.watchEvery)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			current, err := s.runs.ByID(ctx, orgID, runID)
+			switch {
+			case err != nil && ctx.Err() != nil:
+				// The execution ended while this read was in flight.
+				return
+
+			case err != nil:
+				// A database briefly out of reach delays a cancellation by one
+				// tick rather than costing a run. The next tick asks again.
+				s.log.WarnContext(ctx, "a run could not be read while it executes",
+					"run_id", runID, "error", err)
+
+			case current.CancellationRequested():
+				seen.record()
+				s.log.InfoContext(ctx, "the run was asked to stop; stopping it",
+					"run_id", runID, "asked_at", current.CancelRequestedAt)
+				stop()
+				return
+
+			case current.Status != domain.StatusRunning:
+				// Somebody ended it from elsewhere — a collector that decided
+				// this worker was dead. The heartbeat reports the same thing;
+				// this finds it sooner.
+				s.log.ErrorContext(ctx, "this run left running while this worker executed it; stopping it",
+					"run_id", runID, "status", current.Status)
+				stop()
 				return
 			}
 		}

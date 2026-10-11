@@ -48,7 +48,33 @@ type Repository interface {
 	FailOrphaned(ctx context.Context, orgID, id uuid.UUID, at time.Time, message string) error
 	// LiveRunIDs is every run a container may legitimately exist for.
 	LiveRunIDs(ctx context.Context, orgID uuid.UUID, since time.Time) ([]uuid.UUID, error)
+
+	// Cancel stops a run that has not started, or asks one that has to stop,
+	// and says which of the two it did. It reports domain.ErrNotCancellable
+	// for a run that is already over.
+	Cancel(ctx context.Context, orgID, id uuid.UUID, at time.Time, message string) (domain.CancelOutcome, error)
+	// CancelEverything is the emergency stop: it cancels every queued run and
+	// asks every running one to stop, reporting how many of each.
+	CancelEverything(ctx context.Context, orgID uuid.UUID, at time.Time, message string) (int, int, error)
 }
+
+// ProjectDirectory lists an organization's projects.
+//
+// Needed by the emergency stop alone, and only to ask a question about each one:
+// stopping everything an organization is doing is an administrator's to do when
+// they administer all of it, so the list of what "all of it" means has to come
+// from somewhere. It carries no project data — this package has no business
+// with any.
+type ProjectDirectory interface {
+	ProjectIDs(ctx context.Context, orgID uuid.UUID) ([]uuid.UUID, error)
+}
+
+// Accepting says whether this installation takes new runs at all.
+//
+// A named type rather than a bare bool in a long parameter list: a wiring
+// mistake is then a compile error, instead of an installation that silently
+// refuses every run or, worse, silently takes them during an incident.
+type Accepting bool
 
 // Containers destroys what a generator leaves on the machine it ran on.
 //

@@ -90,23 +90,24 @@ type ProjectAllowedHost struct {
 }
 
 type Run struct {
-	ID              uuid.UUID
-	OrgID           uuid.UUID
-	ProjectID       uuid.UUID
-	ScenarioID      uuid.UUID
-	EnvironmentID   uuid.UUID
-	ScheduleID      *uuid.UUID
-	ScenarioVersion int32
-	Profile         string
-	ProfileParams   []byte
-	Status          string
-	TriggeredBy     *uuid.UUID
-	EgressBytes     int64
-	ErrorMessage    *string
-	CreatedAt       time.Time
-	StartedAt       *time.Time
-	EndedAt         *time.Time
-	HeartbeatAt     *time.Time
+	ID                uuid.UUID
+	OrgID             uuid.UUID
+	ProjectID         uuid.UUID
+	ScenarioID        uuid.UUID
+	EnvironmentID     uuid.UUID
+	ScheduleID        *uuid.UUID
+	ScenarioVersion   int32
+	Profile           string
+	ProfileParams     []byte
+	Status            string
+	TriggeredBy       *uuid.UUID
+	EgressBytes       int64
+	ErrorMessage      *string
+	CreatedAt         time.Time
+	StartedAt         *time.Time
+	EndedAt           *time.Time
+	HeartbeatAt       *time.Time
+	CancelRequestedAt *time.Time
 }
 
 type RunArtifact struct {

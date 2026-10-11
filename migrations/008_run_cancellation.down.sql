@@ -1,0 +1,5 @@
+BEGIN;
+
+ALTER TABLE run DROP COLUMN IF EXISTS cancel_requested_at;
+
+COMMIT;

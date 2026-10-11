@@ -179,10 +179,12 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		// Nothing here executes a run, so nothing here has a container to
 		// collect either.
 		nil,
+		postgres.NewProjectRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
 		infra.SystemClock{},
+		run.Accepting(true),
 		log,
 	)
 

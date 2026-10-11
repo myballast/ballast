@@ -80,10 +80,16 @@ func serve(log *slog.Logger) error {
 		refusingSecrets{},
 		refusingExecutor{},
 		refusingContainers{},
+		// Read by the emergency stop alone, to ask the authorizer about every
+		// project of the organization.
+		postgres.NewProjectRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
 		infra.SystemClock{},
+		// The platform's switch. Off, POST /runs answers 503 and nothing is
+		// written; the worker reads the same setting and leaves the queue alone.
+		run.Accepting(cfg.AcceptingRuns),
 		log,
 	)
 

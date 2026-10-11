@@ -84,6 +84,8 @@ func toDomainRun(row sqlc.Run) (domain.Run, error) {
 		StartedAt:       row.StartedAt,
 		EndedAt:         row.EndedAt,
 		HeartbeatAt:     row.HeartbeatAt,
+
+		CancelRequestedAt: row.CancelRequestedAt,
 	}, nil
 }
 
@@ -519,4 +521,103 @@ func (r *RunRepository) LiveRunIDs(
 	})
 
 	return live, err
+}
+
+// Cancel stops a run, or asks it to stop, and says which of the two happened.
+//
+// One transaction and two statements, because what is possible depends on a
+// status that another worker may be changing at this very moment. A queued run
+// is cancelled outright: it holds no target and has no container. A run being
+// executed is only asked — its generator is loading somebody's environment, and
+// the status that says the load has stopped belongs to whoever stops it.
+//
+// Neither statement matching means the run is over already, which is not a
+// failure of this call but an answer to it.
+func (r *RunRepository) Cancel(
+	ctx context.Context, orgID, id uuid.UUID, at time.Time, message string,
+) (domain.CancelOutcome, error) {
+	var outcome domain.CancelOutcome
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+
+		var reason *string
+		if message != "" {
+			reason = &message
+		}
+
+		_, err := queries.CancelQueuedRun(ctx, sqlc.CancelQueuedRunParams{
+			OrgID:        orgID,
+			ID:           id,
+			EndedAt:      &at,
+			ErrorMessage: reason,
+		})
+		if err == nil {
+			outcome = domain.RunCancelled
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("cancel the queued run: %w", err)
+		}
+
+		_, err = queries.RequestRunCancellation(ctx, sqlc.RequestRunCancellationParams{
+			OrgID:             orgID,
+			ID:                id,
+			CancelRequestedAt: &at,
+		})
+		if err == nil {
+			outcome = domain.CancellationRequested
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("ask the run to stop: %w", err)
+		}
+
+		return domain.ErrNotCancellable
+	})
+
+	return outcome, err
+}
+
+// CancelEverything is the emergency stop: nothing else starts, and everything
+// under way is asked to stop.
+//
+// Both in one transaction, so there is no moment in which the queue has been
+// emptied and the running runs have not been told — a worker finishing a run in
+// that moment would find the queue empty and go to sleep, which is the right
+// behaviour for a reason that would not be true yet.
+func (r *RunRepository) CancelEverything(
+	ctx context.Context, orgID uuid.UUID, at time.Time, message string,
+) (int, int, error) {
+	var cancelled, asked int
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+
+		var reason *string
+		if message != "" {
+			reason = &message
+		}
+
+		queued, err := queries.CancelEveryQueuedRun(ctx, sqlc.CancelEveryQueuedRunParams{
+			OrgID:        orgID,
+			EndedAt:      &at,
+			ErrorMessage: reason,
+		})
+		if err != nil {
+			return fmt.Errorf("cancel the queued runs: %w", err)
+		}
+		cancelled = len(queued)
+
+		running, err := queries.RequestEveryRunningCancellation(ctx,
+			sqlc.RequestEveryRunningCancellationParams{OrgID: orgID, CancelRequestedAt: &at})
+		if err != nil {
+			return fmt.Errorf("ask the running runs to stop: %w", err)
+		}
+		asked = len(running)
+
+		return nil
+	})
+
+	return cancelled, asked, err
 }

@@ -90,6 +90,20 @@ func Routes() []Route {
 			Method: "GET", Path: "/runs/{id}",
 			Scope: ScopeDerived, Permission: domain.PermViewProject,
 		},
+		{
+			Method: "DELETE", Path: "/runs/{id}",
+			Scope: ScopeDerived, Permission: domain.PermCancelRun,
+		},
+		// The emergency stop. Declared as ScopeAnyProject because its project
+		// is not in the path and not in a body — there is none: the service
+		// asks the question once per project of the organization and refuses
+		// unless the caller administers every one of them. A literal path
+		// beats the wildcard above for the same method, and these two differ
+		// in method anyway.
+		{
+			Method: "POST", Path: "/runs/stop-all",
+			Scope: ScopeAnyProject, Permission: domain.PermCancelRun,
+		},
 
 		// Projects.
 		{
