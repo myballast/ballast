@@ -119,6 +119,54 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 	return i, err
 }
 
+const failOrphanedRun = `-- name: FailOrphanedRun :one
+UPDATE run
+SET status = 'errored', ended_at = $3, error_message = $4
+WHERE org_id = $1 AND id = $2 AND status = 'orphaned'
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+`
+
+type FailOrphanedRunParams struct {
+	OrgID        uuid.UUID
+	ID           uuid.UUID
+	EndedAt      *time.Time
+	ErrorMessage *string
+}
+
+// The end of an abandoned run, written only after its container is gone.
+//
+// The status in the WHERE is what makes this safe to call twice: the second
+// caller touches no row rather than overwriting the first's ending.
+func (q *Queries) FailOrphanedRun(ctx context.Context, arg FailOrphanedRunParams) (Run, error) {
+	row := q.db.QueryRow(ctx, failOrphanedRun,
+		arg.OrgID,
+		arg.ID,
+		arg.EndedAt,
+		arg.ErrorMessage,
+	)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ScenarioID,
+		&i.EnvironmentID,
+		&i.ScheduleID,
+		&i.ScenarioVersion,
+		&i.Profile,
+		&i.ProfileParams,
+		&i.Status,
+		&i.TriggeredBy,
+		&i.EgressBytes,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.HeartbeatAt,
+	)
+	return i, err
+}
+
 const finishRun = `-- name: FinishRun :one
 UPDATE run
 SET status = $3, ended_at = $4, error_message = $5
@@ -313,6 +361,52 @@ func (q *Queries) InsertRunThresholds(ctx context.Context, arg InsertRunThreshol
 	return err
 }
 
+const listOrphanedRuns = `-- name: ListOrphanedRuns :many
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at FROM run
+WHERE org_id = $1 AND status = 'orphaned'
+ORDER BY created_at
+`
+
+// Every run waiting to be cleaned up, including one a collector that died
+// itself left half-handled.
+func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run, error) {
+	rows, err := q.db.Query(ctx, listOrphanedRuns, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Run{}
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.ScenarioID,
+			&i.EnvironmentID,
+			&i.ScheduleID,
+			&i.ScenarioVersion,
+			&i.Profile,
+			&i.ProfileParams,
+			&i.Status,
+			&i.TriggeredBy,
+			&i.EgressBytes,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.HeartbeatAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunMetrics = `-- name: ListRunMetrics :many
 SELECT id, org_id, run_id, name, tag_name, value, stat FROM run_metric
 WHERE org_id = $1 AND run_id = $2
@@ -427,6 +521,41 @@ func (q *Queries) ListScenarioThresholds(ctx context.Context, arg ListScenarioTh
 	return items, nil
 }
 
+const liveRunIDs = `-- name: LiveRunIDs :many
+SELECT id FROM run
+WHERE org_id = $1 AND status = 'running' AND heartbeat_at > $2
+`
+
+type LiveRunIDsParams struct {
+	OrgID       uuid.UUID
+	HeartbeatAt *time.Time
+}
+
+// The runs a container is allowed to exist for: being executed, and watched.
+//
+// Read when a worker starts, to decide what on the machine is rubbish. A
+// running run whose heartbeat has gone stale is not in the list: it is about to
+// be collected anyway, and its container has nobody watching it either.
+func (q *Queries) LiveRunIDs(ctx context.Context, arg LiveRunIDsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, liveRunIDs, arg.OrgID, arg.HeartbeatAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextClaimableRun = `-- name: NextClaimableRun :one
 SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at FROM run AS r
 WHERE r.org_id = $1 AND r.status = 'queued'
@@ -478,6 +607,71 @@ func (q *Queries) NextClaimableRun(ctx context.Context, arg NextClaimableRunPara
 		&i.HeartbeatAt,
 	)
 	return i, err
+}
+
+const orphanStaleRuns = `-- name: OrphanStaleRuns :many
+UPDATE run
+SET status = 'orphaned'
+WHERE org_id = $1 AND status = 'running'
+  AND (heartbeat_at IS NULL OR heartbeat_at <= $2)
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+`
+
+type OrphanStaleRunsParams struct {
+	OrgID       uuid.UUID
+	HeartbeatAt *time.Time
+}
+
+// Runs whose worker has stopped saying anything.
+//
+// orphaned rather than errored, because orphaned does not mean finished: it
+// means nobody is watching and the container may well still be hammering the
+// target. What turns it into errored is the collector, once it has destroyed
+// what was left.
+//
+// A null heartbeat counts as stale. StartRun always writes one, so a running run
+// without one was started by something that did not — which is not a reason to
+// leave it alone for ever.
+//
+// Two collectors do not both take a run: the second blocks on the first's
+// uncommitted row, then re-evaluates the WHERE against the committed version,
+// sees a status that is no longer running, and skips it.
+func (q *Queries) OrphanStaleRuns(ctx context.Context, arg OrphanStaleRunsParams) ([]Run, error) {
+	rows, err := q.db.Query(ctx, orphanStaleRuns, arg.OrgID, arg.HeartbeatAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Run{}
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.ScenarioID,
+			&i.EnvironmentID,
+			&i.ScheduleID,
+			&i.ScenarioVersion,
+			&i.Profile,
+			&i.ProfileParams,
+			&i.Status,
+			&i.TriggeredBy,
+			&i.EgressBytes,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.HeartbeatAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const releaseEnvironmentLock = `-- name: ReleaseEnvironmentLock :execrows
@@ -539,4 +733,29 @@ func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (Run, error)
 		&i.HeartbeatAt,
 	)
 	return i, err
+}
+
+const touchRun = `-- name: TouchRun :execrows
+UPDATE run
+SET heartbeat_at = $3
+WHERE org_id = $1 AND id = $2 AND status = 'running'
+`
+
+type TouchRunParams struct {
+	OrgID       uuid.UUID
+	ID          uuid.UUID
+	HeartbeatAt *time.Time
+}
+
+// The run says it is still being watched.
+//
+// The status is in the WHERE and the row count is returned, which is how a
+// worker finds out it no longer owns what it is executing: a collector that
+// declared this run abandoned moved it out of running, so this touches nothing.
+func (q *Queries) TouchRun(ctx context.Context, arg TouchRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, touchRun, arg.OrgID, arg.ID, arg.HeartbeatAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

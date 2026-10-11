@@ -176,6 +176,9 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		postgres.NewEnvironmentRepository(db),
 		neverReadsSecrets{t: t},
 		neverRuns{t: t},
+		// Nothing here executes a run, so nothing here has a container to
+		// collect either.
+		nil,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,

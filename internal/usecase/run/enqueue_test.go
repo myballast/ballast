@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,34 @@ type fakeRuns struct {
 	// byID is what ByID hands back. Empty means every read is a miss.
 	byID map[uuid.UUID]domain.Run
 	err  error
+
+	// What the heartbeat and the collector see. Guarded, because the heartbeat
+	// writes from a goroutine of its own while the test reads.
+	mu sync.Mutex
+	// beats counts the heartbeats recorded.
+	beats int
+	// lost makes Heartbeat answer that the run is no longer this worker's,
+	// which is what a collector having taken it looks like from here.
+	lost bool
+	// beatErr is what Heartbeat fails with, a database briefly out of reach.
+	beatErr error
+	// stale is what OrphanStale returns, and cutoff what it was asked.
+	stale  []domain.Run
+	cutoff time.Time
+	// orphans is what Orphaned returns.
+	orphans []domain.Run
+	// live is what LiveRunIDs returns, and since what it was asked.
+	live  []uuid.UUID
+	since time.Time
+	// journal records the calls whose order is the rule, shared with the fake
+	// that destroys containers.
+	journal *journal
+	// next is what ClaimNextQueued hands over. Nil means an empty queue.
+	next *domain.Run
+	// finished is the status Finish was given, and finishErr what it fails
+	// with — domain.ErrNotFound when somebody else ended the run first.
+	finished  domain.RunStatus
+	finishErr error
 }
 
 func (f *fakeRuns) Create(_ context.Context, run domain.Run) (domain.Run, error) {
@@ -41,11 +70,20 @@ func (f *fakeRuns) ByID(_ context.Context, _, id uuid.UUID) (domain.Run, error) 
 }
 
 func (f *fakeRuns) ClaimNextQueued(context.Context, uuid.UUID, time.Time) (domain.Run, bool, error) {
-	return domain.Run{}, false, nil
+	if f.next == nil {
+		return domain.Run{}, false, nil
+	}
+	return *f.next, true, nil
 }
 
-func (f *fakeRuns) Finish(context.Context, uuid.UUID, uuid.UUID, domain.RunStatus, time.Time, string) error {
-	return nil
+func (f *fakeRuns) Finish(
+	_ context.Context, _, _ uuid.UUID, status domain.RunStatus, _ time.Time, _ string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.finished = status
+	return f.finishErr
 }
 
 func (f *fakeRuns) SaveResults(context.Context, uuid.UUID, uuid.UUID, domain.RunResults) error {
@@ -166,7 +204,7 @@ func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)
 			fakeEnvironments{environment: environment},
 			&fakeAllowlist{hosts: []string{"staging.example.test"}},
 			noSecrets{},
-			nil, nil, nil,
+			nil, nil, nil, nil,
 			allowAll{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			discardLogger(),
@@ -306,7 +344,7 @@ func serviceWith(t *testing.T, authz Authorizer, scenario domain.Scenario, envir
 		fakeEnvironments{environment: environment},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		authz,
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		discardLogger(),
@@ -398,7 +436,7 @@ func TestByIDHidesARunTheCallerMayNotSee(t *testing.T) {
 		fakeEnvironments{environment: f.env},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil,
+		nil, nil, nil, nil,
 		refuseAll{},
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		discardLogger(),
@@ -491,4 +529,61 @@ func TestTheWindowIsAskedAboutTheClampedLength(t *testing.T) {
 	if queued.ProfileParams.TotalDuration() != 300 {
 		t.Fatalf("the stored run lasts %ds", queued.ProfileParams.TotalDuration())
 	}
+}
+
+// The rest of the run repository: what a heartbeat writes, and what a collector
+// reads. On fakeRuns rather than a fake of its own, because the service holds
+// one repository and these are part of it.
+
+func (f *fakeRuns) Heartbeat(_ context.Context, _, _ uuid.UUID, _ time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.beats++
+	if f.beatErr != nil {
+		return false, f.beatErr
+	}
+	return !f.lost, nil
+}
+
+func (f *fakeRuns) OrphanStale(_ context.Context, _ uuid.UUID, cutoff time.Time) ([]domain.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.cutoff = cutoff
+	return f.stale, f.err
+}
+
+func (f *fakeRuns) Orphaned(context.Context, uuid.UUID) ([]domain.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.orphans, f.err
+}
+
+func (f *fakeRuns) FailOrphaned(
+	_ context.Context, _, id uuid.UUID, _ time.Time, _ string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.journal.record("errored " + id.String())
+	return f.err
+}
+
+func (f *fakeRuns) LiveRunIDs(_ context.Context, _ uuid.UUID, since time.Time) ([]uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.since = since
+	return f.live, f.err
+}
+
+// beatsRecorded is how many heartbeats were written, read from the test's
+// goroutine while the service's own may still be writing.
+func (f *fakeRuns) beatsRecorded() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.beats
 }

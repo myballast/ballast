@@ -70,6 +70,9 @@ func work(log *slog.Logger) error {
 		postgres.NewEnvironmentRepository(db),
 		postgres.NewSecretRepository(db, cipher),
 		runner,
+		// The same runner, in its other role: what starts a container is also
+		// what knows how to find and destroy one somebody else started.
+		runner,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),
@@ -77,9 +80,59 @@ func work(log *slog.Logger) error {
 		log,
 	)
 
+	// Before taking any work. A worker that was killed mid-run left a generator
+	// behind, and a generator does not stop when its worker does: it keeps
+	// loading somebody's target until its own time limit ends it.
+	if destroyed, err := service.Sweep(ctx, cfg.OrgID); err != nil {
+		// Loud, but not fatal. A daemon that cannot be swept is no reason to
+		// stop executing runs.
+		log.Error("this machine could not be swept", "error", err)
+	} else if destroyed > 0 {
+		log.Warn("containers left behind by an earlier worker were destroyed",
+			"containers", destroyed)
+	}
+
+	go collect(ctx, service, cfg.OrgID, cfg.CollectInterval, log)
+
 	log.Info("polling for runs", "org_id", cfg.OrgID, "interval", cfg.PollInterval)
 
 	return poll(ctx, service, cfg.OrgID, cfg.PollInterval, log)
+}
+
+// collect looks for runs whose worker has died, on its own schedule.
+//
+// A goroutine of its own rather than a step between two runs, and that is the
+// point: a worker busy with a two-hour soak would otherwise collect nothing for
+// two hours, which is precisely when another worker's death costs the most — a
+// target held, and a generator loading it with nobody watching.
+func collect(
+	ctx context.Context,
+	service *run.Service,
+	orgID uuid.UUID,
+	every time.Duration,
+	log *slog.Logger,
+) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		ended, err := service.Collect(ctx, orgID)
+		if err != nil {
+			// The next tick tries again. A collector that stopped on its first
+			// failure would be a collector that stops.
+			log.Error("collecting abandoned runs failed", "error", err)
+			continue
+		}
+		if ended > 0 {
+			log.Warn("runs abandoned by their worker were collected", "runs", ended)
+		}
+	}
 }
 
 // poll is the whole scheduling story for now: one organization, one run at a

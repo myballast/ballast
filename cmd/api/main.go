@@ -79,6 +79,7 @@ func serve(log *slog.Logger) error {
 		// that refuses rather than the one that can decrypt a secret.
 		refusingSecrets{},
 		refusingExecutor{},
+		refusingContainers{},
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
@@ -185,6 +186,21 @@ func (refusingExecutor) Execute(
 	context.Context, run.Job, chan<- domain.LogLine,
 ) (run.Outcome, error) {
 	return run.Outcome{}, errors.New("the api does not execute runs; that is the worker's job")
+}
+
+// refusingContainers stands in for the garbage collector in the API process.
+//
+// Collecting abandoned runs means destroying containers, which is the worker's
+// machine and the worker's business. The API is given a Docker connection
+// nowhere, so there is nothing here to refuse with but an error.
+type refusingContainers struct{}
+
+func (refusingContainers) Destroy(context.Context, uuid.UUID) error {
+	return errors.New("the api destroys no containers; that is the worker's job")
+}
+
+func (refusingContainers) DestroyExcept(context.Context, []uuid.UUID) (int, error) {
+	return 0, errors.New("the api destroys no containers; that is the worker's job")
 }
 
 // refusingSecrets stands in for the secret reader in the API process.
