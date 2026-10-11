@@ -28,6 +28,15 @@ type Run struct {
 	StartedAt       *time.Time
 	EndedAt         *time.Time
 	HeartbeatAt     *time.Time
+	// CancelRequestedAt is when somebody asked this run to stop. It is a
+	// request and not an ending: for a run being executed, the status that says
+	// the load has stopped is written by the worker that stopped it.
+	CancelRequestedAt *time.Time
+}
+
+// CancellationRequested reports whether somebody has asked this run to stop.
+func (r Run) CancellationRequested() bool {
+	return r.CancelRequestedAt != nil
 }
 
 // NewRun builds a run ready to be queued.
@@ -119,3 +128,25 @@ const heartbeatTimeout = 6 * HeartbeatInterval
 func StaleBefore(at time.Time) time.Time {
 	return at.Add(-heartbeatTimeout)
 }
+
+// CancelPollInterval is how often a worker asks whether the run it is
+// executing has been cancelled.
+//
+// A read by primary key, not a write: at two seconds a write per running run
+// would be a lot of them, and reading costs an index lookup. Two seconds
+// because a cancellation is promised to take effect in under five, and
+// destroying a container takes a moment of that.
+const CancelPollInterval = 2 * time.Second
+
+// CancelOutcome is what asking for a run to stop achieved.
+type CancelOutcome string
+
+const (
+	// RunCancelled means it is over: the run had not started, so nothing had to
+	// be stopped before saying so.
+	RunCancelled CancelOutcome = "cancelled"
+	// CancellationRequested means a generator is running and has been asked to
+	// stop. The run reaches cancelled when the worker executing it has
+	// destroyed the container and freed the target.
+	CancellationRequested CancelOutcome = "cancellation_requested"
+)

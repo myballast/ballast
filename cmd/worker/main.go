@@ -73,12 +73,21 @@ func work(log *slog.Logger) error {
 		// The same runner, in its other role: what starts a container is also
 		// what knows how to find and destroy one somebody else started.
 		runner,
+		postgres.NewProjectRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),
 		infra.SystemClock{},
+		run.Accepting(cfg.AcceptingRuns),
 		log,
 	)
+
+	if !cfg.AcceptingRuns {
+		// Said once, loudly, at startup. A worker that silently takes nothing
+		// looks exactly like a worker with nothing to do.
+		log.Warn("this installation is not accepting new runs; the queue will not be drained",
+			"setting", "BALLAST_ACCEPTING_RUNS")
+	}
 
 	// Before taking any work. A worker that was killed mid-run left a generator
 	// behind, and a generator does not stop when its worker does: it keeps

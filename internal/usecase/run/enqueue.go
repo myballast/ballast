@@ -26,6 +26,15 @@ type EnqueueCommand struct {
 
 // Enqueue accepts a run and leaves it waiting for a worker.
 func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, error) {
+	// The platform's switch, before anything is read. During an incident the
+	// answer does not depend on the request, so nothing about the request is
+	// looked at — and nothing is written.
+	if !s.accepting {
+		s.log.WarnContext(ctx, "run refused: this installation is not accepting new runs",
+			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID)
+		return domain.Run{}, domain.ErrRunsSuspended
+	}
+
 	params, ok := cmd.Profile.Defaults()
 	if !ok {
 		return domain.Run{}, fmt.Errorf("%w: unknown profile %q", domain.ErrInvalidProfileParams, cmd.Profile)

@@ -206,3 +206,24 @@ func translate(err error) error {
 	}
 	return err
 }
+
+// ProjectIDs is every project of the organization.
+//
+// Read by the emergency stop, which asks the authorizer about each one: an
+// organization's runs are an administrator's to stop only if they administer
+// all of it.
+func (r *ProjectRepository) ProjectIDs(ctx context.Context, orgID uuid.UUID) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		found, err := sqlc.New(tx).ListProjectIDs(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("list the projects: %w", err)
+		}
+
+		ids = found
+		return nil
+	})
+
+	return ids, err
+}

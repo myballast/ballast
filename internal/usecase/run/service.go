@@ -17,11 +17,16 @@ type Service struct {
 	secrets   SecretReader
 	executor  Executor
 	cleaner   Containers
+	projects  ProjectDirectory
 	options   OptionsBuilder
 	parser    SummaryParser
 	authz     Authorizer
 	clock     Clock
 	log       *slog.Logger
+
+	// accepting is the platform's switch. Off, no new run is taken — at either
+	// door: the API refuses one, and the worker leaves the queue alone.
+	accepting bool
 
 	// beatEvery is how often a run in progress says it is still watched.
 	//
@@ -29,6 +34,9 @@ type Service struct {
 	// watch several beats go by without taking half a minute. Nothing outside
 	// this package can change it.
 	beatEvery time.Duration
+	// watchEvery is how often a run in progress is asked whether it has been
+	// cancelled. A field for the same reason as beatEvery.
+	watchEvery time.Duration
 }
 
 // NewService wires the service. Every collaborator is an interface declared in
@@ -41,10 +49,12 @@ func NewService(
 	secrets SecretReader,
 	executor Executor,
 	cleaner Containers,
+	projects ProjectDirectory,
 	options OptionsBuilder,
 	parser SummaryParser,
 	authz Authorizer,
 	clock Clock,
+	accepting Accepting,
 	log *slog.Logger,
 ) *Service {
 	return &Service{
@@ -55,11 +65,15 @@ func NewService(
 		secrets:   secrets,
 		executor:  executor,
 		cleaner:   cleaner,
+		projects:  projects,
 		options:   options,
 		parser:    parser,
 		authz:     authz,
 		clock:     clock,
 		log:       log,
-		beatEvery: domain.HeartbeatInterval,
+		accepting: bool(accepting),
+
+		beatEvery:  domain.HeartbeatInterval,
+		watchEvery: domain.CancelPollInterval,
 	}
 }

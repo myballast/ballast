@@ -64,3 +64,12 @@ WHERE org_id = $1 AND user_id = $2 AND project_id = $3;
 
 -- name: GetUser :one
 SELECT * FROM app_user WHERE org_id = $1 AND id = $2;
+
+-- Every project of the organization, members or not.
+--
+-- Read by the emergency stop, which has to ask the authorizer about each one:
+-- stopping an organization's runs is only an administrator's to do if they
+-- administer all of it, and a project they are not even a member of is one they
+-- do not administer.
+-- name: ListProjectIDs :many
+SELECT id FROM project WHERE org_id = $1 ORDER BY id;

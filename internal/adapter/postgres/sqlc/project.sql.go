@@ -212,6 +212,36 @@ func (q *Queries) ListMembershipsOfMember(ctx context.Context, arg ListMembershi
 	return items, nil
 }
 
+const listProjectIDs = `-- name: ListProjectIDs :many
+SELECT id FROM project WHERE org_id = $1 ORDER BY id
+`
+
+// Every project of the organization, members or not.
+//
+// Read by the emergency stop, which has to ask the authorizer about each one:
+// stopping an organization's runs is only an administrator's to do if they
+// administer all of it, and a project they are not even a member of is one they
+// do not administer.
+func (q *Queries) ListProjectIDs(ctx context.Context, orgID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listProjectIDs, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectMembers = `-- name: ListProjectMembers :many
 SELECT m.org_id, m.user_id, m.project_id, m.role, m.permissions, m.created_at, u.email, u.name AS display_name
 FROM membership m

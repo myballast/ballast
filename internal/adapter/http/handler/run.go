@@ -113,13 +113,14 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 			PlateauS:  found.ProfileParams.PlateauS,
 			RampDownS: found.ProfileParams.RampDownS,
 		},
-		Status:       string(found.Status),
-		ErrorMessage: found.ErrorMessage,
-		CreatedAt:    found.CreatedAt,
-		StartedAt:    found.StartedAt,
-		EndedAt:      found.EndedAt,
-		Metrics:      make([]dto.Metric, 0, len(results.Metrics)),
-		Thresholds:   make([]dto.Threshold, 0, len(results.Thresholds)),
+		Status:            string(found.Status),
+		ErrorMessage:      found.ErrorMessage,
+		CancelRequestedAt: found.CancelRequestedAt,
+		CreatedAt:         found.CreatedAt,
+		StartedAt:         found.StartedAt,
+		EndedAt:           found.EndedAt,
+		Metrics:           make([]dto.Metric, 0, len(results.Metrics)),
+		Thresholds:        make([]dto.Threshold, 0, len(results.Thresholds)),
 	}
 
 	for _, metric := range results.Metrics {
@@ -139,6 +140,71 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+// Cancel handles DELETE /runs/{id}.
+//
+// Two answers, and the difference is not cosmetic. A queued run is cancelled by
+// the time this returns: 200, it is over. A run being executed has been asked
+// to stop, and its generator is still loading the target for a second or two:
+// 202, because saying 200 would claim something that is not true yet. The body
+// says which happened either way.
+func (h *Run) Cancel(w http.ResponseWriter, r *http.Request) {
+	who, ok := signedIn(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "the run id is not a uuid")
+		return
+	}
+
+	outcome, err := h.runs.Cancel(r.Context(), who, id)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	response := dto.CancelRunResponse{
+		ID:      id.String(),
+		Status:  string(domain.StatusCancelled),
+		Outcome: string(outcome),
+	}
+	status := http.StatusOK
+
+	if outcome == domain.CancellationRequested {
+		// Still running, and that is the honest thing to report: the generator
+		// is destroyed by the worker executing it, within a few seconds.
+		response.Status = string(domain.StatusRunning)
+		status = http.StatusAccepted
+	}
+
+	writeJSON(w, status, response)
+}
+
+// StopAll handles POST /runs/stop-all.
+//
+// The emergency stop. Reserved to somebody who administers every project of the
+// organization, which the service checks project by project; anything less is
+// refused rather than given a stop that leaves part of the load running.
+func (h *Run) StopAll(w http.ResponseWriter, r *http.Request) {
+	who, ok := signedIn(w, r)
+	if !ok {
+		return
+	}
+
+	cancelled, asked, err := h.runs.StopEverything(r.Context(), who)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.StopAllResponse{
+		Cancelled:   cancelled,
+		AskedToStop: asked,
+	})
 }
 
 // writeDomainError turns a domain error into a status code.
@@ -167,6 +233,16 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		// window, or how much of it is left against how long the run would
 		// last, because the two are fixed differently: wait, or ask for less.
 		writeError(w, http.StatusForbidden, err.Error())
+
+	case errors.Is(err, domain.ErrNotCancellable):
+		// 409 rather than 400: nothing about the request is wrong, the run has
+		// simply already finished. Trying again would not help.
+		writeError(w, http.StatusConflict, "this run has already finished")
+
+	case errors.Is(err, domain.ErrRunsSuspended):
+		// 503, because it is the installation that is unavailable for this,
+		// not the request that is wrong. Somebody threw a switch.
+		writeError(w, http.StatusServiceUnavailable, "Ballast is not accepting new runs")
 
 	case errors.Is(err, domain.ErrCrossProject):
 		writeError(w, http.StatusBadRequest, "the scenario and the environment belong to different projects")

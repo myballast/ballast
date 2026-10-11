@@ -246,6 +246,54 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          description: |
+            This installation is not accepting new runs: somebody has thrown
+            the platform's switch, and nothing about the request was even read.
+            Runs already under way are unaffected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                suspended:
+                  value:
+                    error: Ballast is not accepting new runs
+
+  /runs/stop-all:
+    post:
+      tags: [runs]
+      summary: Emergency stop
+      description: |
+        Cancels every queued run of the organization and asks every running one
+        to stop. The two are counted separately because they are not the same
+        thing: a queued run is over when this returns, and a running one is
+        ended by the worker executing it, once that worker has destroyed the
+        container — a couple of seconds later.
+
+        Reserved to somebody who administers **every** project of the
+        organization. The check is made project by project, and anything less is
+        refused with `403` rather than given a stop that silently leaves part of
+        the load running; cancelling run by run stays open to them.
+      operationId: stopAllRuns
+      x-ballast-permission: cancel_run
+      responses:
+        "200":
+          description: What was stopped.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StopAllResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: The caller does not administer every project of the organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /runs/{id}:
     get:
@@ -278,6 +326,76 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [runs]
+      summary: Cancel a run
+      description: |
+        Stops a run that is queued or being executed.
+
+        The two answers differ because the facts do. A queued run is cancelled
+        by the time this returns — nothing had started, and it held no target —
+        and the response is `200`. A run being executed has only been *asked* to
+        stop: its generator is still loading the target for a second or two, so
+        the response is `202`, and the run reaches `cancelled` when the worker
+        executing it has destroyed the container and freed the target. A client
+        watching for that reads `cancel_requested_at` on the run, which is set
+        as soon as the request is recorded.
+
+        A run that has already finished answers `409`: nothing about the request
+        is wrong, there is simply nothing left to stop.
+      operationId: cancelRun
+      x-ballast-permission: cancel_run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The run was queued and is now cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelRunResponse"
+              example:
+                id: 8f14e45f-ceea-467a-9e2a-3f1f0f5b1f11
+                status: cancelled
+                outcome: cancelled
+        "202":
+          description: |
+            The run is being executed and has been asked to stop. It is ended by
+            the worker executing it, within a few seconds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelRunResponse"
+              example:
+                id: 8f14e45f-ceea-467a-9e2a-3f1f0f5b1f11
+                status: running
+                outcome: cancellation_requested
+        "400":
+          description: The id is not a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The run has already finished.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                finished:
+                  value:
+                    error: this run has already finished
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1715,6 +1833,34 @@ components:
         status:
           $ref: "#/components/schemas/RunStatus"
 
+    CancelRunResponse:
+      type: object
+      required: [id, status, outcome]
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        outcome:
+          type: string
+          description: |
+            `cancelled` when the run had not started and is now over.
+            `cancellation_requested` when a generator is running and has been
+            asked to stop: the worker executing it writes the ending.
+          enum: [cancelled, cancellation_requested]
+
+    StopAllResponse:
+      type: object
+      required: [cancelled, asked_to_stop]
+      properties:
+        cancelled:
+          type: integer
+          description: How many queued runs were cancelled outright.
+        asked_to_stop:
+          type: integer
+          description: |
+            How many running runs were asked to stop. Each is ended by the
+            worker executing it, once it has destroyed the container.
+
     RunStatus:
       type: string
       description: "`orphaned` is not terminal: the worker died mid-run and the run still has to be cleaned up."
@@ -1751,6 +1897,14 @@ components:
         error_message:
           type: string
           description: Why the run errored, when it did.
+        cancel_requested_at:
+          type: string
+          format: date-time
+          description: |
+            When somebody asked this run to stop. Set as soon as the request is
+            recorded, which is before the run has actually stopped: a client
+            watching a cancellation of a running run waits for `status` to
+            become `cancelled`.
         created_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time }
         ended_at: { type: string, format: date-time }

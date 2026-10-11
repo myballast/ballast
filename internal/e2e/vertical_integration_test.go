@@ -189,6 +189,14 @@ type stack struct {
 func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 	t.Helper()
 
+	return buildWith(t, db, org, true)
+}
+
+// buildWith is build, with the platform's switch in a chosen position. Only the
+// test about that switch passes false.
+func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) stack {
+	t.Helper()
+
 	runner, err := hosted.New(hosted.Config{
 		TTL:        2 * time.Minute,
 		CPUs:       1,
@@ -222,10 +230,12 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 		// The same runner in its other role: what starts a container is also
 		// what finds and destroys one whose worker is gone.
 		runner,
+		postgres.NewProjectRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
 		infra.SystemClock{},
+		run.Accepting(accepting),
 		log,
 	)
 

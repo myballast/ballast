@@ -76,3 +76,14 @@ var ErrNotProven = errors.New("the target's ownership has not been proved")
 // already approved. Re-verifying one would take its approval away, and
 // re-approving it would rewrite who gave the approval.
 var ErrAlreadyVerified = errors.New("the target is already verified")
+
+// ErrNotCancellable reports a run that cannot be stopped because it is already
+// over. Distinct from ErrNotFound: the run exists and the caller may see it,
+// there is simply nothing left to stop.
+var ErrNotCancellable = errors.New("the run has already finished")
+
+// ErrRunsSuspended reports a new run refused because the platform's switch is
+// off. It is a decision somebody took about the whole installation, not
+// anything about the request, so it says nothing about the scenario or target
+// it was asked for.
+var ErrRunsSuspended = errors.New("this installation is not accepting new runs")

@@ -165,3 +165,41 @@ RETURNING *;
 -- name: LiveRunIDs :many
 SELECT id FROM run
 WHERE org_id = $1 AND status = 'running' AND heartbeat_at > $2;
+
+-- Ask a run being executed to stop.
+--
+-- coalesce keeps the first request's instant: asking twice is one decision, and
+-- the second asker must not move the moment it was taken. No row means the run
+-- is not being executed — finished, or still queued, which the caller handles
+-- with the statement below.
+-- name: RequestRunCancellation :one
+UPDATE run
+SET cancel_requested_at = coalesce(cancel_requested_at, $3)
+WHERE org_id = $1 AND id = $2 AND status = 'running'
+RETURNING *;
+
+-- Cancel a run nothing has started.
+--
+-- Immediate, and safe to be: a queued run holds no environment lock and has no
+-- container, so there is nothing whose stopping has to be waited for.
+-- name: CancelQueuedRun :one
+UPDATE run
+SET status = 'cancelled', ended_at = $3, error_message = $4, cancel_requested_at = $3
+WHERE org_id = $1 AND id = $2 AND status = 'queued'
+RETURNING *;
+
+-- The emergency stop, first half: nothing else starts.
+-- name: CancelEveryQueuedRun :many
+UPDATE run
+SET status = 'cancelled', ended_at = $2, error_message = $3, cancel_requested_at = $2
+WHERE org_id = $1 AND status = 'queued'
+RETURNING *;
+
+-- The emergency stop, second half: everything under way is asked to stop. Each
+-- worker sees its own run's request and takes its own container down, which is
+-- the only place that can be done.
+-- name: RequestEveryRunningCancellation :many
+UPDATE run
+SET cancel_requested_at = coalesce(cancel_requested_at, $2)
+WHERE org_id = $1 AND status = 'running'
+RETURNING *;

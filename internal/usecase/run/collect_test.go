@@ -69,6 +69,16 @@ func (f *fakeContainers) DestroyExcept(_ context.Context, keep []uuid.UUID) (int
 	return f.destroyed, f.err
 }
 
+// fakeProjects stands in for the project directory the emergency stop reads.
+type fakeProjects struct {
+	ids []uuid.UUID
+	err error
+}
+
+func (f *fakeProjects) ProjectIDs(context.Context, uuid.UUID) ([]uuid.UUID, error) {
+	return f.ids, f.err
+}
+
 // emptyResults stands in for the summary parser. What it extracts is tested in
 // adapter/k6; here a run only needs to reach a terminal state.
 type emptyResults struct{}
@@ -133,10 +143,12 @@ func newCollectFixture(executor Executor) collectFixture {
 		&fakeSecrets{},
 		executor,
 		containers,
+		&fakeProjects{},
 		staticOptions{},
 		emptyResults{},
 		allowAll{},
 		fixedClock{at: now},
+		Accepting(true),
 		discardLogger(),
 	)
 	// Beats a test can wait for. The interval is a field precisely so that
