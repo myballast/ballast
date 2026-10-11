@@ -26,6 +26,10 @@ type Config struct {
 	RunTTL time.Duration
 	// PollInterval is how long the worker waits when it found nothing to do.
 	PollInterval time.Duration
+	// CollectInterval is how often the worker looks for runs whose own worker
+	// has died. Shorter than the staleness threshold it enforces, so that a run
+	// is not left abandoned for the two put together.
+	CollectInterval time.Duration
 	// ExtraHosts is passed to the generator's container, in host:ip form. It
 	// exists so a development run can reach a server on the host machine.
 	ExtraHosts []string
@@ -63,6 +67,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.PollInterval = poll
+
+	collect, err := duration("BALLAST_COLLECT_INTERVAL", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.CollectInterval = collect
 
 	if host := env("BALLAST_EXTRA_HOST", ""); host != "" {
 		cfg.ExtraHosts = []string{host}

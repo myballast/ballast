@@ -87,6 +87,20 @@ func toDomainRun(row sqlc.Run) (domain.Run, error) {
 	}, nil
 }
 
+// toDomainRuns converts a batch, failing on the first row it cannot read: a
+// half-converted list of abandoned runs would mean half of them are cleaned up.
+func toDomainRuns(rows []sqlc.Run) ([]domain.Run, error) {
+	runs := make([]domain.Run, 0, len(rows))
+	for _, row := range rows {
+		converted, err := toDomainRun(row)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, converted)
+	}
+	return runs, nil
+}
+
 func derefString(s *string) string {
 	if s == nil {
 		return ""
@@ -360,4 +374,149 @@ func (r *RunRepository) Results(
 	})
 
 	return results, err
+}
+
+// Heartbeat records that this run is still being watched, and reports whether
+// it is still this worker's to watch.
+//
+// False means the run left running while the worker was executing it: a
+// collector decided the worker was dead and took it. The worker's business then
+// is to stop, not to carry on writing to a run somebody else has ended.
+func (r *RunRepository) Heartbeat(
+	ctx context.Context, orgID, id uuid.UUID, at time.Time,
+) (bool, error) {
+	var ours bool
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		touched, err := sqlc.New(tx).TouchRun(ctx, sqlc.TouchRunParams{
+			OrgID:       orgID,
+			ID:          id,
+			HeartbeatAt: &at,
+		})
+		if err != nil {
+			return fmt.Errorf("record the heartbeat: %w", err)
+		}
+
+		ours = touched > 0
+		return nil
+	})
+
+	return ours, err
+}
+
+// OrphanStale moves every run last seen before cutoff out of running.
+//
+// It stops at orphaned on purpose. The container may still be alive and loading
+// somebody's target, so the run is not over; what is settled is that nobody is
+// watching it.
+func (r *RunRepository) OrphanStale(
+	ctx context.Context, orgID uuid.UUID, cutoff time.Time,
+) ([]domain.Run, error) {
+	var abandoned []domain.Run
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		rows, err := sqlc.New(tx).OrphanStaleRuns(ctx, sqlc.OrphanStaleRunsParams{
+			OrgID:       orgID,
+			HeartbeatAt: &cutoff,
+		})
+		if err != nil {
+			return fmt.Errorf("look for abandoned runs: %w", err)
+		}
+
+		abandoned, err = toDomainRuns(rows)
+		return err
+	})
+
+	return abandoned, err
+}
+
+// Orphaned lists the runs waiting to be cleaned up.
+//
+// Read separately from OrphanStale rather than using what that returned,
+// because a collector that died between the two steps left runs here that no
+// later call to OrphanStale would ever return again.
+func (r *RunRepository) Orphaned(ctx context.Context, orgID uuid.UUID) ([]domain.Run, error) {
+	var waiting []domain.Run
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		rows, err := sqlc.New(tx).ListOrphanedRuns(ctx, orgID)
+		if err != nil {
+			return fmt.Errorf("list the abandoned runs: %w", err)
+		}
+
+		waiting, err = toDomainRuns(rows)
+		return err
+	})
+
+	return waiting, err
+}
+
+// FailOrphaned ends an abandoned run and frees its target.
+//
+// Called once whatever the run left behind has been destroyed: this is the
+// statement that says the load has stopped, so it must not run while it might
+// still be going.
+//
+// The release is in the same transaction for the reason Finish's is: apart,
+// there is a moment where the run is over and its target still looks busy, or
+// worse the other way round.
+func (r *RunRepository) FailOrphaned(
+	ctx context.Context, orgID, id uuid.UUID, at time.Time, message string,
+) error {
+	var reason *string
+	if message != "" {
+		reason = &message
+	}
+
+	return r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+
+		failed, err := queries.FailOrphanedRun(ctx, sqlc.FailOrphanedRunParams{
+			OrgID:        orgID,
+			ID:           id,
+			EndedAt:      &at,
+			ErrorMessage: reason,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Another collector got there first. Its work and this one's are
+			// the same work, so there is nothing to report.
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("end the abandoned run: %w", err)
+		}
+
+		if _, err := queries.ReleaseEnvironmentLock(ctx, sqlc.ReleaseEnvironmentLockParams{
+			OrgID:         orgID,
+			EnvironmentID: failed.EnvironmentID,
+			RunID:         id,
+		}); err != nil {
+			return fmt.Errorf("release the environment's lock: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// LiveRunIDs is every run a container may legitimately exist for: being
+// executed, and watched recently enough to believe it.
+func (r *RunRepository) LiveRunIDs(
+	ctx context.Context, orgID uuid.UUID, since time.Time,
+) ([]uuid.UUID, error) {
+	var live []uuid.UUID
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		ids, err := sqlc.New(tx).LiveRunIDs(ctx, sqlc.LiveRunIDsParams{
+			OrgID:       orgID,
+			HeartbeatAt: &since,
+		})
+		if err != nil {
+			return fmt.Errorf("list the live runs: %w", err)
+		}
+
+		live = ids
+		return nil
+	})
+
+	return live, err
 }

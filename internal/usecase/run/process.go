@@ -17,11 +17,10 @@ import (
 // It reports whether there was anything to do, so a polling loop knows when to
 // wait rather than spin.
 //
-// Picking a run up is deliberately naive here: no SELECT ... FOR UPDATE SKIP
-// LOCKED, and no lock on the environment, so two workers pointed at the same
-// organization can both take the same run, and two runs can hit one target at
-// once — which makes both sets of measurements meaningless. The queue ticket is
-// what closes that.
+// Claiming a run takes the environment's lock in the same transaction, so no
+// two workers execute the same run and no two runs load the same target. For as
+// long as the execution lasts, this worker says so every ten seconds; stop
+// saying it and a collector ends the run and destroys what is left of it.
 func (s *Service) ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- domain.LogLine) (bool, error) {
 	claimed, ok, err := s.runs.ClaimNextQueued(ctx, orgID, s.clock.Now())
 	if err != nil || !ok {
@@ -36,13 +35,36 @@ func (s *Service) ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- 
 
 	s.log.InfoContext(ctx, "run started", "run_id", claimed.ID, "profile", claimed.Profile)
 
-	status, message := s.execute(ctx, orgID, claimed, logs)
+	// The execution gets a context of its own so that the heartbeat can end it.
+	// A worker that has lost its run — a collector decided it was dead — must
+	// stop generating load, and cancelling is what takes the container down.
+	executing, lost := context.WithCancel(ctx)
+	defer lost()
+	beating := s.beat(executing, orgID, claimed.ID, lost)
+
+	status, message := s.execute(executing, orgID, claimed, logs)
+
+	// Before anything is written about the run: nothing must still be touching
+	// its heartbeat once it is finished.
+	lost()
+	<-beating
 
 	if !claimed.Status.CanTransitionTo(status) {
 		return true, fmt.Errorf("a run cannot go from %s to %s", claimed.Status, status)
 	}
 
-	if err := s.runs.Finish(ctx, orgID, claimed.ID, status, s.clock.Now(), message); err != nil {
+	// On ctx rather than on the execution's context, which was just cancelled.
+	err = s.runs.Finish(ctx, orgID, claimed.ID, status, s.clock.Now(), message)
+	if errors.Is(err, domain.ErrNotFound) {
+		// The run left running while this worker was executing it, which is
+		// what the heartbeat above reports as a loss. A collector has already
+		// ended it; writing a second ending would overwrite the record of what
+		// actually happened.
+		s.log.WarnContext(ctx, "the run had already been ended by somebody else",
+			"run_id", claimed.ID, "would_have_been", status)
+		return true, nil
+	}
+	if err != nil {
 		return true, err
 	}
 
@@ -222,4 +244,56 @@ func injected(secrets map[string]string, environment domain.Environment) map[str
 	env[domain.BaseURLVariable] = environment.BaseURL
 
 	return env
+}
+
+// beat keeps a run's heartbeat fresh while it executes, and ends the execution
+// if the run turns out not to be this worker's any more.
+//
+// It returns a channel closed once it has stopped, so the caller can be certain
+// nothing writes to the run after the execution is over.
+func (s *Service) beat(
+	ctx context.Context, orgID, runID uuid.UUID, lost func(),
+) <-chan struct{} {
+	stopped := make(chan struct{})
+
+	go func() {
+		defer close(stopped)
+
+		ticker := time.NewTicker(s.beatEvery)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			ours, err := s.runs.Heartbeat(ctx, orgID, runID, s.clock.Now())
+			switch {
+			case err != nil && ctx.Err() != nil:
+				// The execution ended while this write was in flight.
+				return
+
+			case err != nil:
+				// A database briefly out of reach must not cost a run: the
+				// staleness threshold is six beats wide exactly so that a
+				// missed one is survivable, and the next tick tries again.
+				s.log.WarnContext(ctx, "a heartbeat could not be recorded",
+					"run_id", runID, "error", err)
+
+			case !ours:
+				// A collector decided this worker was dead and took the run
+				// from it. Carrying on would mean two owners: a run recorded as
+				// over, and a generator still loading the target. Cancelling
+				// the execution destroys the container.
+				s.log.ErrorContext(ctx, "this run was taken from this worker; stopping it",
+					"run_id", runID)
+				lost()
+				return
+			}
+		}
+	}()
+
+	return stopped
 }

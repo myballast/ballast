@@ -2,6 +2,9 @@ package run
 
 import (
 	"log/slog"
+	"time"
+
+	"github.com/youssefmahersi/ballast/internal/domain"
 )
 
 // Service orchestrates the life of a run: accepting one, executing it, and
@@ -13,11 +16,19 @@ type Service struct {
 	allowlist AllowlistReader
 	secrets   SecretReader
 	executor  Executor
+	cleaner   Containers
 	options   OptionsBuilder
 	parser    SummaryParser
 	authz     Authorizer
 	clock     Clock
 	log       *slog.Logger
+
+	// beatEvery is how often a run in progress says it is still watched.
+	//
+	// A field rather than the constant read where it is used, so a test can
+	// watch several beats go by without taking half a minute. Nothing outside
+	// this package can change it.
+	beatEvery time.Duration
 }
 
 // NewService wires the service. Every collaborator is an interface declared in
@@ -29,6 +40,7 @@ func NewService(
 	allowlist AllowlistReader,
 	secrets SecretReader,
 	executor Executor,
+	cleaner Containers,
 	options OptionsBuilder,
 	parser SummaryParser,
 	authz Authorizer,
@@ -42,10 +54,12 @@ func NewService(
 		allowlist: allowlist,
 		secrets:   secrets,
 		executor:  executor,
+		cleaner:   cleaner,
 		options:   options,
 		parser:    parser,
 		authz:     authz,
 		clock:     clock,
 		log:       log,
+		beatEvery: domain.HeartbeatInterval,
 	}
 }

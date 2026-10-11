@@ -92,3 +92,30 @@ const lockGrace = 5 * time.Minute
 func (r Run) LockExpiry(at time.Time) time.Time {
 	return at.Add(time.Duration(r.ProfileParams.TotalDuration())*time.Second + lockGrace)
 }
+
+// HeartbeatInterval is how often a running run says it is still being watched.
+//
+// The worker writes heartbeat_at this often for as long as it is executing. It
+// is not an extension of the environment's lock: a lock covers the run's whole
+// clamped duration from the start, and a heartbeat answers a different question
+// — is the process that started this still alive?
+const HeartbeatInterval = 10 * time.Second
+
+// heartbeatTimeout is how long a run may go unwatched before it is considered
+// abandoned: six missed beats.
+//
+// The width is the point. A worker is alive but silent for a while more often
+// than it is dead — a slow write, a database failover, a long garbage
+// collection — and a run taken away from a living worker is the worse of the
+// two mistakes: its container is destroyed mid-measurement. The other mistake
+// costs a target held a minute longer than necessary.
+const heartbeatTimeout = 6 * HeartbeatInterval
+
+// StaleBefore is the instant before which a heartbeat means nothing: a run last
+// seen earlier than this is abandoned.
+//
+// The collector asks the database for runs older than this, so the rule lives
+// here rather than in a WHERE clause.
+func StaleBefore(at time.Time) time.Time {
+	return at.Add(-heartbeatTimeout)
+}

@@ -25,6 +25,47 @@ type Repository interface {
 	Finish(ctx context.Context, orgID, id uuid.UUID, status domain.RunStatus, at time.Time, message string) error
 	SaveResults(ctx context.Context, orgID, runID uuid.UUID, results domain.RunResults) error
 	Results(ctx context.Context, orgID, runID uuid.UUID) (domain.RunResults, error)
+
+	// The rest is what keeps a run from being abandoned without anyone
+	// noticing. A worker is killed mid-run — the process, the machine, the
+	// container host — and nothing above this line would ever move that run
+	// out of running.
+
+	// Heartbeat says the run is still being watched, and reports whether it is
+	// still this worker's to watch. False means a collector took it, and the
+	// worker that hears that stops rather than finishing a run somebody else
+	// has already ended.
+	Heartbeat(ctx context.Context, orgID, id uuid.UUID, at time.Time) (bool, error)
+	// OrphanStale moves every run last seen before cutoff out of running, and
+	// no further: a container that nobody is watching may still be running, so
+	// the run is not over yet.
+	OrphanStale(ctx context.Context, orgID uuid.UUID, cutoff time.Time) ([]domain.Run, error)
+	// Orphaned is every run waiting to be cleaned up, including what a
+	// collector that died itself left half-handled.
+	Orphaned(ctx context.Context, orgID uuid.UUID) ([]domain.Run, error)
+	// FailOrphaned ends an abandoned run and frees its target, and is called
+	// only once what the run left behind is destroyed.
+	FailOrphaned(ctx context.Context, orgID, id uuid.UUID, at time.Time, message string) error
+	// LiveRunIDs is every run a container may legitimately exist for.
+	LiveRunIDs(ctx context.Context, orgID uuid.UUID, since time.Time) ([]uuid.UUID, error)
+}
+
+// Containers destroys what a generator leaves on the machine it ran on.
+//
+// Separate from Executor because the two are asked at different moments by
+// different code: Executor runs a job and waits for it, this one is handed a run
+// identifier long after the process that started it is gone. A runner deployed
+// on a client's own infrastructure implements both.
+type Containers interface {
+	// Destroy removes everything belonging to one run — containers, and the
+	// network they were put on. It is expected to succeed when there is
+	// nothing left to remove: two collectors cleaning up the same run are
+	// doing the same work.
+	Destroy(ctx context.Context, runID uuid.UUID) error
+	// DestroyExcept removes everything belonging to a run that is not in keep,
+	// and reports how many it removed. It is how a worker that has just
+	// started gets rid of what the worker before it left behind.
+	DestroyExcept(ctx context.Context, keep []uuid.UUID) (int, error)
 }
 
 // ScenarioReader reads scenarios and the thresholds they impose.

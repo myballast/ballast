@@ -64,6 +64,7 @@ func newJobFixture(environment domain.Environment, secrets map[string]string, at
 			allowlist,
 			secretReader,
 			nil,
+			nil,
 			staticOptions{},
 			nil,
 			allowAll{},

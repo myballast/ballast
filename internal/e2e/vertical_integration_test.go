@@ -177,7 +177,10 @@ func seed(ctx context.Context, t *testing.T, db *postgres.DB, baseURL string, th
 type stack struct {
 	api     *httptest.Server
 	service *run.Service
-	org     uuid.UUID
+	// runner is the real generator runner, exposed because the collector's test
+	// has to leave a container behind the way a killed worker does.
+	runner *hosted.Runner
+	org    uuid.UUID
 	// session is what a browser signed in to org would carry.
 	session *http.Cookie
 }
@@ -216,6 +219,9 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 		// this test is for.
 		postgres.NewSecretRepository(db, cipher(t)),
 		runner,
+		// The same runner in its other role: what starts a container is also
+		// what finds and destroys one whose worker is gone.
+		runner,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
@@ -248,7 +254,13 @@ func build(t *testing.T, db *postgres.DB, org uuid.UUID) stack {
 	))
 	t.Cleanup(api.Close)
 
-	return stack{api: api, service: service, org: org, session: issued.Result().Cookies()[0]}
+	return stack{
+		api:     api,
+		service: service,
+		runner:  runner,
+		org:     org,
+		session: issued.Result().Cookies()[0],
+	}
 }
 
 // do sends a request as the signed-in user. The cookie is set by hand: it is

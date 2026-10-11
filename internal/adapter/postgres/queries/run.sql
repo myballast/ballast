@@ -108,3 +108,60 @@ RETURNING *;
 -- name: ReleaseEnvironmentLock :execrows
 DELETE FROM environment_lock
 WHERE org_id = $1 AND environment_id = $2 AND run_id = $3;
+
+-- The run says it is still being watched.
+--
+-- The status is in the WHERE and the row count is returned, which is how a
+-- worker finds out it no longer owns what it is executing: a collector that
+-- declared this run abandoned moved it out of running, so this touches nothing.
+-- name: TouchRun :execrows
+UPDATE run
+SET heartbeat_at = $3
+WHERE org_id = $1 AND id = $2 AND status = 'running';
+
+-- Runs whose worker has stopped saying anything.
+--
+-- orphaned rather than errored, because orphaned does not mean finished: it
+-- means nobody is watching and the container may well still be hammering the
+-- target. What turns it into errored is the collector, once it has destroyed
+-- what was left.
+--
+-- A null heartbeat counts as stale. StartRun always writes one, so a running run
+-- without one was started by something that did not — which is not a reason to
+-- leave it alone for ever.
+--
+-- Two collectors do not both take a run: the second blocks on the first's
+-- uncommitted row, then re-evaluates the WHERE against the committed version,
+-- sees a status that is no longer running, and skips it.
+-- name: OrphanStaleRuns :many
+UPDATE run
+SET status = 'orphaned'
+WHERE org_id = $1 AND status = 'running'
+  AND (heartbeat_at IS NULL OR heartbeat_at <= $2)
+RETURNING *;
+
+-- Every run waiting to be cleaned up, including one a collector that died
+-- itself left half-handled.
+-- name: ListOrphanedRuns :many
+SELECT * FROM run
+WHERE org_id = $1 AND status = 'orphaned'
+ORDER BY created_at;
+
+-- The end of an abandoned run, written only after its container is gone.
+--
+-- The status in the WHERE is what makes this safe to call twice: the second
+-- caller touches no row rather than overwriting the first's ending.
+-- name: FailOrphanedRun :one
+UPDATE run
+SET status = 'errored', ended_at = $3, error_message = $4
+WHERE org_id = $1 AND id = $2 AND status = 'orphaned'
+RETURNING *;
+
+-- The runs a container is allowed to exist for: being executed, and watched.
+--
+-- Read when a worker starts, to decide what on the machine is rubbish. A
+-- running run whose heartbeat has gone stale is not in the list: it is about to
+-- be collected anyway, and its container has nobody watching it either.
+-- name: LiveRunIDs :many
+SELECT id FROM run
+WHERE org_id = $1 AND status = 'running' AND heartbeat_at > $2;
