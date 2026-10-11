@@ -49,6 +49,14 @@ type Environment struct {
 	AllowedWindowTz          string
 }
 
+type EnvironmentLock struct {
+	OrgID         uuid.UUID
+	EnvironmentID uuid.UUID
+	RunID         uuid.UUID
+	AcquiredAt    time.Time
+	ExpiresAt     time.Time
+}
+
 type Membership struct {
 	OrgID       uuid.UUID
 	UserID      uuid.UUID

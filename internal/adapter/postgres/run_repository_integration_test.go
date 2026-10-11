@@ -67,7 +67,8 @@ func seedProject(ctx context.Context, t *testing.T, db *postgres.DB, org uuid.UU
 		cleanup := context.WithoutCancel(ctx)
 		_ = db.InTenantTx(cleanup, org, func(tx pgx.Tx) error {
 			for _, table := range []string{
-				"run_threshold", "run_metric", "run", "scenario_version", "scenario",
+				"environment_lock", "run_threshold", "run_metric", "run",
+				"scenario_version", "scenario",
 				"environment", "project", "app_user", "organization",
 			} {
 				if _, err := tx.Exec(cleanup,

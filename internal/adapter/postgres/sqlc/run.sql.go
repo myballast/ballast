@@ -12,48 +12,51 @@ import (
 	"github.com/google/uuid"
 )
 
-const claimNextQueuedRun = `-- name: ClaimNextQueuedRun :one
-UPDATE run
-SET status = 'running', started_at = $2, heartbeat_at = $2
-WHERE run.org_id = $1
-  AND run.id = (
-    SELECT queued.id FROM run AS queued
-    WHERE queued.org_id = $1 AND queued.status = 'queued'
-    ORDER BY queued.created_at
-    LIMIT 1
-  )
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+const acquireEnvironmentLock = `-- name: AcquireEnvironmentLock :one
+INSERT INTO environment_lock (org_id, environment_id, run_id, acquired_at, expires_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (org_id, environment_id) DO UPDATE
+SET run_id = excluded.run_id,
+    acquired_at = excluded.acquired_at,
+    expires_at = excluded.expires_at
+WHERE environment_lock.expires_at <= $4
+RETURNING org_id, environment_id, run_id, acquired_at, expires_at
 `
 
-type ClaimNextQueuedRunParams struct {
-	OrgID     uuid.UUID
-	StartedAt *time.Time
+type AcquireEnvironmentLockParams struct {
+	OrgID         uuid.UUID
+	EnvironmentID uuid.UUID
+	RunID         uuid.UUID
+	AcquiredAt    time.Time
+	ExpiresAt     time.Time
 }
 
-// Claiming a run is deliberately naive: no SKIP LOCKED and no environment lock,
-// so two workers can pick up the same queue. The single statement keeps the
-// window small; closing it is the job of the queue ticket.
-func (q *Queries) ClaimNextQueuedRun(ctx context.Context, arg ClaimNextQueuedRunParams) (Run, error) {
-	row := q.db.QueryRow(ctx, claimNextQueuedRun, arg.OrgID, arg.StartedAt)
-	var i Run
+// Take the environment, or find out somebody else has it.
+//
+// One statement for both cases. It inserts when nothing holds the environment,
+// and takes over when what holds it has expired. A live lock matches the WHERE
+// on neither count, so the statement returns no row — which is the caller's
+// signal to leave its run queued.
+//
+// Two concurrent attempts do not race: the second blocks on the first's
+// uncommitted row, and once that commits it re-evaluates the WHERE and comes
+// back empty rather than raising a unique violation. Checked against a real
+// database, because the whole design rests on it.
+func (q *Queries) AcquireEnvironmentLock(ctx context.Context, arg AcquireEnvironmentLockParams) (EnvironmentLock, error) {
+	row := q.db.QueryRow(ctx, acquireEnvironmentLock,
+		arg.OrgID,
+		arg.EnvironmentID,
+		arg.RunID,
+		arg.AcquiredAt,
+		arg.ExpiresAt,
+	)
+	var i EnvironmentLock
 	err := row.Scan(
-		&i.ID,
 		&i.OrgID,
-		&i.ProjectID,
-		&i.ScenarioID,
 		&i.EnvironmentID,
-		&i.ScheduleID,
-		&i.ScenarioVersion,
-		&i.Profile,
-		&i.ProfileParams,
-		&i.Status,
-		&i.TriggeredBy,
-		&i.EgressBytes,
-		&i.ErrorMessage,
-		&i.CreatedAt,
-		&i.StartedAt,
-		&i.EndedAt,
-		&i.HeartbeatAt,
+		&i.RunID,
+		&i.AcquiredAt,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
@@ -422,4 +425,118 @@ func (q *Queries) ListScenarioThresholds(ctx context.Context, arg ListScenarioTh
 		return nil, err
 	}
 	return items, nil
+}
+
+const nextClaimableRun = `-- name: NextClaimableRun :one
+SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at FROM run AS r
+WHERE r.org_id = $1 AND r.status = 'queued'
+  AND NOT EXISTS (
+    SELECT 1 FROM environment_lock AS held
+    WHERE held.org_id = r.org_id
+      AND held.environment_id = r.environment_id
+      AND held.expires_at > $2
+  )
+ORDER BY r.created_at
+LIMIT 1
+FOR UPDATE SKIP LOCKED
+`
+
+type NextClaimableRunParams struct {
+	OrgID     uuid.UUID
+	ExpiresAt time.Time
+}
+
+// The next run that could start: queued, and on an environment nothing is
+// holding.
+//
+// FOR UPDATE SKIP LOCKED keeps two workers off the same run. The NOT EXISTS is
+// not what keeps two runs off the same environment — the lock's primary key
+// does that — it is what lets a worker walk past a busy environment's queue and
+// pick up a run on a free one instead. Without it a worker would sit on the
+// oldest run until its target was free, and a second environment would wait for
+// the first.
+func (q *Queries) NextClaimableRun(ctx context.Context, arg NextClaimableRunParams) (Run, error) {
+	row := q.db.QueryRow(ctx, nextClaimableRun, arg.OrgID, arg.ExpiresAt)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ScenarioID,
+		&i.EnvironmentID,
+		&i.ScheduleID,
+		&i.ScenarioVersion,
+		&i.Profile,
+		&i.ProfileParams,
+		&i.Status,
+		&i.TriggeredBy,
+		&i.EgressBytes,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.HeartbeatAt,
+	)
+	return i, err
+}
+
+const releaseEnvironmentLock = `-- name: ReleaseEnvironmentLock :execrows
+DELETE FROM environment_lock
+WHERE org_id = $1 AND environment_id = $2 AND run_id = $3
+`
+
+type ReleaseEnvironmentLockParams struct {
+	OrgID         uuid.UUID
+	EnvironmentID uuid.UUID
+	RunID         uuid.UUID
+}
+
+// A release names its run, so that a lock taken over after an expiry is not
+// dropped by the worker whose run lost it.
+func (q *Queries) ReleaseEnvironmentLock(ctx context.Context, arg ReleaseEnvironmentLockParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseEnvironmentLock, arg.OrgID, arg.EnvironmentID, arg.RunID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const startRun = `-- name: StartRun :one
+UPDATE run
+SET status = 'running', started_at = $3, heartbeat_at = $3
+WHERE org_id = $1 AND id = $2 AND status = 'queued'
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at
+`
+
+type StartRunParams struct {
+	OrgID     uuid.UUID
+	ID        uuid.UUID
+	StartedAt *time.Time
+}
+
+// The status is in the WHERE rather than assumed: between the select above and
+// this, nothing else may have started the same run.
+func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (Run, error) {
+	row := q.db.QueryRow(ctx, startRun, arg.OrgID, arg.ID, arg.StartedAt)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ScenarioID,
+		&i.EnvironmentID,
+		&i.ScheduleID,
+		&i.ScenarioVersion,
+		&i.Profile,
+		&i.ProfileParams,
+		&i.Status,
+		&i.TriggeredBy,
+		&i.EgressBytes,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.HeartbeatAt,
+	)
+	return i, err
 }

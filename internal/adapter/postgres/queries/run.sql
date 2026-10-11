@@ -13,21 +13,6 @@ RETURNING *;
 -- name: GetRun :one
 SELECT * FROM run WHERE org_id = $1 AND id = $2;
 
--- Claiming a run is deliberately naive: no SKIP LOCKED and no environment lock,
--- so two workers can pick up the same queue. The single statement keeps the
--- window small; closing it is the job of the queue ticket.
--- name: ClaimNextQueuedRun :one
-UPDATE run
-SET status = 'running', started_at = $2, heartbeat_at = $2
-WHERE run.org_id = $1
-  AND run.id = (
-    SELECT queued.id FROM run AS queued
-    WHERE queued.org_id = $1 AND queued.status = 'queued'
-    ORDER BY queued.created_at
-    LIMIT 1
-  )
-RETURNING *;
-
 -- The status in the WHERE clause is the guard: a run somebody else already
 -- finished is not finished twice.
 -- name: FinishRun :one
@@ -66,3 +51,60 @@ ORDER BY name, tag_name, stat;
 SELECT * FROM run_threshold
 WHERE org_id = $1 AND run_id = $2
 ORDER BY metric, expression;
+
+-- The next run that could start: queued, and on an environment nothing is
+-- holding.
+--
+-- FOR UPDATE SKIP LOCKED keeps two workers off the same run. The NOT EXISTS is
+-- not what keeps two runs off the same environment — the lock's primary key
+-- does that — it is what lets a worker walk past a busy environment's queue and
+-- pick up a run on a free one instead. Without it a worker would sit on the
+-- oldest run until its target was free, and a second environment would wait for
+-- the first.
+-- name: NextClaimableRun :one
+SELECT r.* FROM run AS r
+WHERE r.org_id = $1 AND r.status = 'queued'
+  AND NOT EXISTS (
+    SELECT 1 FROM environment_lock AS held
+    WHERE held.org_id = r.org_id
+      AND held.environment_id = r.environment_id
+      AND held.expires_at > $2
+  )
+ORDER BY r.created_at
+LIMIT 1
+FOR UPDATE SKIP LOCKED;
+
+-- Take the environment, or find out somebody else has it.
+--
+-- One statement for both cases. It inserts when nothing holds the environment,
+-- and takes over when what holds it has expired. A live lock matches the WHERE
+-- on neither count, so the statement returns no row — which is the caller's
+-- signal to leave its run queued.
+--
+-- Two concurrent attempts do not race: the second blocks on the first's
+-- uncommitted row, and once that commits it re-evaluates the WHERE and comes
+-- back empty rather than raising a unique violation. Checked against a real
+-- database, because the whole design rests on it.
+-- name: AcquireEnvironmentLock :one
+INSERT INTO environment_lock (org_id, environment_id, run_id, acquired_at, expires_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (org_id, environment_id) DO UPDATE
+SET run_id = excluded.run_id,
+    acquired_at = excluded.acquired_at,
+    expires_at = excluded.expires_at
+WHERE environment_lock.expires_at <= $4
+RETURNING *;
+
+-- The status is in the WHERE rather than assumed: between the select above and
+-- this, nothing else may have started the same run.
+-- name: StartRun :one
+UPDATE run
+SET status = 'running', started_at = $3, heartbeat_at = $3
+WHERE org_id = $1 AND id = $2 AND status = 'queued'
+RETURNING *;
+
+-- A release names its run, so that a lock taken over after an expiry is not
+-- dropped by the worker whose run lost it.
+-- name: ReleaseEnvironmentLock :execrows
+DELETE FROM environment_lock
+WHERE org_id = $1 AND environment_id = $2 AND run_id = $3;

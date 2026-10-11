@@ -128,6 +128,12 @@ func seedEveryTable(ctx context.Context, t *testing.T, db *postgres.DB, label st
 			  VALUES ($1, $2, $3, $4, $5, 1, 'smoke')`,
 				[]any{run, org, project, scenario, env}},
 
+			// One run at a time per environment, and the row that enforces it.
+			{`INSERT INTO environment_lock
+				(org_id, environment_id, run_id, acquired_at, expires_at)
+			  VALUES ($1, $2, $3, now(), now() + interval '1 hour')`,
+				[]any{org, env, run}},
+
 			{`INSERT INTO run_metric (org_id, run_id, name, value) VALUES ($1, $2, 'http_reqs', 42)`,
 				[]any{org, run}},
 
@@ -170,7 +176,8 @@ func dropEverything(ctx context.Context, t *testing.T, db *postgres.DB, org uuid
 
 	tables := []string{
 		"audit_log", "run_log", "run_artifact", "run_threshold", "run_metric",
-		"run", "threshold", "scenario_version", "scenario", "secret", "environment", "membership",
+		"environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
+		"environment", "membership",
 		"project_allowed_host", "project", "app_user", "organization",
 	}
 

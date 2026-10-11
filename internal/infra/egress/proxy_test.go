@@ -117,8 +117,15 @@ func proxy(t *testing.T, cfg Config) string {
 }
 
 // connect speaks the one request a generator makes for an https target, and
-// returns the proxy's answer plus the live connection.
-func connect(t *testing.T, proxyAddr, hostPort string) (*http.Response, net.Conn) {
+// returns the proxy's answer along with the reader that read it.
+//
+// The reader matters. Reading the response buffers whatever arrived with it, and
+// what arrives on a tunnel's heels is the target's first bytes — so a caller
+// that opens a second reader on the connection waits for data another buffer has
+// already swallowed, for ever. That is not a hypothetical: it hung this suite,
+// and on a machine where the test binary's own ten-minute limit was the first
+// thing to notice.
+func connect(t *testing.T, proxyAddr, hostPort string) (*http.Response, *bufio.Reader) {
 	t.Helper()
 
 	conn, err := net.DialTimeout("tcp", proxyAddr, 2*time.Second)
@@ -126,6 +133,13 @@ func connect(t *testing.T, proxyAddr, hostPort string) (*http.Response, net.Conn
 		t.Fatalf("dial the proxy: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
+
+	// So that a tunnel which never carries what it should fails in seconds with
+	// something to read, rather than holding the whole suite until Go's own
+	// limit runs out.
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set a deadline: %v", err)
+	}
 
 	if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", hostPort, hostPort); err != nil {
 		t.Fatalf("write CONNECT: %v", err)
@@ -137,7 +151,7 @@ func connect(t *testing.T, proxyAddr, hostPort string) (*http.Response, net.Conn
 		t.Fatalf("read the proxy's answer: %v", err)
 	}
 
-	return res, conn
+	return res, reader
 }
 
 // ---------------------------------------------------------------------------
@@ -154,12 +168,13 @@ func TestATunnelToAnAllowedHostCarriesBytes(t *testing.T) {
 		Resolver: fixedResolver{"staging.example.test": {addr.Addr()}},
 	})
 
-	res, conn := connect(t, proxyAddr, allowed)
+	res, tunnel := connect(t, proxyAddr, allowed)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("CONNECT answered %d, want 200", res.StatusCode)
 	}
 
-	greeting, err := bufio.NewReader(conn).ReadString('\n')
+	// From the same reader the response came through, not a new one.
+	greeting, err := tunnel.ReadString('\n')
 	if err != nil {
 		t.Fatalf("read through the tunnel: %v", err)
 	}
