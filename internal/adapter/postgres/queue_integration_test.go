@@ -425,7 +425,11 @@ func TestTheHoldLastsAsLongAsTheRunCould(t *testing.T) {
 		t.Fatalf("queue a long run: %v", err)
 	}
 
-	at := time.Now().UTC()
+	// Truncated, because PostgreSQL keeps microseconds in a timestamptz and Go
+	// keeps nanoseconds: a value compared after a round trip has to be one the
+	// database can hold. Untruncated, this passed on a machine whose clock
+	// happened to give round microseconds and failed on one that did not.
+	at := time.Now().UTC().Truncate(time.Microsecond)
 	if _, found, err := world.runs.ClaimNextQueued(ctx, world.org, at); err != nil || !found {
 		t.Fatalf("claim: %v", err)
 	}
