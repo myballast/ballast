@@ -69,3 +69,26 @@ func (r RunResults) Verdict() RunStatus {
 	}
 	return StatusPassed
 }
+
+// lockGrace is what a run is allowed on top of its own duration before its hold
+// on an environment stops counting.
+//
+// It covers what happens either side of the load itself: pulling a generator
+// image on a machine that has never run a test, starting a container, and
+// reading the summary back afterwards. Too short and a worker loses its target
+// mid-measurement to another worker; too long and a crashed worker blocks that
+// target for no reason. Five minutes is the first of those two mistakes avoided
+// at the cost of the second being briefly possible.
+const lockGrace = 5 * time.Minute
+
+// LockExpiry is when this run's hold on its environment stops counting.
+//
+// Built from the run's own duration, which was clamped to the environment's
+// ceiling before the run was written, so this is an upper bound on how long a
+// living worker could legitimately hold it.
+//
+// It matters only when a worker dies: one that is alive releases the lock when
+// the run ends.
+func (r Run) LockExpiry(at time.Time) time.Time {
+	return at.Add(time.Duration(r.ProfileParams.TotalDuration())*time.Second + lockGrace)
+}

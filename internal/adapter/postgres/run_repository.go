@@ -161,18 +161,56 @@ func (r *RunRepository) ClaimNextQueued(
 	)
 
 	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
-		row, err := sqlc.New(tx).ClaimNextQueuedRun(ctx, sqlc.ClaimNextQueuedRunParams{
+		queries := sqlc.New(tx)
+
+		// Queued, on an environment nothing is holding, and not already being
+		// looked at by another worker.
+		candidate, err := queries.NextClaimableRun(ctx, sqlc.NextClaimableRunParams{
 			OrgID:     orgID,
-			StartedAt: &at,
+			ExpiresAt: at,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("claim a queued run: %w", err)
+			return fmt.Errorf("look for a claimable run: %w", err)
 		}
 
-		claimed, err = toDomainRun(row)
+		next, err := toDomainRun(candidate)
+		if err != nil {
+			return err
+		}
+
+		// In the same transaction as the claim, which is the whole point: a
+		// claim that committed before the lock was taken would be a window in
+		// which another worker could take the same environment.
+		if _, err := queries.AcquireEnvironmentLock(ctx, sqlc.AcquireEnvironmentLockParams{
+			OrgID:         orgID,
+			EnvironmentID: next.EnvironmentID,
+			RunID:         next.ID,
+			AcquiredAt:    at,
+			ExpiresAt:     next.LockExpiry(at),
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Somebody took this environment between the filter above and
+				// here. The run stays queued, untouched, and this worker waits
+				// for its next turn rather than hunting for another candidate:
+				// the window is narrow, and a poll interval costs a second.
+				return nil
+			}
+			return fmt.Errorf("take the environment's lock: %w", err)
+		}
+
+		started, err := queries.StartRun(ctx, sqlc.StartRunParams{
+			OrgID:     orgID,
+			ID:        next.ID,
+			StartedAt: &at,
+		})
+		if err != nil {
+			return fmt.Errorf("start the run: %w", err)
+		}
+
+		claimed, err = toDomainRun(started)
 		found = err == nil
 		return err
 	})
@@ -191,7 +229,9 @@ func (r *RunRepository) Finish(
 	}
 
 	return r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
-		_, err := sqlc.New(tx).FinishRun(ctx, sqlc.FinishRunParams{
+		queries := sqlc.New(tx)
+
+		finished, err := queries.FinishRun(ctx, sqlc.FinishRunParams{
 			OrgID:        orgID,
 			ID:           id,
 			Status:       string(status),
@@ -206,6 +246,21 @@ func (r *RunRepository) Finish(
 		if err != nil {
 			return fmt.Errorf("finish the run: %w", err)
 		}
+
+		// The environment goes free in the same transaction that ends the run.
+		// Apart, there would be a moment where the run is over and its target
+		// still looks busy, or worse the other way round.
+		//
+		// Named by run, so a lock already taken over after this one expired is
+		// not dropped by the worker whose run lost it.
+		if _, err := queries.ReleaseEnvironmentLock(ctx, sqlc.ReleaseEnvironmentLockParams{
+			OrgID:         orgID,
+			EnvironmentID: finished.EnvironmentID,
+			RunID:         id,
+		}); err != nil {
+			return fmt.Errorf("release the environment's lock: %w", err)
+		}
+
 		return nil
 	})
 }

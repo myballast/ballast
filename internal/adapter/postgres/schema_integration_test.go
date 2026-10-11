@@ -18,6 +18,7 @@ var expectedTables = []string{
 	"app_user",
 	"audit_log",
 	"environment",
+	"environment_lock",
 	"membership",
 	"organization",
 	"project",
