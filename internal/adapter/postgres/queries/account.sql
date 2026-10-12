@@ -16,3 +16,9 @@ INSERT INTO project (id, org_id, name, slug, created_at) VALUES ($1, $2, $3, $4,
 -- name: CreateMembership :exec
 INSERT INTO membership (org_id, user_id, project_id, role, created_at)
 VALUES ($1, $2, $3, $4, $5);
+
+-- name: GetMe :one
+SELECT u.id AS user_id, u.name, u.email, o.id AS org_id, o.name AS org_name
+FROM app_user u
+JOIN organization o ON o.org_id = u.org_id
+WHERE u.org_id = $1 AND u.id = $2;

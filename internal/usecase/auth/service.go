@@ -125,3 +125,16 @@ func organizationName(external domain.ExternalIdentity) string {
 	}
 	return owner + "'s organization"
 }
+
+// Me returns who is signed in. A session whose user no longer exists is not a
+// session: it is reported as unauthenticated, not as a missing resource.
+func (s *Service) Me(ctx context.Context, who domain.Identity) (Me, error) {
+	me, err := s.accounts.Me(ctx, who)
+	if errors.Is(err, domain.ErrNotFound) {
+		return Me{}, fmt.Errorf("%w: the session's user no longer exists", domain.ErrUnauthenticated)
+	}
+	if err != nil {
+		return Me{}, fmt.Errorf("read the signed-in user: %w", err)
+	}
+	return me, nil
+}

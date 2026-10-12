@@ -13,7 +13,7 @@ const baseURL = process.env.BALLAST_API_URL ?? "http://localhost:8080";
 export const publicAPIURL = process.env.BALLAST_API_PUBLIC_URL ?? baseURL;
 
 // Must match session.CookieName in internal/adapter/http/session.
-const sessionCookie = "ballast_session";
+export const sessionCookie = "ballast_session";
 
 export class ApiError extends Error {
   constructor(

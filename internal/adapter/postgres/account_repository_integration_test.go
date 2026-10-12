@@ -4,6 +4,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -114,5 +115,51 @@ func TestAccountCreationIsAllOrNothing(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("count organizations: %v", err)
+	}
+}
+
+func TestMeReadsTheUserAndTheirOrganization(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(ctx, t)
+	repo := postgres.NewAccountRepository(db)
+
+	account := newAccount("test|" + uuid.NewString())
+	dropAccount(t, db, account.OrgID)
+	if err := repo.Create(ctx, account); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.Me(ctx, domain.Identity{UserID: account.UserID, OrgID: account.OrgID})
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	want := auth.Me{
+		UserID: account.UserID, Name: account.Name, Email: account.Email,
+		OrgID: account.OrgID, OrgName: account.OrgName,
+	}
+	if got != want {
+		t.Errorf("Me returned %+v, want %+v", got, want)
+	}
+}
+
+// A session naming a user under another organization finds nothing: the
+// user is read inside the session's organization, and row-level security
+// keeps every other one out of sight.
+func TestMeDoesNotCrossOrganizations(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(ctx, t)
+	repo := postgres.NewAccountRepository(db)
+
+	alpha, beta := newAccount("test|"+uuid.NewString()), newAccount("test|"+uuid.NewString())
+	for _, a := range []auth.NewAccount{alpha, beta} {
+		dropAccount(t, db, a.OrgID)
+		if err := repo.Create(ctx, a); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	_, err := repo.Me(ctx, domain.Identity{UserID: alpha.UserID, OrgID: beta.OrgID})
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("Me across organizations returned %v, want ErrNotFound", err)
 	}
 }

@@ -29,6 +29,17 @@ type Accounts interface {
 	// Create stores a new organization with its first user, project and
 	// membership, all at once.
 	Create(ctx context.Context, account NewAccount) error
+	// Me reads the signed-in user and their organization.
+	Me(ctx context.Context, who domain.Identity) (Me, error)
+}
+
+// Me is who is signed in, as the front end shows them.
+type Me struct {
+	UserID  uuid.UUID
+	Name    string
+	Email   string
+	OrgID   uuid.UUID
+	OrgName string
 }
 
 // NewAccount is everything a first sign-in creates.

@@ -34,6 +34,8 @@ tags:
     description: Liveness of the API process. Does not touch the database.
   - name: auth
     description: Sign-in through an external identity provider. Ballast stores no password.
+  - name: me
+    description: The signed-in user and the organization their session acts for.
   - name: runs
     description: Queue load-test runs and read their results.
   - name: scenarios
@@ -185,6 +187,31 @@ paths:
             Set-Cookie:
               description: "`ballast_session` expired."
               schema: { type: string }
+
+  /me:
+    get:
+      tags: [me]
+      summary: Who is signed in
+      description: |
+        The signed-in user and the organization the session acts for. It is what
+        the application shell shows: the user's name, and the organization in
+        the organization selector.
+
+        A session can outlive its user for the rest of its lifetime; if the user
+        no longer exists, the answer is `401`, not `404`.
+      operationId: getMe
+      x-ballast-permission: none
+      responses:
+        "200":
+          description: The signed-in user and their organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /runs:
     post:
@@ -1861,6 +1888,26 @@ components:
       properties:
         metric: { type: string, maxLength: 200 }
         expression: { type: string, maxLength: 120 }
+
+    MeResponse:
+      type: object
+      required: [user, organization]
+      properties:
+        user:
+          type: object
+          required: [id, name, email]
+          properties:
+            id: { type: string, format: uuid }
+            name:
+              type: string
+              description: As the identity provider gave it. May be empty.
+            email: { type: string, format: email }
+        organization:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
 
     ProvidersResponse:
       type: object

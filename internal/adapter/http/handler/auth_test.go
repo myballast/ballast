@@ -13,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/youssefmahersi/ballast/internal/adapter/http/dto"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/handler"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/domain"
@@ -26,6 +29,10 @@ func (c fixedClock) Now() time.Time { return c.at }
 type fakeAccounts struct{ created []auth.NewAccount }
 
 func (f *fakeAccounts) Lookup(context.Context, string) ([]domain.Identity, error) { return nil, nil }
+
+func (f *fakeAccounts) Me(_ context.Context, who domain.Identity) (auth.Me, error) {
+	return auth.Me{UserID: who.UserID, Name: "Ada", Email: "ada@example.test", OrgID: who.OrgID, OrgName: "Ada's organization"}, nil
+}
 
 func (f *fakeAccounts) Create(_ context.Context, a auth.NewAccount) error {
 	f.created = append(f.created, a)
@@ -51,6 +58,7 @@ func (f *fakeProvider) Exchange(_ context.Context, _, verifier string) (domain.E
 }
 
 type rig struct {
+	handler  *handler.Auth
 	mux      *http.ServeMux
 	provider *fakeProvider
 	accounts *fakeAccounts
@@ -84,7 +92,7 @@ func newRig(t *testing.T) rig {
 	mux.HandleFunc("GET /auth/{provider}/callback", h.Callback)
 	mux.HandleFunc("POST /auth/logout", h.Logout)
 
-	return rig{mux: mux, provider: provider, accounts: accounts, sessions: sessions}
+	return rig{handler: h, mux: mux, provider: provider, accounts: accounts, sessions: sessions}
 }
 
 func (r rig) do(method, target string, cookies ...*http.Cookie) *http.Response {
@@ -299,5 +307,36 @@ func TestProvidersListsWhatIsConfigured(t *testing.T) {
 	}
 	if len(body.Providers) != 1 || body.Providers[0] != "github" {
 		t.Errorf("providers = %v, want [github]", body.Providers)
+	}
+}
+
+func TestMeDescribesTheSignedInUser(t *testing.T) {
+	r := newRig(t)
+	who := domain.Identity{UserID: uuid.New(), OrgID: uuid.New()}
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	req = req.WithContext(session.WithIdentity(req.Context(), who))
+	rec := httptest.NewRecorder()
+	r.handler.Me(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rec.Code)
+	}
+	var body dto.MeResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.User.ID != who.UserID.String() || body.Organization.ID != who.OrgID.String() ||
+		body.User.Email != "ada@example.test" || body.Organization.Name != "Ada's organization" {
+		t.Errorf("GET /me returned %+v", body)
+	}
+}
+
+func TestMeWithoutAnIdentityIs401(t *testing.T) {
+	rec := httptest.NewRecorder()
+	newRig(t).handler.Me(rec, httptest.NewRequest(http.MethodGet, "/me", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status %d, want 401", rec.Code)
 	}
 }

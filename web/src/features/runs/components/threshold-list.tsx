@@ -1,5 +1,6 @@
 import { CircleCheck, CircleX } from "lucide-react";
 
+import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import type { Threshold } from "../types";
@@ -26,15 +27,21 @@ export function ThresholdList({ thresholds }: { thresholds: Threshold[] }) {
                 className="flex items-center gap-3 py-2"
               >
                 {threshold.passed ? (
-                  <span className="flex w-20 items-center gap-1.5 text-xs text-status-passed">
-                    <CircleCheck aria-hidden className="size-3.5" />
-                    Passed
-                  </span>
+                  <StatusBadge
+                    variant="inline"
+                    tone="passed"
+                    icon={CircleCheck}
+                    label="Passed"
+                    className="w-20"
+                  />
                 ) : (
-                  <span className="flex w-20 items-center gap-1.5 text-xs text-status-failed">
-                    <CircleX aria-hidden className="size-3.5" />
-                    Failed
-                  </span>
+                  <StatusBadge
+                    variant="inline"
+                    tone="failed"
+                    icon={CircleX}
+                    label="Failed"
+                    className="w-20"
+                  />
                 )}
                 <span className="data text-xs">{threshold.metric}</span>
                 <span className="data ml-auto text-xs text-muted-foreground">

@@ -112,6 +112,14 @@ func Routes() []Route {
 			Scope: ScopeAnyProject, Permission: domain.PermCancelRun,
 		},
 
+		// The signed-in user.
+		{
+			Method: "GET", Path: "/me",
+			Scope: ScopeNone,
+			Reason: "it reads the caller's own user and the organization their " +
+				"session names, nothing that belongs to a project",
+		},
+
 		// Projects.
 		{
 			Method: "GET", Path: "/projects",

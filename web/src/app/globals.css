@@ -52,39 +52,49 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /*
+   * The light theme. Dark is the default and the only one rendered today (the
+   * root layout sets .dark); these follow the same charter so that a theme
+   * switch, when one comes, has nothing to reinvent.
+   */
+  --background: #fafafc;
+  --foreground: #16161e;
+  --card: #ffffff;
+  --card-foreground: #16161e;
+  --popover: #ffffff;
+  --popover-foreground: #16161e;
+  --primary: #7c4df4;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f0f5;
+  --secondary-foreground: #2a2a36;
+  --muted: #f0f0f5;
+  --muted-foreground: #5e5e70;
+  --accent: #f0f0f5;
+  --accent-foreground: #16161e;
+  --destructive: #2a2a36;
+  --border: rgb(22 22 30 / 10%);
+  --input: rgb(22 22 30 / 14%);
+  --ring: #8b5cf6;
+  --chart-1: #2f7ae5;
+  --chart-2: #d0691f;
+  --chart-3: #7c4df4;
+  --chart-4: #8a8a9c;
+  --chart-5: #3a3a48;
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  /* Green, amber and red belong to run and threshold statuses, nowhere else. */
+  --sidebar: #f4f4f8;
+  --sidebar-foreground: #16161e;
+  --sidebar-primary: #7c4df4;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8e8ef;
+  --sidebar-accent-foreground: #16161e;
+  --sidebar-border: rgb(22 22 30 / 8%);
+  --sidebar-ring: #8b5cf6;
+
+  /*
+   * Green, amber and red belong to the status of a run or a threshold, and to
+   * nothing else. Only components/status-badge.tsx may use them; `npm run
+   * lint` fails anywhere else. They are the same in both themes.
+   */
   --status-passed: #3fb950;
   --status-warning: #d2a32b;
   --status-failed: #f0555a;
@@ -107,7 +117,11 @@
   --muted-foreground: #7a7a8c;
   --accent: #16161e;
   --accent-foreground: #e2e2ea;
-  --destructive: #f0555a;
+  /*
+   * Not red: red means a failed run. A destructive action says what it does
+   * in its label and asks for confirmation; its colour stays neutral.
+   */
+  --destructive: #d2d2de;
   --border: rgb(255 255 255 / 7%);
   --input: rgb(255 255 255 / 10%);
   --ring: #a78bfa;
