@@ -48,3 +48,35 @@ export async function apiGet<T>(path: string): Promise<T> {
 
   return (await response.json()) as T;
 }
+
+// apiStream opens a streaming response on the API, for a route handler to pass
+// straight through to the browser.
+//
+// It exists because a browser's EventSource cannot set a header, so it cannot
+// carry the session itself — and must not: the cookie is HttpOnly precisely so
+// that page scripts never see it. The browser connects to this application's
+// own origin, and the session is attached here, on the server.
+//
+// lastEventID is the browser's own doing. EventSource sends it when it
+// reconnects, and it has to reach the API or the reconnection would start the
+// run's output again from the beginning.
+export async function apiStream(
+  path: string,
+  options: { signal?: AbortSignal; lastEventID?: string | null },
+): Promise<Response> {
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+
+  const session = (await cookies()).get(sessionCookie);
+  if (session) {
+    headers.Cookie = `${sessionCookie}=${session.value}`;
+  }
+  if (options.lastEventID) {
+    headers["Last-Event-ID"] = options.lastEventID;
+  }
+
+  return fetch(`${baseURL}${path}`, {
+    cache: "no-store",
+    headers,
+    signal: options.signal,
+  });
+}

@@ -60,6 +60,7 @@ func NewRouter(
 		"POST /runs":          runHandler.Enqueue,
 		"GET /runs/{id}":      runHandler.ByID,
 		"DELETE /runs/{id}":   runHandler.Cancel,
+		"GET /runs/{id}/logs": runHandler.Logs,
 		"POST /runs/stop-all": runHandler.StopAll,
 
 		"GET /projects":                                 projectHandler.List,

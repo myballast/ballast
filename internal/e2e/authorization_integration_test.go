@@ -180,6 +180,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		// collect either.
 		nil,
 		postgres.NewProjectRepository(db),
+		postgres.NewLogRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,

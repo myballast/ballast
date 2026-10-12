@@ -112,7 +112,20 @@ func (s *Service) execute(
 		return domain.StatusErrored, err.Error()
 	}
 
-	outcome, err := s.executor.Execute(ctx, job, logs)
+	// Everything the generator writes is stored as it is written, so that
+	// somebody arriving mid-run sees what has happened so far, and censored on
+	// the way — the one place that knows the values of this run's secrets is
+	// the one that handed them over.
+	captured, stored := s.capture(ctx, orgID, current.ID, s.redactorFor(ctx, current.ID, job), logs)
+
+	outcome, err := s.executor.Execute(ctx, job, captured)
+
+	// The runner never closes a channel it did not create, so this does, and
+	// then waits: the last line of a run has to be stored before the run is
+	// recorded as finished.
+	close(captured)
+	<-stored
+
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return domain.StatusCancelled, err.Error()

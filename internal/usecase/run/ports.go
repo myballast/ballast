@@ -58,6 +58,22 @@ type Repository interface {
 	CancelEverything(ctx context.Context, orgID uuid.UUID, at time.Time, message string) (int, int, error)
 }
 
+// LogStore keeps the lines a run's generator wrote.
+//
+// Both halves of the live view in one port: the worker appends while the run is
+// under way, the API reads what a viewer has not seen. They are one interface
+// because they are one table, and because what the reader may rely on — that a
+// sequence number means the same line for ever — is a promise the writer makes.
+type LogStore interface {
+	// Append stores a batch. The sequence numbers are the runner's own, and a
+	// line whose number is already stored is left alone: a batch written twice
+	// must not become a line shown twice.
+	Append(ctx context.Context, orgID, runID uuid.UUID, lines []domain.LogLine) error
+	// Since returns at most limit lines after the given sequence number,
+	// exclusive and in order.
+	Since(ctx context.Context, orgID, runID uuid.UUID, after int64, limit int) ([]domain.LogLine, error)
+}
+
 // ProjectDirectory lists an organization's projects.
 //
 // Needed by the emergency stop alone, and only to ask a question about each one:

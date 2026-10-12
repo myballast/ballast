@@ -74,6 +74,9 @@ func work(log *slog.Logger) error {
 		// what knows how to find and destroy one somebody else started.
 		runner,
 		postgres.NewProjectRepository(db),
+		// The worker appends the generator's output here; the API reads it back
+		// for the live view.
+		postgres.NewLogRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),

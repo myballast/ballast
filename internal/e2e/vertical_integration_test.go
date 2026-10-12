@@ -231,6 +231,7 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 		// what finds and destroys one whose worker is gone.
 		runner,
 		postgres.NewProjectRepository(db),
+		postgres.NewLogRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,

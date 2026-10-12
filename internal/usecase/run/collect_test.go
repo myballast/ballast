@@ -80,6 +80,63 @@ func (f *fakeProjects) ProjectIDs(context.Context, uuid.UUID) ([]uuid.UUID, erro
 	return f.ids, f.err
 }
 
+// fakeLogs stands in for the store that keeps a run's output.
+type fakeLogs struct {
+	// journal is shared with the other fakes, so a test can check that the
+	// last line was stored before the run was recorded as finished.
+	journal *journal
+
+	// delay is how long a write takes. A real one takes milliseconds, and that
+	// is what makes the order between storing a line and finishing a run
+	// observable rather than a coin toss.
+	delay time.Duration
+
+	mu                  sync.Mutex
+	orgID, runID        uuid.UUID
+	appended            []domain.LogLine
+	since               []domain.LogLine
+	after               int64
+	limit               int
+	appendErr, sinceErr error
+}
+
+func (f *fakeLogs) Append(
+	_ context.Context, orgID, runID uuid.UUID, lines []domain.LogLine,
+) error {
+	time.Sleep(f.delay)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.orgID, f.runID = orgID, runID
+
+	// Copied, because the caller reuses the slice it was given.
+	f.appended = append(f.appended, lines...)
+	f.journal.record("stored")
+	return f.appendErr
+}
+
+func (f *fakeLogs) Since(
+	_ context.Context, _, _ uuid.UUID, after int64, limit int,
+) ([]domain.LogLine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.after, f.limit = after, limit
+	return f.since, f.sinceErr
+}
+
+// stored is what was appended, read from the test's goroutine while the
+// service's own may still be appending.
+func (f *fakeLogs) stored() []domain.LogLine {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]domain.LogLine, len(f.appended))
+	copy(out, f.appended)
+	return out
+}
+
 // emptyResults stands in for the summary parser. What it extracts is tested in
 // adapter/k6; here a run only needs to reach a terminal state.
 type emptyResults struct{}
@@ -125,6 +182,7 @@ type collectFixture struct {
 	service    *Service
 	runs       *fakeRuns
 	containers *fakeContainers
+	logs       *fakeLogs
 	journal    *journal
 	orgID      uuid.UUID
 	now        time.Time
@@ -134,6 +192,7 @@ func newCollectFixture(executor Executor) collectFixture {
 	shared := &journal{}
 	runs := &fakeRuns{journal: shared}
 	containers := &fakeContainers{journal: shared}
+	logs := &fakeLogs{}
 	now := time.Date(2026, 3, 14, 15, 9, 26, 0, time.UTC)
 
 	service := NewService(
@@ -145,6 +204,7 @@ func newCollectFixture(executor Executor) collectFixture {
 		executor,
 		containers,
 		&fakeProjects{},
+		logs,
 		staticOptions{},
 		emptyResults{},
 		allowAll{},
@@ -160,6 +220,7 @@ func newCollectFixture(executor Executor) collectFixture {
 		service:    service,
 		runs:       runs,
 		containers: containers,
+		logs:       logs,
 		journal:    shared,
 		orgID:      uuid.New(),
 		now:        now,
