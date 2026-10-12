@@ -228,3 +228,64 @@ func TestRunRepositoryHidesOtherOrganizations(t *testing.T) {
 		t.Errorf("organization B claimed organization A's run: ok=%t err=%v", ok, err)
 	}
 }
+
+// A project's runs come back newest first, at most as many as asked for, and
+// only that project's: not another project of the same organization, and not
+// another organization's, whatever project id is asked for.
+func TestRunRepositoryListsAProjectsRuns(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := openDB(ctx, t)
+	runs := postgres.NewRunRepository(db)
+	params := domain.ProfileParams{TargetVUs: 1, PlateauS: 10}
+
+	org := uuid.New()
+	scenario, environment := seedProject(ctx, t, db, org)
+
+	var created []domain.Run
+	for range 3 {
+		run, err := runs.Create(ctx, domain.NewRun(org, scenario, environment, domain.ProfileSmoke, params, nil))
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		created = append(created, run)
+	}
+
+	got, err := runs.InProject(ctx, org, scenario.ProjectID, 2)
+	if err != nil {
+		t.Fatalf("InProject: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != created[2].ID || got[1].ID != created[1].ID {
+		t.Fatalf("InProject(limit 2) returned %v, want the two newest, newest first", ids(got))
+	}
+
+	other, err := runs.InProject(ctx, org, uuid.New(), 10)
+	if err != nil {
+		t.Fatalf("InProject on another project: %v", err)
+	}
+	if len(other) != 0 {
+		t.Errorf("another project of the organization listed %d runs", len(other))
+	}
+
+	// A second organization asking for this project's id, which it could have
+	// learnt from a log or a URL, sees nothing: the read is scoped to its own
+	// organization, and row-level security hides the rest.
+	stranger := uuid.New()
+	seedProject(ctx, t, db, stranger)
+	leaked, err := runs.InProject(ctx, stranger, scenario.ProjectID, 10)
+	if err != nil {
+		t.Fatalf("InProject from another organization: %v", err)
+	}
+	if len(leaked) != 0 {
+		t.Errorf("another organization listed %d of this project's runs", len(leaked))
+	}
+}
+
+func ids(runs []domain.Run) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(runs))
+	for _, r := range runs {
+		out = append(out, r.ID)
+	}
+	return out
+}

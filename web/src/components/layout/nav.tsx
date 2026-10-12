@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 // A client component for one reason: knowing which page is current.
 const items: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/", label: "Projects", icon: FolderKanban },
+  { href: "/projects", label: "Projects", icon: FolderKanban },
 ];
 
 export function Nav() {

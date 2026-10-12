@@ -203,6 +203,10 @@ func Routes() []Route {
 		// to be listed: the name of a key says how the target expects to be
 		// authenticated, which is not a thing to show every reader of a project.
 		{
+			Method: "GET", Path: "/projects/{projectId}/runs",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
 			Method: "GET", Path: "/projects/{projectId}/environments",
 			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
 		},

@@ -25,6 +25,8 @@ type Repository interface {
 	Finish(ctx context.Context, orgID, id uuid.UUID, status domain.RunStatus, at time.Time, message string) error
 	SaveResults(ctx context.Context, orgID, runID uuid.UUID, results domain.RunResults) error
 	Results(ctx context.Context, orgID, runID uuid.UUID) (domain.RunResults, error)
+	// InProject is a project's runs, newest first, at most limit of them.
+	InProject(ctx context.Context, orgID, projectID uuid.UUID, limit int) ([]domain.Run, error)
 
 	// The rest is what keeps a run from being abandoned without anyone
 	// noticing. A worker is killed mid-run — the process, the machine, the

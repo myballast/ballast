@@ -13,6 +13,14 @@ RETURNING *;
 -- name: GetRun :one
 SELECT * FROM run WHERE org_id = $1 AND id = $2;
 
+-- Newest first, served by run_org_project_created_idx. id breaks ties, so two
+-- runs created in the same instant always come back in the same order.
+-- name: ListProjectRuns :many
+SELECT * FROM run
+WHERE org_id = $1 AND project_id = $2
+ORDER BY created_at DESC, id DESC
+LIMIT $3;
+
 -- The status in the WHERE clause is the guard: a run somebody else already
 -- finished is not finished twice.
 -- name: FinishRun :one

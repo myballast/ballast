@@ -76,6 +76,28 @@ type RunResponse struct {
 	Thresholds        []Threshold `json:"thresholds"`
 }
 
+// RunListResponse is returned by GET /projects/{projectId}/runs.
+type RunListResponse struct {
+	Runs []RunSummary `json:"runs"`
+}
+
+// RunSummary is a run as a list shows it: what was run, against what, and how
+// it ended. Its metrics and verdicts are read one run at a time, from
+// GET /runs/{id}.
+type RunSummary struct {
+	ID              string        `json:"id"`
+	ProjectID       string        `json:"project_id"`
+	ScenarioID      string        `json:"scenario_id"`
+	EnvironmentID   string        `json:"environment_id"`
+	ScenarioVersion int           `json:"scenario_version"`
+	Profile         string        `json:"profile"`
+	Params          ProfileParams `json:"params"`
+	Status          string        `json:"status"`
+	CreatedAt       time.Time     `json:"created_at"`
+	StartedAt       *time.Time    `json:"started_at,omitempty"`
+	EndedAt         *time.Time    `json:"ended_at,omitempty"`
+}
+
 // LogLine is one line of GET /runs/{id}/logs, carried as an event's data.
 //
 // Seq is also the event's id, which is what a browser sends back as

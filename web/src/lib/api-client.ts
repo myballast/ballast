@@ -26,24 +26,39 @@ export class ApiError extends Error {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
+  return request<T>("GET", path);
+}
+
+// apiPost sends body as JSON. It is called from server actions only, which is
+// where the session cookie can be read and forwarded.
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("POST", path, body);
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
 
   const session = (await cookies()).get(sessionCookie);
   if (session) {
     headers.Cookie = `${sessionCookie}=${session.value}`;
   }
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
 
   const response = await fetch(`${baseURL}${path}`, {
+    method,
     cache: "no-store",
     headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   if (!response.ok) {
     // Every failed response from the API carries {"error": "..."}.
-    const body = (await response.json().catch(() => null)) as {
+    const failure = (await response.json().catch(() => null)) as {
       error?: string;
     } | null;
-    throw new ApiError(response.status, body?.error ?? response.statusText);
+    throw new ApiError(response.status, failure?.error ?? response.statusText);
   }
 
   return (await response.json()) as T;

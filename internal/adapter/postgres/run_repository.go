@@ -621,3 +621,24 @@ func (r *RunRepository) CancelEverything(
 
 	return cancelled, asked, err
 }
+
+// InProject reads a project's runs, newest first, at most limit of them.
+func (r *RunRepository) InProject(ctx context.Context, orgID, projectID uuid.UUID, limit int) ([]domain.Run, error) {
+	var found []domain.Run
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		rows, err := sqlc.New(tx).ListProjectRuns(ctx, sqlc.ListProjectRunsParams{
+			OrgID:     orgID,
+			ProjectID: projectID,
+			Limit:     int32(limit), //nolint:gosec // bounded to run.MaxListLimit by the service
+		})
+		if err != nil {
+			return fmt.Errorf("list the project's runs: %w", err)
+		}
+
+		found, err = toDomainRuns(rows)
+		return err
+	})
+
+	return found, err
+}

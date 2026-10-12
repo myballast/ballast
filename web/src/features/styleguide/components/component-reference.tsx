@@ -5,6 +5,8 @@ import { MetricCard } from "@/components/metric-card";
 import { EmptyState, LoadingState } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { ProjectCard } from "@/features/projects/components/project-card";
+import type { ProjectOverview } from "@/features/projects/types";
 import { RunStatusBadge } from "@/features/runs/components/run-status-badge";
 import type { RunStatus } from "@/features/runs/types";
 
@@ -27,6 +29,55 @@ const latencies = [
   ["checkout", "1.69 ms", "1,214.4 req/s", "0.00 %"],
   ["search", "112.08 ms", "88.0 req/s", "12.50 %"],
   ["login", "2.11 s", "11,940.7 req/s", "0.31 %"],
+];
+
+const now = new Date("2026-10-12T18:00:00Z");
+
+const project = (name: string, slug: string) => ({
+  id: slug,
+  name,
+  slug,
+  created_at: "2026-10-01T09:00:00Z",
+});
+
+const environment = (name: string, verified: boolean) => ({
+  id: name,
+  name,
+  base_url: `https://${name}.example.test`,
+  verification_status: verified ? ("verified" as const) : ("pending" as const),
+  max_vus: 50,
+  max_duration_s: 600,
+  created_at: "2026-10-01T09:00:00Z",
+});
+
+const lastRun = (status: "passed" | "failed" | "running", endedAt?: string) => ({
+  id: "54ce733c-2ecc-46b4-adbf-5aaed9a8e391",
+  project_id: "checkout",
+  scenario_id: "s",
+  environment_id: "staging",
+  scenario_version: 3,
+  profile: "load",
+  params: { target_vus: 10, ramp_up_s: 30, plateau_s: 120, ramp_down_s: 30 },
+  status,
+  created_at: "2026-10-12T14:50:00Z",
+  ended_at: endedAt,
+});
+
+const projectCards: ProjectOverview[] = [
+  {
+    project: project("Checkout service", "checkout"),
+    access: "full",
+    environments: [environment("staging", true), environment("production", true), environment("preview", false)],
+    lastRun: lastRun("passed", "2026-10-12T15:02:00Z"),
+  },
+  {
+    project: project("Search", "search"),
+    access: "full",
+    environments: [environment("staging", true)],
+    lastRun: lastRun("failed", "2026-10-10T08:00:00Z"),
+  },
+  { project: project("Media pipeline", "media-pipeline"), access: "full", environments: [], lastRun: null },
+  { project: project("Partner gateway", "partner-gateway"), access: "restricted" },
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -92,6 +143,14 @@ export function ComponentReference() {
             value="1,214.4 req/s"
             status={{ tone: "passed", icon: CircleCheck, label: "Passed" }}
           />
+        </div>
+      </Section>
+
+      <Section title="Project cards">
+        <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+          {projectCards.map((overview) => (
+            <ProjectCard key={overview.project.id} overview={overview} now={now} />
+          ))}
         </div>
       </Section>
 

@@ -26,8 +26,9 @@ export const config = {
   // Everything but the login page itself, the route handlers (which answer
   // 401 on their own), the development-only pages (a 404 in production, which
   // a redirect to sign in would hide), the icons and manifest a browser asks
-  // for before anyone signs in, and Next's static files.
+  // for before anyone signs in — favicon.ico included, which browsers request
+  // on their own and which is a plain 404 here — and Next's static files.
   matcher: [
-    "/((?!login|api|dev/|_next/static|_next/image|icon|apple-icon|manifest.webmanifest).*)",
+    "/((?!login|api|dev/|_next/static|_next/image|favicon.ico|icon|apple-icon|manifest.webmanifest).*)",
   ],
 };
