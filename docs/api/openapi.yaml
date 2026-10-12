@@ -399,6 +399,82 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /runs/{id}/logs:
+    get:
+      tags: [runs]
+      summary: Follow a run's output
+      description: |
+        The lines a run's generator wrote, as Server-Sent Events
+        (`text/event-stream`). Opened while the run is under way, the stream
+        sends everything written so far and then keeps sending as the run
+        writes; opened after it finished, it sends the whole output and ends.
+
+        Three kinds of event:
+
+        - `line` — one line of output. Its `id` is the line's sequence number,
+          and the data is a `LogLine`.
+        - `end` — the run is over; the data is a `RunEnded` saying how. A client
+          that receives it should not reconnect.
+        - `error` — the stream stopped for a reason that arrived after the
+          response had begun, so it could not be a status code.
+
+        A comment line (`: keep-alive`) is sent every fifteen seconds down an
+        idle stream, so that whatever sits in between does not decide the
+        connection is dead.
+
+        **Resuming.** Every `line` event carries its sequence number as the
+        event id, so a browser reconnecting sends `Last-Event-ID` and receives
+        what follows — no line twice and none skipped. A client that sends no
+        such header is given the run from its first line.
+
+        Nothing a run's own credentials consist of reaches these lines: the
+        values of the environment's secrets, and any `Authorization`, `Cookie`
+        or `Set-Cookie` header a script printed, are replaced with `[redacted]`
+        before a line is ever stored.
+      operationId: followRunLogs
+      x-ballast-permission: view_project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: |
+            The sequence number of the last line the client already holds. Sent
+            by a browser's EventSource on its own when it reconnects. An absent
+            or unreadable value means the run is sent from its first line.
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: The stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                id: 0
+                event: line
+                data: {"seq":0,"stream":"stdout","message":"  ✓ status is 200","at":"2026-10-12T09:00:00Z"}
+
+                : keep-alive
+
+                event: end
+                data: {"status":"passed"}
+        "400":
+          description: The id is not a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /projects:
     get:
       tags: [projects]
@@ -1860,6 +1936,36 @@ components:
           description: |
             How many running runs were asked to stop. Each is ended by the
             worker executing it, once it has destroyed the container.
+
+    LogLine:
+      type: object
+      description: One line a run's generator wrote.
+      required: [seq, stream, message, at]
+      properties:
+        seq:
+          type: integer
+          format: int64
+          description: |
+            Where the line falls in the run's output. One counter is shared
+            between the two streams, so the order is the order the generator
+            produced them. It is also the event's id, which is what a
+            reconnection resumes from.
+        stream:
+          type: string
+          enum: [stdout, stderr]
+        message:
+          type: string
+          description: The line, with credentials replaced by `[redacted]`.
+          example: "  ✓ status is 200"
+        at: { type: string, format: date-time }
+
+    RunEnded:
+      type: object
+      description: The last event of a log stream.
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/RunStatus"
 
     RunStatus:
       type: string

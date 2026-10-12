@@ -203,3 +203,32 @@ UPDATE run
 SET cancel_requested_at = coalesce(cancel_requested_at, $2)
 WHERE org_id = $1 AND status = 'running'
 RETURNING *;
+
+-- The lines a generator wrote, as the worker collects them.
+--
+-- One round trip per batch rather than per line: a chatty run writes thousands,
+-- and the live view wants them promptly, not individually.
+--
+-- DO NOTHING rather than an error, on the unique (org_id, run_id, seq): a batch
+-- that was written and whose acknowledgement was lost is written again by a
+-- worker that has no way of knowing, and a line stored twice would be a line
+-- the live view shows twice.
+-- name: AppendRunLogs :exec
+INSERT INTO run_log (org_id, run_id, seq, stream, message, logged_at)
+SELECT $1, $2,
+       unnest($3::bigint[]), unnest($4::text[]), unnest($5::text[]), unnest($6::timestamptz[])
+ON CONFLICT (org_id, run_id, seq) DO NOTHING;
+
+-- What a viewer has not seen yet.
+--
+-- seq > $3 is the whole of the resumption: the sequence number is what the
+-- stream sends as each event's id, so a client that reconnects says the last
+-- one it holds and gets what follows, once.
+--
+-- Limited, because the first read of a finished run would otherwise be every
+-- line it ever wrote. The caller asks again while a page comes back full.
+-- name: RunLogsSince :many
+SELECT * FROM run_log
+WHERE org_id = $1 AND run_id = $2 AND seq > $3
+ORDER BY seq
+LIMIT $4;

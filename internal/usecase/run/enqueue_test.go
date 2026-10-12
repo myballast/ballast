@@ -99,6 +99,7 @@ func (f *fakeRuns) Finish(
 	defer f.mu.Unlock()
 
 	f.finished, f.finishedMessage = status, message
+	f.journal.record("finished")
 	return f.finishErr
 }
 
@@ -226,7 +227,7 @@ func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)
 			fakeEnvironments{environment: environment},
 			&fakeAllowlist{hosts: []string{"staging.example.test"}},
 			noSecrets{},
-			nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, nil,
 			allowAll{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			Accepting(true),
@@ -367,7 +368,7 @@ func serviceWith(t *testing.T, authz Authorizer, scenario domain.Scenario, envir
 		fakeEnvironments{environment: environment},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 		authz,
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),
@@ -460,7 +461,7 @@ func TestByIDHidesARunTheCallerMayNotSee(t *testing.T) {
 		fakeEnvironments{environment: f.env},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 		refuseAll{},
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),

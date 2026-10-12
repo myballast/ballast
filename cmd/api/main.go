@@ -83,6 +83,9 @@ func serve(log *slog.Logger) error {
 		// Read by the emergency stop alone, to ask the authorizer about every
 		// project of the organization.
 		postgres.NewProjectRepository(db),
+		// The worker appends the generator's output here; the API reads it back
+		// for the live view.
+		postgres.NewLogRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,

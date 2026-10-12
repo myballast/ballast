@@ -61,6 +61,43 @@ func (q *Queries) AcquireEnvironmentLock(ctx context.Context, arg AcquireEnviron
 	return i, err
 }
 
+const appendRunLogs = `-- name: AppendRunLogs :exec
+INSERT INTO run_log (org_id, run_id, seq, stream, message, logged_at)
+SELECT $1, $2,
+       unnest($3::bigint[]), unnest($4::text[]), unnest($5::text[]), unnest($6::timestamptz[])
+ON CONFLICT (org_id, run_id, seq) DO NOTHING
+`
+
+type AppendRunLogsParams struct {
+	OrgID   uuid.UUID
+	RunID   uuid.UUID
+	Column3 []int64
+	Column4 []string
+	Column5 []string
+	Column6 []time.Time
+}
+
+// The lines a generator wrote, as the worker collects them.
+//
+// One round trip per batch rather than per line: a chatty run writes thousands,
+// and the live view wants them promptly, not individually.
+//
+// DO NOTHING rather than an error, on the unique (org_id, run_id, seq): a batch
+// that was written and whose acknowledgement was lost is written again by a
+// worker that has no way of knowing, and a line stored twice would be a line
+// the live view shows twice.
+func (q *Queries) AppendRunLogs(ctx context.Context, arg AppendRunLogsParams) error {
+	_, err := q.db.Exec(ctx, appendRunLogs,
+		arg.OrgID,
+		arg.RunID,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+	)
+	return err
+}
+
 const cancelEveryQueuedRun = `-- name: CancelEveryQueuedRun :many
 UPDATE run
 SET status = 'cancelled', ended_at = $2, error_message = $3, cancel_requested_at = $2
@@ -901,6 +938,61 @@ func (q *Queries) RequestRunCancellation(ctx context.Context, arg RequestRunCanc
 		&i.CancelRequestedAt,
 	)
 	return i, err
+}
+
+const runLogsSince = `-- name: RunLogsSince :many
+SELECT id, org_id, run_id, seq, stream, message, logged_at FROM run_log
+WHERE org_id = $1 AND run_id = $2 AND seq > $3
+ORDER BY seq
+LIMIT $4
+`
+
+type RunLogsSinceParams struct {
+	OrgID uuid.UUID
+	RunID uuid.UUID
+	Seq   int64
+	Limit int32
+}
+
+// What a viewer has not seen yet.
+//
+// seq > $3 is the whole of the resumption: the sequence number is what the
+// stream sends as each event's id, so a client that reconnects says the last
+// one it holds and gets what follows, once.
+//
+// Limited, because the first read of a finished run would otherwise be every
+// line it ever wrote. The caller asks again while a page comes back full.
+func (q *Queries) RunLogsSince(ctx context.Context, arg RunLogsSinceParams) ([]RunLog, error) {
+	rows, err := q.db.Query(ctx, runLogsSince,
+		arg.OrgID,
+		arg.RunID,
+		arg.Seq,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RunLog{}
+	for rows.Next() {
+		var i RunLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.RunID,
+			&i.Seq,
+			&i.Stream,
+			&i.Message,
+			&i.LoggedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const startRun = `-- name: StartRun :one

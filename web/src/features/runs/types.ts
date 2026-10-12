@@ -49,3 +49,14 @@ export type Run = {
   metrics: Metric[];
   thresholds: Threshold[];
 };
+
+// LogLine is one line of a run's output, as GET /runs/{id}/logs streams it.
+//
+// seq is also the event's id, which is what the browser sends back as
+// Last-Event-ID when it reconnects.
+export type LogLine = {
+  seq: number;
+  stream: "stdout" | "stderr";
+  message: string;
+  at: string;
+};

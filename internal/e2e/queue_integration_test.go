@@ -103,6 +103,7 @@ func worker(t *testing.T, db *postgres.DB, executor run.Executor) *run.Service {
 		// leaves a container behind.
 		nil,
 		postgres.NewProjectRepository(db),
+		postgres.NewLogRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),

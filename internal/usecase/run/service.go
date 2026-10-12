@@ -18,6 +18,7 @@ type Service struct {
 	executor  Executor
 	cleaner   Containers
 	projects  ProjectDirectory
+	logs      LogStore
 	options   OptionsBuilder
 	parser    SummaryParser
 	authz     Authorizer
@@ -37,6 +38,10 @@ type Service struct {
 	// watchEvery is how often a run in progress is asked whether it has been
 	// cancelled. A field for the same reason as beatEvery.
 	watchEvery time.Duration
+	// flushEvery is how long a batch of log lines may wait before it is
+	// stored. A field for the same reason: a test should not have to sit
+	// through half a second to see a line arrive.
+	flushEvery time.Duration
 }
 
 // NewService wires the service. Every collaborator is an interface declared in
@@ -50,6 +55,7 @@ func NewService(
 	executor Executor,
 	cleaner Containers,
 	projects ProjectDirectory,
+	logs LogStore,
 	options OptionsBuilder,
 	parser SummaryParser,
 	authz Authorizer,
@@ -66,6 +72,7 @@ func NewService(
 		executor:  executor,
 		cleaner:   cleaner,
 		projects:  projects,
+		logs:      logs,
 		options:   options,
 		parser:    parser,
 		authz:     authz,
@@ -75,5 +82,6 @@ func NewService(
 
 		beatEvery:  domain.HeartbeatInterval,
 		watchEvery: domain.CancelPollInterval,
+		flushEvery: logFlushInterval,
 	}
 }

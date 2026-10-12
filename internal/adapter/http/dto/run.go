@@ -76,6 +76,24 @@ type RunResponse struct {
 	Thresholds        []Threshold `json:"thresholds"`
 }
 
+// LogLine is one line of GET /runs/{id}/logs, carried as an event's data.
+//
+// Seq is also the event's id, which is what a browser sends back as
+// Last-Event-ID when it reconnects — so the number in the body and the number
+// the resumption is based on cannot drift apart.
+type LogLine struct {
+	Seq     int64     `json:"seq"`
+	Stream  string    `json:"stream"`
+	Message string    `json:"message"`
+	At      time.Time `json:"at"`
+}
+
+// RunEnded is the last event of a log stream: the run is over, and this is how
+// it ended.
+type RunEnded struct {
+	Status string `json:"status"`
+}
+
 // Metric is one number the generator measured.
 type Metric struct {
 	Metric string  `json:"metric"`

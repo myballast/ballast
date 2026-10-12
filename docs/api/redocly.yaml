@@ -17,3 +17,11 @@ rules:
   no-server-example.com: off
   # No license has been chosen for the project yet.
   info-license: off
+  # LogLine and RunEnded are the data payloads of the events of
+  # GET /runs/{id}/logs. The body of that response is a text/event-stream, so
+  # OpenAPI 3.1 has nowhere to $ref the shape of an individual event's data —
+  # the schema of the body itself is a string. They are declared anyway, and
+  # named from the operation's description, because they are part of the
+  # contract a client depends on; inventing a JSON response that returns them
+  # would be describing an API that does not exist.
+  no-unused-components: off

@@ -94,6 +94,13 @@ func Routes() []Route {
 			Method: "DELETE", Path: "/runs/{id}",
 			Scope: ScopeDerived, Permission: domain.PermCancelRun,
 		},
+		// The live log stream. Reading a run's output is reading the run, so it
+		// takes the same permission, resolved on every poll rather than once
+		// when the stream opens.
+		{
+			Method: "GET", Path: "/runs/{id}/logs",
+			Scope: ScopeDerived, Permission: domain.PermViewProject,
+		},
 		// The emergency stop. Declared as ScopeAnyProject because its project
 		// is not in the path and not in a body — there is none: the service
 		// asks the question once per project of the organization and refuses

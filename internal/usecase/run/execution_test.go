@@ -70,6 +70,7 @@ type executionFixture struct {
 	runs     *fakeRuns
 	executor *recordingExecutor
 	parser   *scriptedParser
+	logs     *fakeLogs
 	orgID    uuid.UUID
 	claimed  domain.Run
 }
@@ -89,9 +90,11 @@ func newExecutionFixture() executionFixture {
 		Status: domain.StatusRunning,
 	}
 
-	runs := &fakeRuns{journal: &journal{}, next: &claimed}
+	shared := &journal{}
+	runs := &fakeRuns{journal: shared, next: &claimed}
 	executor := &recordingExecutor{outcome: Outcome{Summary: []byte(`{"metrics":{}}`)}}
 	parser := &scriptedParser{}
+	logs := &fakeLogs{journal: shared}
 
 	service := NewService(
 		runs,
@@ -102,6 +105,7 @@ func newExecutionFixture() executionFixture {
 		executor,
 		&fakeContainers{journal: &journal{}},
 		&fakeProjects{},
+		logs,
 		staticOptions{},
 		parser,
 		allowAll{},
@@ -113,15 +117,24 @@ func newExecutionFixture() executionFixture {
 	// about, and a tick during one of them would only add noise.
 	service.beatEvery = time.Hour
 	service.watchEvery = time.Hour
+	// Short enough that a test does not sit through half a second waiting for
+	// a batch to be written.
+	service.flushEvery = time.Millisecond
 
 	return executionFixture{
 		service:  service,
 		runs:     runs,
 		executor: executor,
 		parser:   parser,
+		logs:     logs,
 		orgID:    uuid.New(),
 		claimed:  claimed,
 	}
+}
+
+// journal is where the fakes write what they did, in order.
+func (f executionFixture) journal() *journal {
+	return f.runs.journal
 }
 
 // process runs the worker's one step and insists it found work.
