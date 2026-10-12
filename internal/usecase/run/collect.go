@@ -107,15 +107,15 @@ func (s *Service) end(ctx context.Context, orgID uuid.UUID, orphan domain.Run) e
 // generator behind, and that generator does not stop when its worker does: it
 // keeps loading somebody's target until its own time limit ends it. Collect
 // handles the runs it can see in the database; this handles what is on the
-// machine, including a container whose run was collected by somebody else while
+// machine, including a generator whose run was collected by somebody else while
 // this machine was down.
 //
 // Its scope is worth stating plainly, because it is what makes it correct: it
-// can see one Docker daemon, and it can read one organization's runs, since
-// row-level security shows it no others. Everything it cannot account for, it
-// destroys. That holds because a worker serves one organization and that daemon
-// runs its runs and nothing else. Two workers for two organizations on one
-// daemon would delete each other's containers.
+// can see the machine this worker generates load from, and it can read one
+// organization's runs, since row-level security shows it no others. Everything
+// it cannot account for, it destroys. That holds because a worker serves one
+// organization and that machine runs its runs and nothing else — two workers
+// for two organizations sharing one would destroy each other's generators.
 func (s *Service) Sweep(ctx context.Context, orgID uuid.UUID) (int, error) {
 	live, err := s.runs.LiveRunIDs(ctx, orgID, domain.StaleBefore(s.clock.Now()))
 	if err != nil {
