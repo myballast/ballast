@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 export type StatusTone = "passed" | "warning" | "failed" | "neutral";
 
 const pill: Record<StatusTone, string> = {
-  passed: "border-status-passed/35 bg-status-passed/10 text-status-passed",
-  warning: "border-status-warning/35 bg-status-warning/10 text-status-warning",
-  failed: "border-status-failed/35 bg-status-failed/10 text-status-failed",
+  passed: "border-status-passed/35 bg-status-passed-bg text-status-passed",
+  warning: "border-status-warning/35 bg-status-warning-bg text-status-warning",
+  failed: "border-status-failed/35 bg-status-failed-bg text-status-failed",
   neutral: "border-border bg-muted text-muted-foreground",
 };
 

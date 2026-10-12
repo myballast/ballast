@@ -2,7 +2,8 @@ import { Menu } from "lucide-react";
 
 import type { Me } from "@/features/auth/api";
 
-import { Brand } from "./brand";
+import { Brand } from "@/components/brand/brand";
+import { AppHeader } from "./app-header";
 import { Nav } from "./nav";
 import { OrgSelector } from "./org-selector";
 import { UserMenu } from "./user-menu";
@@ -27,7 +28,7 @@ function SidebarContent({ me, brand = true }: { me: Me; brand?: boolean }) {
 export function AppShell({ me, children }: { me: Me; children: React.ReactNode }) {
   return (
     <div className="flex min-h-svh flex-1">
-      <aside className="sticky top-0 hidden h-svh w-60 shrink-0 border-r bg-sidebar text-sidebar-foreground md:block">
+      <aside className="sticky top-0 hidden h-svh w-sidebar shrink-0 border-r bg-sidebar text-sidebar-foreground md:block">
         <SidebarContent me={me} />
       </aside>
 
@@ -43,7 +44,8 @@ export function AppShell({ me, children }: { me: Me; children: React.ReactNode }
           </div>
         </details>
 
-        <main className="mx-auto w-full max-w-6xl px-4 py-7 md:px-8">{children}</main>
+        <AppHeader />
+        <main className="mx-auto w-full max-w-6xl px-4 py-page-y md:px-page-x">{children}</main>
       </div>
     </div>
   );

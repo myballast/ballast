@@ -6,7 +6,8 @@
 //   - no raw Tailwind red, green or amber anywhere, which would be a status
 //     colour that escaped the tokens;
 //   - no colour written in hex in a component: colours are tokens, set in
-//     globals.css, or the charter cannot be held in one place.
+//     globals.css, or the charter cannot be held in one place;
+//   - two font weights, 400 and 500, and no drop shadows (ticket T25).
 //
 // It runs as part of `npm run lint`. No dependency: it reads files and
 // matches lines, and says where.
@@ -19,7 +20,7 @@ const src = join(root, "src");
 
 // The only file that may use the status tokens, besides globals.css which
 // defines them.
-const statusOwners = new Set(["src/components/status-badge.tsx", "src/app/globals.css"]);
+const statusOwners = new Set(["src/components/status-badge.tsx", "src/styles/globals.css"]);
 
 const rules = [
   {
@@ -36,9 +37,21 @@ const rules = [
     fix: "use a token from globals.css; a state goes through <StatusBadge>",
   },
   {
+    name: "font weight other than 400 and 500",
+    pattern: /\bfont-(?:thin|extralight|light|semibold|bold|extrabold|black)\b/,
+    applies: () => true,
+    fix: "use font-normal (400) or font-medium (500); only those two are loaded",
+  },
+  {
+    name: "drop shadow",
+    pattern: /\b(?:shadow|drop-shadow)(?:-(?:2xs|xs|sm|md|lg|xl|2xl|inner))?\b(?![-\w])/,
+    applies: (file) => !file.startsWith("src/components/ui/"),
+    fix: "the dark theme has no drop shadows; separate surfaces with a border",
+  },
+  {
     name: "colour written in hex in a component",
     pattern: /#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3}(?:[0-9a-fA-F]{2})?)?\b/,
-    applies: (file) => /\.(tsx?|jsx?)$/.test(file),
+    applies: (file) => /\.(tsx?|jsx?)$/.test(file) && file !== "src/styles/theme-colors.ts",
     fix: "add or reuse a token in globals.css",
   },
 ];

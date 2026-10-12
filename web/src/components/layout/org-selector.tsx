@@ -15,7 +15,7 @@ export function OrgSelector({ organization }: { organization: { id: string; name
         <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       </summary>
 
-      <div className="absolute inset-x-0 top-full z-20 mt-1 rounded-md border bg-popover p-1 shadow-lg">
+      <div className="absolute inset-x-0 top-full z-20 mt-1 rounded-md border bg-popover p-1">
         <p className="px-2 pt-1 pb-1.5 text-[11px] tracking-wider text-muted-foreground uppercase">
           Organizations
         </p>

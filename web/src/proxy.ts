@@ -24,6 +24,10 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Everything but the login page itself, the route handlers (which answer
-  // 401 on their own), and Next's static files.
-  matcher: ["/((?!login|api|_next/static|_next/image|favicon.ico).*)"],
+  // 401 on their own), the development-only pages (a 404 in production, which
+  // a redirect to sign in would hide), the icons and manifest a browser asks
+  // for before anyone signs in, and Next's static files.
+  matcher: [
+    "/((?!login|api|dev/|_next/static|_next/image|icon|apple-icon|manifest.webmanifest).*)",
+  ],
 };

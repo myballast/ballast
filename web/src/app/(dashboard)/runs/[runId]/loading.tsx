@@ -1,3 +1,5 @@
+import { LoadingState } from "@/components/states";
+
 export default function Loading() {
-  return <p className="text-sm text-muted-foreground">Loading the run…</p>;
+  return <LoadingState label="Loading the run…" />;
 }

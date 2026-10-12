@@ -26,7 +26,7 @@ export function SignIn({
   return (
     <div className="flex w-full max-w-sm flex-col gap-6">
       <div className="flex flex-col gap-1.5">
-        <h1 className="text-3xl font-light tracking-tight">Sign in to Ballast</h1>
+        <h1 className="text-3xl font-normal tracking-tight">Sign in to Ballast</h1>
         <p className="text-sm text-muted-foreground">
           Ballast keeps no password. Sign in with an account you already have.
         </p>

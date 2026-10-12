@@ -25,8 +25,11 @@ export function Nav() {
             href={href}
             aria-current={current ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
-              current && "bg-sidebar-accent text-foreground",
+              "relative flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+              // The current page is marked in the brand's violet: it says where
+              // you are, which is not a status.
+              current &&
+                "bg-sidebar-accent text-foreground before:absolute before:inset-y-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-brand [&>svg]:text-brand",
             )}
           >
             <Icon aria-hidden className="size-4" />
