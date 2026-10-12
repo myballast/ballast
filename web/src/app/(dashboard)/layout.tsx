@@ -1,3 +1,9 @@
-export default function DashboardLayout({ children }: LayoutProps<"/">) {
-  return <main className="mx-auto w-full max-w-6xl px-8 py-7">{children}</main>;
+import { AppShell } from "@/components/layout/app-shell";
+import { getMe } from "@/features/auth/api";
+
+// Every page in this group is signed in: without a session, getMe sends the
+// browser to the login page before anything renders.
+export default async function DashboardLayout({ children }: LayoutProps<"/">) {
+  const me = await getMe();
+  return <AppShell me={me}>{children}</AppShell>;
 }

@@ -56,6 +56,7 @@ func NewRouter(
 		"GET /auth/{provider}/login":    authHandler.Login,
 		"GET /auth/{provider}/callback": authHandler.Callback,
 		"POST /auth/logout":             authHandler.Logout,
+		"GET /me":                       authHandler.Me,
 
 		"POST /runs":          runHandler.Enqueue,
 		"GET /runs/{id}":      runHandler.ByID,

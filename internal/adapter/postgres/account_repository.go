@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -68,4 +69,24 @@ func (r *AccountRepository) Create(ctx context.Context, a auth.NewAccount) error
 
 		return nil
 	})
+}
+
+// Me reads the signed-in user and their organization.
+func (r *AccountRepository) Me(ctx context.Context, who domain.Identity) (auth.Me, error) {
+	var me auth.Me
+
+	err := r.db.InTenantTx(ctx, who.OrgID, func(tx pgx.Tx) error {
+		row, err := sqlc.New(tx).GetMe(ctx, sqlc.GetMeParams{OrgID: who.OrgID, ID: who.UserID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("read the signed-in user: %w", err)
+		}
+
+		me = auth.Me{UserID: row.UserID, Name: row.Name, Email: row.Email, OrgID: row.OrgID, OrgName: row.OrgName}
+		return nil
+	})
+
+	return me, err
 }

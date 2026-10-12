@@ -17,6 +17,9 @@ import (
 // test set up.
 
 type fakeAccounts struct {
+	me    Me
+	meErr error
+
 	existing  []domain.Identity
 	lookupErr error
 	createErr error
@@ -28,6 +31,16 @@ type fakeAccounts struct {
 func (f *fakeAccounts) Lookup(_ context.Context, subject string) ([]domain.Identity, error) {
 	f.lookedUp = append(f.lookedUp, subject)
 	return f.existing, f.lookupErr
+}
+
+func (f *fakeAccounts) Me(_ context.Context, who domain.Identity) (Me, error) {
+	if f.meErr != nil {
+		return Me{}, f.meErr
+	}
+	if who.UserID != f.me.UserID || who.OrgID != f.me.OrgID {
+		return Me{}, domain.ErrNotFound
+	}
+	return f.me, nil
 }
 
 func (f *fakeAccounts) Create(_ context.Context, account NewAccount) error {
@@ -224,5 +237,26 @@ func TestProvidersAreListedInAStableOrder(t *testing.T) {
 	got := service.Providers()
 	if len(got) != 2 || got[0] != "github" || got[1] != "google" {
 		t.Errorf("Providers() = %v, want [github google]", got)
+	}
+}
+
+func TestMeReadsTheSignedInUserAndOrganization(t *testing.T) {
+	me := Me{UserID: uuid.New(), Name: "Ada", Email: "ada@example.test", OrgID: uuid.New(), OrgName: "Ada's organization"}
+
+	got, err := newService(&fakeAccounts{me: me}, nil).Me(context.Background(), domain.Identity{UserID: me.UserID, OrgID: me.OrgID})
+	if err != nil {
+		t.Fatalf("Me: %v", err)
+	}
+	if got != me {
+		t.Errorf("Me returned %+v, want %+v", got, me)
+	}
+}
+
+// A session can outlive its user: the account deleted, the token still valid
+// for a few hours. That is not a session any more, and it is reported as such.
+func TestMeOfAVanishedUserIsUnauthenticated(t *testing.T) {
+	_, err := newService(&fakeAccounts{}, nil).Me(context.Background(), domain.Identity{UserID: uuid.New(), OrgID: uuid.New()})
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Errorf("Me returned %v, want ErrUnauthenticated", err)
 	}
 }

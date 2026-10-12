@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MetricCard } from "@/components/metric-card";
 import { formatMs, formatPercent, formatRate } from "@/lib/format";
 
 import { headlineMetrics } from "../metrics";
@@ -17,16 +17,7 @@ export function RunMetricsCards({ metrics }: { metrics: Metric[] }) {
   return (
     <section className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
       {cards.map((card) => (
-        <Card key={card.label}>
-          <CardHeader>
-            <CardTitle className="text-[11px] font-normal tracking-wider text-muted-foreground uppercase">
-              {card.label}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="data text-2xl">{card.value}</p>
-          </CardContent>
-        </Card>
+        <MetricCard key={card.label} label={card.label} value={card.value} />
       ))}
     </section>
   );

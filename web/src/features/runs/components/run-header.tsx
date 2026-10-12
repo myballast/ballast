@@ -18,7 +18,7 @@ export function RunHeader({ run }: { run: Run }) {
   return (
     <header className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-light tracking-tight">Run</h1>
+        <h1 className="text-3xl font-normal tracking-tight">Run</h1>
         <span className="data text-sm text-muted-foreground">{run.id}</span>
         <RunStatusBadge status={run.status} />
       </div>

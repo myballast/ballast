@@ -104,3 +104,36 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 	)
 	return err
 }
+
+const getMe = `-- name: GetMe :one
+SELECT u.id AS user_id, u.name, u.email, o.id AS org_id, o.name AS org_name
+FROM app_user u
+JOIN organization o ON o.org_id = u.org_id
+WHERE u.org_id = $1 AND u.id = $2
+`
+
+type GetMeParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+type GetMeRow struct {
+	UserID  uuid.UUID
+	Name    string
+	Email   string
+	OrgID   uuid.UUID
+	OrgName string
+}
+
+func (q *Queries) GetMe(ctx context.Context, arg GetMeParams) (GetMeRow, error) {
+	row := q.db.QueryRow(ctx, getMe, arg.OrgID, arg.ID)
+	var i GetMeRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Name,
+		&i.Email,
+		&i.OrgID,
+		&i.OrgName,
+	)
+	return i, err
+}

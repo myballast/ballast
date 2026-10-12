@@ -13,6 +13,7 @@ import (
 
 	"github.com/youssefmahersi/ballast/internal/adapter/http/dto"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
+	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 )
 
@@ -210,4 +211,28 @@ func randomToken() string {
 
 func sameToken(a, b string) bool {
 	return a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// Me handles GET /me.
+func (h *Auth) Me(w http.ResponseWriter, r *http.Request) {
+	who, ok := signedIn(w, r)
+	if !ok {
+		return
+	}
+
+	me, err := h.auth.Me(r.Context(), who)
+	if errors.Is(err, domain.ErrUnauthenticated) {
+		writeError(w, http.StatusUnauthorized, "sign in to continue")
+		return
+	}
+	if err != nil {
+		h.log.ErrorContext(r.Context(), "read the signed-in user", "error", err)
+		writeError(w, http.StatusInternalServerError, "something went wrong")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.MeResponse{
+		User:         dto.MeUser{ID: me.UserID.String(), Name: me.Name, Email: me.Email},
+		Organization: dto.MeOrganization{ID: me.OrgID.String(), Name: me.OrgName},
+	})
 }
