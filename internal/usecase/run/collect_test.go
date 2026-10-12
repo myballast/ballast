@@ -40,8 +40,9 @@ func (j *journal) recorded() []string {
 	return out
 }
 
-// fakeContainers stands in for the Docker daemon: it writes down what it was
-// asked to destroy.
+// fakeContainers stands in for whatever destroys a generator's leftovers: it
+// writes down what it was asked to destroy. Nothing here knows how, which is
+// the point of the port.
 type fakeContainers struct {
 	journal *journal
 	err     error

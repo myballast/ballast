@@ -47,6 +47,11 @@ type fakeRuns struct {
 	journal *journal
 	// next is what ClaimNextQueued hands over. Nil means an empty queue.
 	next *domain.Run
+	// saved is what SaveResults was given and savedFor which run for, so a
+	// test can check that what the generator reported is what was stored.
+	saved    domain.RunResults
+	savedFor uuid.UUID
+	saveErr  error
 	// cancelled is what Cancel answers, and cancelErr what it fails with.
 	cancelled domain.CancelOutcome
 	cancelErr error
@@ -97,8 +102,14 @@ func (f *fakeRuns) Finish(
 	return f.finishErr
 }
 
-func (f *fakeRuns) SaveResults(context.Context, uuid.UUID, uuid.UUID, domain.RunResults) error {
-	return nil
+func (f *fakeRuns) SaveResults(
+	_ context.Context, _, runID uuid.UUID, results domain.RunResults,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.saved, f.savedFor = results, runID
+	return f.saveErr
 }
 
 func (f *fakeRuns) Results(context.Context, uuid.UUID, uuid.UUID) (domain.RunResults, error) {

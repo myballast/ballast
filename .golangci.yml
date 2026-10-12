@@ -31,9 +31,20 @@ linters:
               desc: domain must not know about HTTP; it belongs in adapter/http
 
         # Layer 2. Orchestration only: it may reach inward, never outward.
+        #
+        # An allowlist, like the layer above, and that is the point: a deny list
+        # forbids what somebody thought of. Written as five refusals, this rule
+        # let net/http, database/sql, os/exec or any cloud SDK in without a
+        # word. The refusals below are kept on top of it so that the common
+        # mistakes still fail with a message saying what to do instead.
         usecase:
           files:
             - "**/internal/usecase/**"
+          allow:
+            - $gostd
+            - github.com/google/uuid
+            - github.com/youssefmahersi/ballast/internal/domain
+            - github.com/youssefmahersi/ballast/internal/usecase
           deny:
             - pkg: github.com/youssefmahersi/ballast/internal/adapter
               desc: usecase must not import adapter; declare the interface in ports.go
@@ -45,6 +56,12 @@ linters:
               desc: usecase must not drive containers; go through the Executor port
             - pkg: github.com/go-chi/chi
               desc: usecase must not know about the HTTP router
+            - pkg: net/http
+              desc: usecase must not speak HTTP; declare a port in ports.go and implement it in adapter
+            - pkg: database/sql
+              desc: usecase must not know about SQL; declare a repository port in ports.go
+            - pkg: os/exec
+              desc: usecase must not start processes; go through the Executor port
 
   exclusions:
     generated: lax
