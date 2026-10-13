@@ -47,6 +47,9 @@ type Authorizer interface {
 	// one. It still asks the question per project, so the rule remains "this
 	// person already administers something here".
 	CanInAnyProject(ctx context.Context, who domain.Identity, perm domain.Permission) (bool, error)
+	// MembershipOf is the caller's own membership in a project, and false when
+	// they hold none.
+	MembershipOf(ctx context.Context, who domain.Identity, projectID uuid.UUID) (domain.Membership, bool, error)
 }
 
 // Clock exists so that what a project records about when it was created can be

@@ -1,6 +1,9 @@
 package http
 
-import "github.com/youssefmahersi/ballast/internal/domain"
+import (
+	"github.com/youssefmahersi/ballast/internal/adapter/http/dto"
+	"github.com/youssefmahersi/ballast/internal/domain"
+)
 
 // Scope says where a route's permission is checked, and by whom.
 //
@@ -42,24 +45,11 @@ type Route struct {
 	Reason string
 }
 
-// permissionNames is how a permission is spelled in the API documentation.
-// They are part of the published contract, so they do not change on a whim.
-var permissionNames = map[domain.Permission]string{
-	domain.PermViewProject:        "view_project",
-	domain.PermRunTest:            "run_test",
-	domain.PermCancelRun:          "cancel_run",
-	domain.PermManageScenarios:    "manage_scenarios",
-	domain.PermManageEnvironments: "manage_environments",
-	domain.PermApproveTarget:      "approve_target",
-	domain.PermManageMembers:      "manage_members",
-	domain.PermManageProject:      "manage_project",
-}
-
 // PermissionName is the name this route's permission goes by in the API
 // documentation. A route that requires none says so in words — "none" rather
 // than nothing at all — so that the documentation cannot be silently missing it.
 func (r Route) PermissionName() string {
-	if name, ok := permissionNames[r.Permission]; ok {
+	if name, ok := dto.PermissionName(r.Permission); ok {
 		return name
 	}
 	return "none"
@@ -143,6 +133,13 @@ func Routes() []Route {
 		{
 			Method: "DELETE", Path: "/projects/{projectId}",
 			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "GET", Path: "/projects/{projectId}/permissions",
+			Scope: ScopeNone,
+			Reason: "it describes the caller's own membership to the caller, and " +
+				"nothing else: a caller with no membership in the project is " +
+				"told it is not found",
 		},
 		{
 			Method: "GET", Path: "/projects/{projectId}/members",

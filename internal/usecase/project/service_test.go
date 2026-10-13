@@ -106,7 +106,15 @@ func (a *allowAll) CanInAnyProject(_ context.Context, _ domain.Identity, perm do
 	return true, nil
 }
 
+func (a *allowAll) MembershipOf(_ context.Context, who domain.Identity, projectID uuid.UUID) (domain.Membership, bool, error) {
+	return domain.Membership{OrgID: who.OrgID, UserID: who.UserID, ProjectID: projectID, Role: domain.RoleAdmin}, true, nil
+}
+
 type refuseAll struct{}
+
+func (refuseAll) MembershipOf(context.Context, domain.Identity, uuid.UUID) (domain.Membership, bool, error) {
+	return domain.Membership{}, false, nil
+}
 
 func (refuseAll) Can(context.Context, domain.Identity, domain.Permission, uuid.UUID) (bool, error) {
 	return false, nil

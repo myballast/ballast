@@ -13,6 +13,7 @@ import (
 
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/domain"
+	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
 // seedProject creates the rows a run needs to exist at all, through the
@@ -252,7 +253,7 @@ func TestRunRepositoryListsAProjectsRuns(t *testing.T) {
 		created = append(created, run)
 	}
 
-	got, err := runs.InProject(ctx, org, scenario.ProjectID, 2)
+	got, err := runs.InProject(ctx, org, scenario.ProjectID, nil, 2)
 	if err != nil {
 		t.Fatalf("InProject: %v", err)
 	}
@@ -260,7 +261,7 @@ func TestRunRepositoryListsAProjectsRuns(t *testing.T) {
 		t.Fatalf("InProject(limit 2) returned %v, want the two newest, newest first", ids(got))
 	}
 
-	other, err := runs.InProject(ctx, org, uuid.New(), 10)
+	other, err := runs.InProject(ctx, org, uuid.New(), nil, 10)
 	if err != nil {
 		t.Fatalf("InProject on another project: %v", err)
 	}
@@ -273,12 +274,80 @@ func TestRunRepositoryListsAProjectsRuns(t *testing.T) {
 	// organization, and row-level security hides the rest.
 	stranger := uuid.New()
 	seedProject(ctx, t, db, stranger)
-	leaked, err := runs.InProject(ctx, stranger, scenario.ProjectID, 10)
+	leaked, err := runs.InProject(ctx, stranger, scenario.ProjectID, nil, 10)
 	if err != nil {
 		t.Fatalf("InProject from another organization: %v", err)
 	}
 	if len(leaked) != 0 {
 		t.Errorf("another organization listed %d of this project's runs", len(leaked))
+	}
+}
+
+// Walking the history a page at a time returns every run exactly once, in
+// order, including runs created in the same instant — which is what the id in
+// the cursor is for.
+func TestRunRepositoryPagesThroughEveryRunOnce(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := openDB(ctx, t)
+	runs := postgres.NewRunRepository(db)
+	params := domain.ProfileParams{TargetVUs: 1, PlateauS: 10}
+
+	org := uuid.New()
+	scenario, environment := seedProject(ctx, t, db, org)
+
+	created := map[uuid.UUID]bool{}
+	for range 5 {
+		r, err := runs.Create(ctx, domain.NewRun(org, scenario, environment, domain.ProfileSmoke, params, nil))
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		created[r.ID] = true
+	}
+	// Two runs in the same instant, and the oldest of all, so that with pages of
+	// two they fall either side of a page boundary: the case a cursor on time
+	// alone gets wrong.
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE run SET created_at = '2000-01-01T00:00:00Z' WHERE org_id = $1 AND project_id = $2
+			AND id IN (SELECT id FROM run WHERE org_id = $1 AND project_id = $2 ORDER BY id LIMIT 2)`,
+			org, scenario.ProjectID)
+		return err
+	}); err != nil {
+		t.Fatalf("give two runs the same instant: %v", err)
+	}
+
+	var (
+		seen   []domain.Run
+		before *run.Cursor
+	)
+	for page := 0; page < 10; page++ {
+		got, err := runs.InProject(ctx, org, scenario.ProjectID, before, 2)
+		if err != nil {
+			t.Fatalf("InProject: %v", err)
+		}
+		if len(got) == 0 {
+			break
+		}
+		seen = append(seen, got...)
+		last := got[len(got)-1]
+		before = &run.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+
+	if len(seen) != len(created) {
+		t.Fatalf("paging returned %d runs, want %d: %v", len(seen), len(created), ids(seen))
+	}
+	for i, r := range seen {
+		if !created[r.ID] {
+			t.Errorf("run %s was returned twice or was never created", r.ID)
+		}
+		delete(created, r.ID)
+		if i > 0 {
+			prev := seen[i-1]
+			if r.CreatedAt.After(prev.CreatedAt) {
+				t.Errorf("run %d is newer than run %d: the order is not newest first", i, i-1)
+			}
+		}
 	}
 }
 

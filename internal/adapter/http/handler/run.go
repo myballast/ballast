@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -291,31 +294,44 @@ func (h *Run) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	found, err := h.runs.InProject(r.Context(), who, projectID, limit)
+	var before *run.Cursor
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		cursor, err := decodeCursor(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "before is not a cursor this API gave out")
+			return
+		}
+		before = &cursor
+	}
+
+	page, err := h.runs.InProject(r.Context(), who, projectID, before, limit)
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
 	}
 
-	response := dto.RunListResponse{Runs: make([]dto.RunSummary, 0, len(found))}
-	for _, run := range found {
+	response := dto.RunListResponse{Runs: make([]dto.RunSummary, 0, len(page.Runs))}
+	if page.Next != nil {
+		response.Next = encodeCursor(*page.Next)
+	}
+	for _, listed := range page.Runs {
 		response.Runs = append(response.Runs, dto.RunSummary{
-			ID:              run.ID.String(),
-			ProjectID:       run.ProjectID.String(),
-			ScenarioID:      run.ScenarioID.String(),
-			EnvironmentID:   run.EnvironmentID.String(),
-			ScenarioVersion: run.ScenarioVersion,
-			Profile:         string(run.Profile),
+			ID:              listed.ID.String(),
+			ProjectID:       listed.ProjectID.String(),
+			ScenarioID:      listed.ScenarioID.String(),
+			EnvironmentID:   listed.EnvironmentID.String(),
+			ScenarioVersion: listed.ScenarioVersion,
+			Profile:         string(listed.Profile),
 			Params: dto.ProfileParams{
-				TargetVUs: run.ProfileParams.TargetVUs,
-				RampUpS:   run.ProfileParams.RampUpS,
-				PlateauS:  run.ProfileParams.PlateauS,
-				RampDownS: run.ProfileParams.RampDownS,
+				TargetVUs: listed.ProfileParams.TargetVUs,
+				RampUpS:   listed.ProfileParams.RampUpS,
+				PlateauS:  listed.ProfileParams.PlateauS,
+				RampDownS: listed.ProfileParams.RampDownS,
 			},
-			Status:    string(run.Status),
-			CreatedAt: run.CreatedAt,
-			StartedAt: run.StartedAt,
-			EndedAt:   run.EndedAt,
+			Status:    string(listed.Status),
+			CreatedAt: listed.CreatedAt,
+			StartedAt: listed.StartedAt,
+			EndedAt:   listed.EndedAt,
 		})
 	}
 
@@ -334,4 +350,31 @@ func listLimit(r *http.Request) (int, error) {
 		return 0, errors.New("limit must be a positive whole number")
 	}
 	return limit, nil
+}
+
+// A cursor travels as base64url of "<created_at, RFC 3339 with nanoseconds>
+// <space> <run id>". It is opaque to clients: the format may change, so it is
+// never documented, only handed back.
+func encodeCursor(c run.Cursor) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(c.CreatedAt.UTC().Format(time.RFC3339Nano) + " " + c.ID.String()))
+}
+
+func decodeCursor(raw string) (run.Cursor, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return run.Cursor{}, err
+	}
+	at, id, ok := strings.Cut(string(decoded), " ")
+	if !ok {
+		return run.Cursor{}, errors.New("cursor: no separator")
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return run.Cursor{}, err
+	}
+	runID, err := uuid.Parse(id)
+	if err != nil {
+		return run.Cursor{}, err
+	}
+	return run.Cursor{CreatedAt: createdAt, ID: runID}, nil
 }

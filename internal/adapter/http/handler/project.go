@@ -198,6 +198,26 @@ func (h *Project) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Permissions handles GET /projects/{projectId}/permissions.
+func (h *Project) Permissions(w http.ResponseWriter, r *http.Request) {
+	who, projectID, ok := projectRequest(w, r)
+	if !ok {
+		return
+	}
+
+	access, err := h.projects.Access(r.Context(), who, projectID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.AccessResponse{
+		Role:        string(access.Role),
+		Permissions: dto.PermissionNames(access.Permissions),
+		Custom:      access.Custom,
+	})
+}
+
 // projectRequest reads the caller and the project the path names.
 func projectRequest(w http.ResponseWriter, r *http.Request) (domain.Identity, uuid.UUID, bool) {
 	who, ok := signedIn(w, r)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres/sqlc"
 	"github.com/youssefmahersi/ballast/internal/domain"
+	"github.com/youssefmahersi/ballast/internal/usecase/run"
 )
 
 // RunRepository persists runs. Every method opens a tenant transaction, which
@@ -622,16 +623,25 @@ func (r *RunRepository) CancelEverything(
 	return cancelled, asked, err
 }
 
-// InProject reads a project's runs, newest first, at most limit of them.
-func (r *RunRepository) InProject(ctx context.Context, orgID, projectID uuid.UUID, limit int) ([]domain.Run, error) {
+// InProject reads a project's runs, newest first, at most limit of them, and
+// with before set only those strictly older than it.
+func (r *RunRepository) InProject(
+	ctx context.Context, orgID, projectID uuid.UUID, before *run.Cursor, limit int,
+) ([]domain.Run, error) {
+	params := sqlc.ListProjectRunsParams{
+		OrgID:     orgID,
+		ProjectID: projectID,
+		RowLimit:  int32(limit), //nolint:gosec // bounded to run.MaxListLimit + 1 by the service
+	}
+	if before != nil {
+		params.BeforeCreatedAt = &before.CreatedAt
+		params.BeforeID = &before.ID
+	}
+
 	var found []domain.Run
 
 	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
-		rows, err := sqlc.New(tx).ListProjectRuns(ctx, sqlc.ListProjectRunsParams{
-			OrgID:     orgID,
-			ProjectID: projectID,
-			Limit:     int32(limit), //nolint:gosec // bounded to run.MaxListLimit by the service
-		})
+		rows, err := sqlc.New(tx).ListProjectRuns(ctx, params)
 		if err != nil {
 			return fmt.Errorf("list the project's runs: %w", err)
 		}

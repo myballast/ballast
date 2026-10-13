@@ -5,7 +5,9 @@ import { MetricCard } from "@/components/metric-card";
 import { EmptyState, LoadingState } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { EnvironmentList } from "@/features/environments/components/environment-list";
 import { ProjectCard } from "@/features/projects/components/project-card";
+import { RunHistory } from "@/features/runs/components/run-history";
 import type { ProjectOverview } from "@/features/projects/types";
 import { RunStatusBadge } from "@/features/runs/components/run-status-badge";
 import type { RunStatus } from "@/features/runs/types";
@@ -56,7 +58,7 @@ const lastRun = (status: "passed" | "failed" | "running", endedAt?: string) => (
   scenario_id: "s",
   environment_id: "staging",
   scenario_version: 3,
-  profile: "load",
+  profile: "load" as const,
   params: { target_vus: 10, ramp_up_s: 30, plateau_s: 120, ramp_down_s: 30 },
   status,
   created_at: "2026-10-12T14:50:00Z",
@@ -152,6 +154,33 @@ export function ComponentReference() {
             <ProjectCard key={overview.project.id} overview={overview} now={now} />
           ))}
         </div>
+      </Section>
+
+      <Section title="Environments">
+        <EnvironmentList
+          environments={[
+            { ...environment("staging", true), allowed_window: { start: "22:00", end: "06:00", timezone: "Europe/Paris" } },
+            environment("preview", false),
+          ]}
+        />
+      </Section>
+
+      <Section title="Run history">
+        <RunHistory
+          projectId="checkout"
+          names={{ scenarios: {}, environments: {} }}
+          first={{
+            rows: (["passed", "failed", "running"] as const).map((status, i) => ({
+              id: `run-${i}`,
+              status,
+              scenario: "checkout",
+              environment: "staging",
+              profile: "load",
+              createdAt: `12 Oct 2026, 1${i}:00:00`,
+            })),
+          }}
+        />
+        <RunHistory projectId="checkout" names={{ scenarios: {}, environments: {} }} first={{ rows: [] }} />
       </Section>
 
       <Section title="Numbers in columns">

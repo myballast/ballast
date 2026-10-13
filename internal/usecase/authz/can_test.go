@@ -238,3 +238,31 @@ func TestCanReportsAReadFailure(t *testing.T) {
 		t.Fatalf("got %v, want the read error", err)
 	}
 }
+
+func TestMembershipOfReturnsTheCallersOwnMembership(t *testing.T) {
+	project := uuid.New()
+	held := domain.Membership{ProjectID: project, Role: domain.RoleRunner}
+	service := newService(fakeMemberships{byProject: map[uuid.UUID]domain.Membership{project: held}})
+
+	got, found, err := service.MembershipOf(context.Background(), someone(), project)
+	if err != nil || !found || got != held {
+		t.Errorf("MembershipOf = %+v, %v, %v; want %+v", got, found, err, held)
+	}
+
+	_, found, err = service.MembershipOf(context.Background(), someone(), uuid.New())
+	if err != nil || found {
+		t.Errorf("another project: found %v, %v; want not found", found, err)
+	}
+}
+
+// The same guard as Can: a question with no actor or no project is a bug.
+func TestMembershipOfRequiresAnActorAndAProject(t *testing.T) {
+	service := newService(fakeMemberships{})
+
+	if _, _, err := service.MembershipOf(context.Background(), domain.Identity{}, uuid.New()); err == nil {
+		t.Error("a question with no actor was answered")
+	}
+	if _, _, err := service.MembershipOf(context.Background(), someone(), uuid.Nil); err == nil {
+		t.Error("a question with no project was answered")
+	}
+}
