@@ -35,8 +35,18 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return request<T>("POST", path, body);
 }
 
-// apiDelete sends a DELETE. Like apiPost, from server actions only.
-export async function apiDelete<T>(path: string): Promise<T> {
+// apiPut and apiPatch send body as JSON. Like apiPost, from server actions only.
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PUT", path, body);
+}
+
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PATCH", path, body);
+}
+
+// apiDelete sends a DELETE. Like apiPost, from server actions only. Some
+// deletions answer 204 with no body, which resolves to undefined.
+export async function apiDelete<T = undefined>(path: string): Promise<T> {
   return request<T>("DELETE", path);
 }
 
@@ -66,6 +76,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(response.status, failure?.error ?? response.statusText);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return (await response.json()) as T;
 }
 

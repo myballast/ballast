@@ -119,8 +119,8 @@ func (h *Environment) Update(w http.ResponseWriter, r *http.Request) {
 		MaxDurationS: body.MaxDurationS,
 	}
 	// Present in the body at all, whether as a window or as null.
-	if body.AllowedWindow != nil {
-		window, err := windowOf(*body.AllowedWindow)
+	if body.AllowedWindow.Set {
+		window, err := windowOf(body.AllowedWindow.Window)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

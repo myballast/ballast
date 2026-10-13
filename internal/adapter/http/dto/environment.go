@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"time"
+)
 
 // Environment is a target a project may send load to.
 //
@@ -56,10 +60,34 @@ type UpdateEnvironmentRequest struct {
 	BaseURL      *string `json:"base_url,omitempty"`
 	MaxVUs       *int    `json:"max_vus,omitempty"`
 	MaxDurationS *int    `json:"max_duration_s,omitempty"`
-	// AllowedWindow uses a double pointer because "leave it alone" and "there is
-	// no window any more" are different instructions, and JSON spells the first
-	// as an absent field and the second as null.
-	AllowedWindow **AllowedWindow `json:"allowed_window,omitempty"`
+	// AllowedWindow is its own type because "leave it alone" and "there is no
+	// window any more" are different instructions, and JSON spells the first as
+	// an absent field and the second as null.
+	AllowedWindow OptionalWindow `json:"allowed_window"`
+}
+
+// OptionalWindow is a window an update may leave alone, replace or remove.
+//
+// A double pointer cannot carry this: encoding/json decodes null into a nil
+// outer pointer, which is exactly what an absent field leaves, so null would
+// read as "leave it alone" and a window could never be removed. A type with its
+// own UnmarshalJSON is called for null as for anything else, and not at all for
+// an absent field.
+type OptionalWindow struct {
+	// Set is true when the field was in the body, as a window or as null.
+	Set bool
+	// Window is nil when the body said null.
+	Window *AllowedWindow
+}
+
+// UnmarshalJSON records that the field was present, and what it held.
+func (o *OptionalWindow) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	if string(bytes.TrimSpace(data)) == "null" {
+		o.Window = nil
+		return nil
+	}
+	return json.Unmarshal(data, &o.Window)
 }
 
 // Secret is what Ballast will say about a stored credential: its key, and when it

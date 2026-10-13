@@ -16,14 +16,20 @@ const sections: Record<string, string> = {
   scenarios: "Scenarios",
   environments: "Environments",
   members: "Members",
-  new: "New run",
+  edit: "Edit",
+};
+
+// "new" is named after what it creates, which is the step before it.
+const creates: Record<string, string> = {
+  runs: "New run",
+  environments: "New environment",
 };
 
 // The paths that are pages of their own. A step of the trail links only to
 // one of these: /runs, for instance, is a step on the way to a run and not a
 // page anyone can open. Screens add their path here when they exist.
 const pages = new Set(["/", "/projects"]);
-const pagePatterns = [/^\/projects\/[^/]+$/];
+const pagePatterns = [/^\/projects\/[^/]+$/, /^\/projects\/[^/]+\/environments(\/[^/]+)?$/];
 
 const isPage = (href: string) => pages.has(href) || pagePatterns.some((p) => p.test(href));
 
@@ -36,7 +42,10 @@ export function AppHeader() {
     { href: "/", label: "Ballast", id: false },
     ...segments.map((segment, i) => ({
       href: "/" + segments.slice(0, i + 1).join("/"),
-      label: sections[segment] ?? (uuid.test(segment) ? segment.slice(0, 8) : segment),
+      label:
+        segment === "new"
+          ? (creates[segments[i - 1]] ?? "New")
+          : (sections[segment] ?? (uuid.test(segment) ? segment.slice(0, 8) : segment)),
       id: !(segment in sections) && uuid.test(segment),
     })),
   ];
