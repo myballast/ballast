@@ -1,17 +1,21 @@
 import { MetricCard } from "@/components/metric-card";
-import { formatMs, formatPercent, formatRate } from "@/lib/format";
+import { formatBytes, formatCount, formatMs, formatPercent, formatRate } from "@/lib/format";
 
 import { headlineMetrics } from "../metrics";
 import type { Metric } from "../types";
 
 export function RunMetricsCards({ metrics }: { metrics: Metric[] }) {
-  const headline = headlineMetrics(metrics);
+  const h = headlineMetrics(metrics);
 
   const cards = [
-    { label: "p95 latency", value: formatMs(headline.p95Ms) },
-    { label: "p99 latency", value: formatMs(headline.p99Ms) },
-    { label: "Requests / sec", value: formatRate(headline.requestsPerSecond) },
-    { label: "Error rate", value: formatPercent(headline.errorRate) },
+    { label: "p95 latency", value: formatMs(h.p95Ms) },
+    { label: "p99 latency", value: formatMs(h.p99Ms) },
+    { label: "Requests / sec", value: formatRate(h.requestsPerSecond) },
+    { label: "Error rate", value: formatPercent(h.errorRate) },
+    { label: "Median latency", value: formatMs(h.medianMs) },
+    { label: "Iterations", value: formatCount(h.iterations) },
+    { label: "Checks passed", value: formatPercent(h.checksRate) },
+    { label: "Data received", value: formatBytes(h.bytesReceived) },
   ];
 
   return (

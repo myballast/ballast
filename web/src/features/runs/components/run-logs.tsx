@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -34,6 +35,13 @@ export function RunLogs({ runId, status }: { runId: string; status: RunStatus })
   // unlikely.
   const highest = useRef(-1);
 
+  // The rest of the page is rendered on the server, from the run as it was
+  // when the page was asked for. When the output says the run has moved on —
+  // its first line, or its end — the page is rendered again, so that its
+  // status, dates and metrics are the current ones without a reload.
+  const router = useRouter();
+  const shown = useRef(status);
+
   useEffect(() => {
     const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/logs`);
 
@@ -44,6 +52,11 @@ export function RunLogs({ runId, status }: { runId: string; status: RunStatus })
 
       setFailed(false);
       setLines((previous) => [...previous, line].slice(-keptOnScreen));
+
+      if (shown.current === "queued") {
+        shown.current = "running";
+        router.refresh();
+      }
     });
 
     // The run is over: there will never be another line, so the stream is
@@ -51,6 +64,10 @@ export function RunLogs({ runId, status }: { runId: string; status: RunStatus })
     source.addEventListener("end", () => {
       setLive(false);
       source.close();
+
+      if (shown.current === "queued" || shown.current === "running") {
+        router.refresh();
+      }
     });
 
     // An error is not the end: EventSource reconnects on its own, and says so
@@ -58,7 +75,7 @@ export function RunLogs({ runId, status }: { runId: string; status: RunStatus })
     source.addEventListener("error", () => setFailed(true));
 
     return () => source.close();
-  }, [runId]);
+  }, [runId, router]);
 
   return (
     <Card>

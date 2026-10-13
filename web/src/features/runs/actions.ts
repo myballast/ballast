@@ -1,8 +1,9 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { ApiError, apiPost } from "@/lib/api-client";
+import { ApiError, apiDelete, apiPost } from "@/lib/api-client";
 
 import { historyPage, type HistoryPage, type Names } from "./history";
 import type { ProfileKind, ProfileParams } from "./types";
@@ -70,4 +71,34 @@ export async function launchRun(projectId: string, _previous: LaunchState, form:
   }
 
   redirect(`/runs/${id}`);
+}
+
+export type CancelState = { error?: string; outcome?: "cancelled" | "stopping" };
+
+// cancelRun stops a queued run, or asks a running one to stop. The API answers
+// differently for the two, because the facts differ: a queued run is cancelled
+// when this returns, a running one only once its worker has stopped the load.
+export async function cancelRun(runId: string): Promise<CancelState> {
+  let outcome: string;
+  try {
+    ({ outcome } = await apiDelete<{ id: string; status: string; outcome: string }>(
+      `/runs/${encodeURIComponent(runId)}`,
+    ));
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    switch (error.status) {
+      case 401:
+        redirect(`/login?next=${encodeURIComponent(`/runs/${runId}`)}`);
+      case 409:
+        refresh();
+        return { error: "This run has already finished; there is nothing left to stop." };
+      case 403:
+      case 404:
+        return { error: "You cannot stop this run." };
+    }
+    throw error;
+  }
+
+  refresh();
+  return { outcome: outcome === "cancelled" ? "cancelled" : "stopping" };
 }

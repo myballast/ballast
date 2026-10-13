@@ -35,6 +35,11 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return request<T>("POST", path, body);
 }
 
+// apiDelete sends a DELETE. Like apiPost, from server actions only.
+export async function apiDelete<T>(path: string): Promise<T> {
+  return request<T>("DELETE", path);
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
 
