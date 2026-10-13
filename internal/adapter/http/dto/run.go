@@ -79,6 +79,9 @@ type RunResponse struct {
 // RunListResponse is returned by GET /projects/{projectId}/runs.
 type RunListResponse struct {
 	Runs []RunSummary `json:"runs"`
+	// Next is passed back as ?before= to read the following page. Absent on
+	// the last page. Opaque: its content is not part of the contract.
+	Next string `json:"next,omitempty"`
 }
 
 // RunSummary is a run as a list shows it: what was run, against what, and how

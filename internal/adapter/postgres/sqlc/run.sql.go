@@ -554,20 +554,35 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 const listProjectRuns = `-- name: ListProjectRuns :many
 SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at FROM run
 WHERE org_id = $1 AND project_id = $2
+  AND (
+    $3::timestamptz IS NULL
+    OR (created_at, id) < ($3::timestamptz, $4::uuid)
+  )
 ORDER BY created_at DESC, id DESC
-LIMIT $3
+LIMIT $5
 `
 
 type ListProjectRunsParams struct {
-	OrgID     uuid.UUID
-	ProjectID uuid.UUID
-	Limit     int32
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	BeforeCreatedAt *time.Time
+	BeforeID        *uuid.UUID
+	RowLimit        int32
 }
 
 // Newest first, served by run_org_project_created_idx. id breaks ties, so two
-// runs created in the same instant always come back in the same order.
+// runs created in the same instant always come back in the same order, and a
+// page boundary between them loses or repeats neither. With a cursor, only the
+// runs strictly older than it: (created_at, id) compared as a pair, which is
+// the order the list is in.
 func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams) ([]Run, error) {
-	rows, err := q.db.Query(ctx, listProjectRuns, arg.OrgID, arg.ProjectID, arg.Limit)
+	rows, err := q.db.Query(ctx, listProjectRuns,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

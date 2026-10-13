@@ -13,6 +13,10 @@ export type RunStatus =
   | "skipped"
   | "orphaned";
 
+export type ProfileKind = "smoke" | "load" | "stress" | "spike" | "soak";
+
+export const profileKinds: ProfileKind[] = ["smoke", "load", "stress", "spike", "soak"];
+
 export type ProfileParams = {
   target_vus: number;
   ramp_up_s: number;
@@ -39,7 +43,7 @@ export type Run = {
   scenario_id: string;
   environment_id: string;
   scenario_version: number;
-  profile: string;
+  profile: ProfileKind;
   params: ProfileParams;
   status: RunStatus;
   error_message?: string;
@@ -68,7 +72,7 @@ export type RunSummary = {
   scenario_id: string;
   environment_id: string;
   scenario_version: number;
-  profile: string;
+  profile: ProfileKind;
   params: ProfileParams;
   status: RunStatus;
   created_at: string;

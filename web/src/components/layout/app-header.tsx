@@ -16,12 +16,16 @@ const sections: Record<string, string> = {
   scenarios: "Scenarios",
   environments: "Environments",
   members: "Members",
+  new: "New run",
 };
 
 // The paths that are pages of their own. A step of the trail links only to
 // one of these: /runs, for instance, is a step on the way to a run and not a
 // page anyone can open. Screens add their path here when they exist.
 const pages = new Set(["/", "/projects"]);
+const pagePatterns = [/^\/projects\/[^/]+$/];
+
+const isPage = (href: string) => pages.has(href) || pagePatterns.some((p) => p.test(href));
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -33,7 +37,7 @@ export function AppHeader() {
     ...segments.map((segment, i) => ({
       href: "/" + segments.slice(0, i + 1).join("/"),
       label: sections[segment] ?? (uuid.test(segment) ? segment.slice(0, 8) : segment),
-      id: !(segment in sections),
+      id: !(segment in sections) && uuid.test(segment),
     })),
   ];
 
@@ -51,7 +55,7 @@ export function AppHeader() {
                     <span aria-current="page" className="text-foreground">
                       {crumb.label}
                     </span>
-                  ) : pages.has(crumb.href) ? (
+                  ) : isPage(crumb.href) ? (
                     <Link href={crumb.href} className="hover:text-foreground">
                       {crumb.label}
                     </Link>

@@ -661,6 +661,42 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/permissions:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [projects]
+      summary: What the caller holds in a project
+      description: |
+        The caller's role in the project and the permissions they actually
+        hold, by name, read from the database at the moment of asking. A mask
+        stored on the membership replaces the role's; `custom` says when it does.
+
+        This is what a client hides buttons by. It decides nothing: every
+        request is still authorized on its own.
+
+        It requires no permission, since it only describes the caller to
+        themselves. A caller who is not a member is told the project is not
+        found.
+      operationId: getProjectPermissions
+      x-ballast-permission: none
+      responses:
+        "200":
+          description: The caller's access.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /projects/{projectId}/members:
     parameters:
       - $ref: "#/components/parameters/ProjectID"
@@ -1094,11 +1130,12 @@ paths:
       tags: [runs]
       summary: List a project's runs
       description: |
-        Newest first. Each run says what was executed, against which
-        environment, and how it ended; its metrics and threshold verdicts are
-        read one run at a time, from `GET /runs/{id}`.
+        Newest first, a page at a time. Each run says what was executed,
+        against which environment, and how it ended; its metrics and threshold
+        verdicts are read one run at a time, from `GET /runs/{id}`.
 
-        `limit=1` is how a caller reads a project's last run.
+        A response with `next` has a following page: pass `next` back as
+        `before`. `limit=1` is how a caller reads a project's last run.
       operationId: listProjectRuns
       x-ballast-permission: view_project
       parameters:
@@ -1112,6 +1149,14 @@ paths:
             type: integer
             minimum: 1
             default: 20
+        - name: before
+          in: query
+          required: false
+          description: |
+            The `next` of the previous page. Opaque: only a value this API
+            handed out is accepted.
+          schema:
+            type: string
       responses:
         "200":
           description: The runs, newest first.
@@ -1120,7 +1165,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/RunListResponse"
         "400":
-          description: The project id is not a UUID, or the limit is not a positive whole number.
+          description: |
+            The project id is not a UUID, the limit is not a positive whole
+            number, or `before` is not a cursor this API handed out.
           content:
             application/json:
               schema:
@@ -1766,6 +1813,30 @@ components:
             whole story.
         created_at: { type: string, format: date-time }
 
+    AccessResponse:
+      type: object
+      required: [role, permissions, custom]
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        permissions:
+          type: array
+          description: The permissions the caller holds, in a fixed order.
+          items:
+            type: string
+            enum:
+              - view_project
+              - run_test
+              - cancel_run
+              - manage_scenarios
+              - manage_environments
+              - approve_target
+              - manage_members
+              - manage_project
+        custom:
+          type: boolean
+          description: True when a mask stored on the membership replaces the role's.
+
     MemberListResponse:
       type: object
       required: [members]
@@ -2073,6 +2144,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RunSummary"
+        next:
+          type: string
+          description: Present when another page follows. Pass it back as `before`.
 
     RunSummary:
       type: object

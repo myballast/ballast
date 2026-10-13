@@ -70,6 +70,7 @@ func NewRouter(
 		"PATCH /projects/{projectId}":                   projectHandler.Update,
 		"DELETE /projects/{projectId}":                  projectHandler.Delete,
 		"GET /projects/{projectId}/members":             projectHandler.Members,
+		"GET /projects/{projectId}/permissions":         projectHandler.Permissions,
 		"PUT /projects/{projectId}/members/{userId}":    projectHandler.SetMemberRole,
 		"DELETE /projects/{projectId}/members/{userId}": projectHandler.RemoveMember,
 

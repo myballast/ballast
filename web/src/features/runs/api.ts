@@ -26,10 +26,22 @@ export async function getRun(id: string): Promise<Run | null> {
   }
 }
 
+export type RunPage = { runs: RunSummary[]; next?: string };
+
+// getProjectRuns is one page of a project's runs, newest first. before is the
+// next of the previous page; the API alone knows what is in it.
+export async function getProjectRuns(
+  projectId: string,
+  options: { before?: string; limit?: number } = {},
+): Promise<RunPage> {
+  const query = new URLSearchParams();
+  if (options.limit) query.set("limit", String(options.limit));
+  if (options.before) query.set("before", options.before);
+  return apiGet<RunPage>(`/projects/${encodeURIComponent(projectId)}/runs?${query}`);
+}
+
 // getLastRun is a project's most recent run, or null if it has never run.
 export async function getLastRun(projectId: string): Promise<RunSummary | null> {
-  const { runs } = await apiGet<{ runs: RunSummary[] }>(
-    `/projects/${encodeURIComponent(projectId)}/runs?limit=1`,
-  );
+  const { runs } = await getProjectRuns(projectId, { limit: 1 });
   return runs[0] ?? null;
 }

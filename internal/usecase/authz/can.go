@@ -137,3 +137,14 @@ func validate(who domain.Identity, projectID uuid.UUID) error {
 	}
 	return nil
 }
+
+// MembershipOf is the caller's own membership in a project, and false when
+// they hold none. It is a description, not a decision: Can is what decides.
+func (s *Service) MembershipOf(
+	ctx context.Context, who domain.Identity, projectID uuid.UUID,
+) (domain.Membership, bool, error) {
+	if err := validate(who, projectID); err != nil {
+		return domain.Membership{}, false, err
+	}
+	return s.memberships.OfMember(ctx, who, projectID)
+}

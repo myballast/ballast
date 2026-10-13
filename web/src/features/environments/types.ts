@@ -9,5 +9,7 @@ export type Environment = {
   verification_status: VerificationStatus;
   max_vus: number;
   max_duration_s: number;
+  // Hours the target takes load, in its own timezone. Absent: any hour.
+  allowed_window?: { start: string; end: string; timezone: string };
   created_at: string;
 };

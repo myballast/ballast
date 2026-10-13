@@ -19,11 +19,12 @@ import (
 // interaction says so itself.
 
 type fakeRuns struct {
-	// listed is what InProject hands back; listedFor and listedLimit record
-	// what it was asked.
-	listed      []domain.Run
-	listedFor   uuid.UUID
-	listedLimit int
+	// listed is what InProject hands back; listedFor, listedBefore and
+	// listedLimit record what it was asked.
+	listed       []domain.Run
+	listedFor    uuid.UUID
+	listedBefore *Cursor
+	listedLimit  int
 
 	created domain.Run
 	// byID is what ByID hands back. Empty means every read is a miss.
@@ -630,10 +631,15 @@ func (f *fakeRuns) Cancel(
 	return f.cancelled, f.cancelErr
 }
 
-func (f *fakeRuns) InProject(_ context.Context, _ uuid.UUID, projectID uuid.UUID, limit int) ([]domain.Run, error) {
-	f.listedFor, f.listedLimit = projectID, limit
+func (f *fakeRuns) InProject(
+	_ context.Context, _ uuid.UUID, projectID uuid.UUID, before *Cursor, limit int,
+) ([]domain.Run, error) {
+	f.listedFor, f.listedBefore, f.listedLimit = projectID, before, limit
 	if f.err != nil {
 		return nil, f.err
+	}
+	if len(f.listed) > limit {
+		return f.listed[:limit], nil
 	}
 	return f.listed, nil
 }

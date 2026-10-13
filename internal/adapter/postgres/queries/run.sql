@@ -14,12 +14,19 @@ RETURNING *;
 SELECT * FROM run WHERE org_id = $1 AND id = $2;
 
 -- Newest first, served by run_org_project_created_idx. id breaks ties, so two
--- runs created in the same instant always come back in the same order.
+-- runs created in the same instant always come back in the same order, and a
+-- page boundary between them loses or repeats neither. With a cursor, only the
+-- runs strictly older than it: (created_at, id) compared as a pair, which is
+-- the order the list is in.
 -- name: ListProjectRuns :many
 SELECT * FROM run
-WHERE org_id = $1 AND project_id = $2
+WHERE org_id = @org_id AND project_id = @project_id
+  AND (
+    sqlc.narg(before_created_at)::timestamptz IS NULL
+    OR (created_at, id) < (sqlc.narg(before_created_at)::timestamptz, sqlc.narg(before_id)::uuid)
+  )
 ORDER BY created_at DESC, id DESC
-LIMIT $3;
+LIMIT @row_limit;
 
 -- The status in the WHERE clause is the guard: a run somebody else already
 -- finished is not finished twice.

@@ -21,7 +21,11 @@ export function ProjectCard({ overview, now }: { overview: ProjectOverview; now:
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="truncate">{project.name}</CardTitle>
+        <CardTitle className="truncate">
+          <Link href={`/projects/${project.id}`} className="hover:underline">
+            {project.name}
+          </Link>
+        </CardTitle>
         <p className="data truncate text-xs text-muted-foreground">{project.slug}</p>
       </CardHeader>
 
