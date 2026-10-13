@@ -551,6 +551,60 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 	return items, nil
 }
 
+const listProjectRuns = `-- name: ListProjectRuns :many
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at FROM run
+WHERE org_id = $1 AND project_id = $2
+ORDER BY created_at DESC, id DESC
+LIMIT $3
+`
+
+type ListProjectRunsParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	Limit     int32
+}
+
+// Newest first, served by run_org_project_created_idx. id breaks ties, so two
+// runs created in the same instant always come back in the same order.
+func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams) ([]Run, error) {
+	rows, err := q.db.Query(ctx, listProjectRuns, arg.OrgID, arg.ProjectID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Run{}
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.ScenarioID,
+			&i.EnvironmentID,
+			&i.ScheduleID,
+			&i.ScenarioVersion,
+			&i.Profile,
+			&i.ProfileParams,
+			&i.Status,
+			&i.TriggeredBy,
+			&i.EgressBytes,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.HeartbeatAt,
+			&i.CancelRequestedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRunMetrics = `-- name: ListRunMetrics :many
 SELECT id, org_id, run_id, name, tag_name, value, stat FROM run_metric
 WHERE org_id = $1 AND run_id = $2

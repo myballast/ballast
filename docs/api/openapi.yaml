@@ -1086,6 +1086,52 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/runs:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [runs]
+      summary: List a project's runs
+      description: |
+        Newest first. Each run says what was executed, against which
+        environment, and how it ended; its metrics and threshold verdicts are
+        read one run at a time, from `GET /runs/{id}`.
+
+        `limit=1` is how a caller reads a project's last run.
+      operationId: listProjectRuns
+      x-ballast-permission: view_project
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: |
+            How many runs to return. Absent means 20; anything above 100 is
+            read as 100. Zero, a negative number or a non-number is refused.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: The runs, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunListResponse"
+        "400":
+          description: The project id is not a UUID, or the limit is not a positive whole number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /projects/{projectId}/environments:
     parameters:
       - $ref: "#/components/parameters/ProjectID"
@@ -2018,6 +2064,44 @@ components:
       type: string
       description: "`orphaned` is not terminal: the worker died mid-run and the run still has to be cleaned up."
       enum: [queued, running, passed, failed, errored, timeout, cancelled, rejected, skipped, orphaned]
+
+    RunListResponse:
+      type: object
+      required: [runs]
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/RunSummary"
+
+    RunSummary:
+      type: object
+      description: A run as a list shows it. No metrics and no verdicts; see `GET /runs/{id}`.
+      required:
+        - id
+        - project_id
+        - scenario_id
+        - environment_id
+        - scenario_version
+        - profile
+        - params
+        - status
+        - created_at
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        scenario_id: { type: string, format: uuid }
+        environment_id: { type: string, format: uuid }
+        scenario_version: { type: integer }
+        profile:
+          $ref: "#/components/schemas/ProfileKind"
+        params:
+          $ref: "#/components/schemas/ProfileParams"
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
 
     RunResponse:
       type: object

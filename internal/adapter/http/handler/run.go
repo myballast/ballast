@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -275,4 +276,62 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, dto.Error{Error: message})
+}
+
+// List handles GET /projects/{projectId}/runs.
+func (h *Run) List(w http.ResponseWriter, r *http.Request) {
+	who, projectID, ok := projectRequest(w, r)
+	if !ok {
+		return
+	}
+
+	limit, err := listLimit(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	found, err := h.runs.InProject(r.Context(), who, projectID, limit)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	response := dto.RunListResponse{Runs: make([]dto.RunSummary, 0, len(found))}
+	for _, run := range found {
+		response.Runs = append(response.Runs, dto.RunSummary{
+			ID:              run.ID.String(),
+			ProjectID:       run.ProjectID.String(),
+			ScenarioID:      run.ScenarioID.String(),
+			EnvironmentID:   run.EnvironmentID.String(),
+			ScenarioVersion: run.ScenarioVersion,
+			Profile:         string(run.Profile),
+			Params: dto.ProfileParams{
+				TargetVUs: run.ProfileParams.TargetVUs,
+				RampUpS:   run.ProfileParams.RampUpS,
+				PlateauS:  run.ProfileParams.PlateauS,
+				RampDownS: run.ProfileParams.RampDownS,
+			},
+			Status:    string(run.Status),
+			CreatedAt: run.CreatedAt,
+			StartedAt: run.StartedAt,
+			EndedAt:   run.EndedAt,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// listLimit reads ?limit=. Absent means the default; the service bounds what
+// is given, so only something that is not a number is refused here.
+func listLimit(r *http.Request) (int, error) {
+	raw := r.URL.Query().Get("limit")
+	if raw == "" {
+		return 0, nil
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 {
+		return 0, errors.New("limit must be a positive whole number")
+	}
+	return limit, nil
 }

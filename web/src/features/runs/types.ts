@@ -60,3 +60,18 @@ export type LogLine = {
   message: string;
   at: string;
 };
+
+// A run as GET /projects/{projectId}/runs lists it: no metrics, no verdicts.
+export type RunSummary = {
+  id: string;
+  project_id: string;
+  scenario_id: string;
+  environment_id: string;
+  scenario_version: number;
+  profile: string;
+  params: ProfileParams;
+  status: RunStatus;
+  created_at: string;
+  started_at?: string;
+  ended_at?: string;
+};

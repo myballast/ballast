@@ -68,3 +68,27 @@ export function formatDuration(
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
 }
+
+const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+
+const units: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 3600],
+  ["month", 30 * 24 * 3600],
+  ["day", 24 * 3600],
+  ["hour", 3600],
+  ["minute", 60],
+];
+
+// formatRelative prints how long ago something happened: "3 hours ago". now
+// is passed in rather than read, so that the server and a test agree on it.
+export function formatRelative(iso: string | undefined, now: Date): string {
+  if (!iso) return missing;
+
+  const seconds = Math.round((new Date(iso).getTime() - now.getTime()) / 1000);
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size) {
+      return relative.format(Math.trunc(seconds / size), unit);
+    }
+  }
+  return "just now";
+}

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { ApiError, apiGet } from "@/lib/api-client";
 
-import type { Run } from "./types";
+import type { Run, RunSummary } from "./types";
 
 // getRun returns null when there is no such run for the caller's organization.
 //
@@ -24,4 +24,12 @@ export async function getRun(id: string): Promise<Run | null> {
     }
     throw error;
   }
+}
+
+// getLastRun is a project's most recent run, or null if it has never run.
+export async function getLastRun(projectId: string): Promise<RunSummary | null> {
+  const { runs } = await apiGet<{ runs: RunSummary[] }>(
+    `/projects/${encodeURIComponent(projectId)}/runs?limit=1`,
+  );
+  return runs[0] ?? null;
 }

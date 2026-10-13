@@ -21,7 +21,7 @@ const sections: Record<string, string> = {
 // The paths that are pages of their own. A step of the trail links only to
 // one of these: /runs, for instance, is a step on the way to a run and not a
 // page anyone can open. Screens add their path here when they exist.
-const pages = new Set(["/"]);
+const pages = new Set(["/", "/projects"]);
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
