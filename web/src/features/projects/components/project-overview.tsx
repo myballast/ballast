@@ -12,10 +12,13 @@ import { can, type Access } from "@/lib/permissions";
 
 import type { Project } from "../types";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, link, children }: { title: string; link?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-[11px] tracking-wider text-muted-foreground uppercase">{title}</h2>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-[11px] tracking-wider text-muted-foreground uppercase">{title}</h2>
+        {link}
+      </div>
       {children}
     </section>
   );
@@ -77,8 +80,15 @@ export function ProjectOverview({
         <Section title="Scenarios">
           <ScenarioList scenarios={scenarios} />
         </Section>
-        <Section title="Environments">
-          <EnvironmentList environments={environments} />
+        <Section
+          title="Environments"
+          link={
+            <Link href={`/projects/${project.id}/environments`} className="text-xs text-muted-foreground hover:underline">
+              Manage
+            </Link>
+          }
+        >
+          <EnvironmentList projectId={project.id} environments={environments} />
         </Section>
       </div>
 

@@ -6,6 +6,8 @@ import { EmptyState, LoadingState } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
+import { SecretList } from "@/features/environments/components/secret-list";
+import { VerificationPanel } from "@/features/environments/components/verification-panel";
 import { ProjectCard } from "@/features/projects/components/project-card";
 import { EndpointMetrics } from "@/features/runs/components/endpoint-metrics";
 import { HttpPhases } from "@/features/runs/components/http-phases";
@@ -54,6 +56,14 @@ const environment = (name: string, verified: boolean) => ({
   max_duration_s: 600,
   created_at: "2026-10-01T09:00:00Z",
 });
+
+const challenge = {
+  verification_status: "pending" as const,
+  token: "c2b1a9e4f07d4b7f9a1e6d3c5b8a7f20",
+  url: "https://staging.example.test/.well-known/ballast-c2b1a9e4f07d4b7f9a1e6d3c5b8a7f20",
+  verified_at: "2026-10-11T10:00:00Z",
+  verified_by: "0b6f1c1e-6d1b-4a63-8f6e-2b7d7f0a9c11",
+};
 
 const lastRun = (status: "passed" | "failed" | "running", endedAt?: string) => ({
   id: "54ce733c-2ecc-46b4-adbf-5aaed9a8e391",
@@ -180,11 +190,47 @@ export function ComponentReference() {
 
       <Section title="Environments">
         <EnvironmentList
+          projectId="checkout"
           environments={[
             { ...environment("staging", true), allowed_window: { start: "22:00", end: "06:00", timezone: "Europe/Paris" } },
             environment("preview", false),
+            { ...environment("canary", false), verification_status: "proof_ok" },
+            { ...environment("legacy", false), verification_status: "verification_failed" },
           ]}
         />
+        <EnvironmentList projectId="checkout" environments={[]} />
+      </Section>
+
+      <Section title="Environment verification">
+        {(["pending", "verification_failed", "proof_ok", "verified"] as const).map((status) => (
+          <VerificationPanel
+            key={status}
+            projectId="checkout"
+            environment={{ ...environment("staging", false), verification_status: status }}
+            challenge={challenge}
+            canVerify
+            canApprove
+          />
+        ))}
+        <VerificationPanel
+          projectId="checkout"
+          environment={{ ...environment("staging", false), verification_status: "proof_ok" }}
+          challenge={null}
+          canVerify={false}
+          canApprove={false}
+        />
+      </Section>
+
+      <Section title="Environment secrets">
+        <SecretList
+          projectId="checkout"
+          environmentId="staging"
+          secrets={[
+            { id: "s1", key: "API_TOKEN", created_at: "2026-10-01T09:00:00Z", updated_at: "2026-10-10T14:30:00Z" },
+            { id: "s2", key: "ADMIN_PASSWORD", created_at: "2026-10-02T09:00:00Z", updated_at: "2026-10-02T09:00:00Z" },
+          ]}
+        />
+        <SecretList projectId="checkout" environmentId="staging" secrets={[]} />
       </Section>
 
       <Section title="Run history">

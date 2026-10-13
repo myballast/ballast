@@ -446,3 +446,61 @@ func TestTheEnvironmentResponseDoesNotCarryTheToken(t *testing.T) {
 		t.Fatalf("the environment response carries the token: %s", rec.Body.String())
 	}
 }
+
+// "Leave the window alone" and "there is no window any more" are different
+// instructions, spelled as an absent field and as null. Go decodes a JSON null
+// into a nil pointer, which would read as absent: the window could never be
+// removed. This is the test that keeps the two apart.
+func TestAnUpdateTellsAnAbsentWindowFromANullOne(t *testing.T) {
+	path := func(f environmentFixture) map[string]string {
+		return map[string]string{"projectId": f.projectID.String(), "environmentId": f.id.String()}
+	}
+	windowed := func(t *testing.T) environmentFixture {
+		f := newEnvironmentFixture(t)
+		f.environments.environment.Window = &domain.AllowedWindow{StartMinute: 22 * 60, EndMinute: 6 * 60, Zone: "UTC"}
+		return f
+	}
+
+	t.Run("absent keeps it", func(t *testing.T) {
+		f := windowed(t)
+		rec := httptest.NewRecorder()
+		f.handler.Update(rec, f.request(http.MethodPatch, `{"name":"renamed"}`, path(f)))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		if f.environments.environment.Window == nil {
+			t.Fatal("an update that did not mention the window removed it")
+		}
+	})
+
+	t.Run("null removes it", func(t *testing.T) {
+		f := windowed(t)
+		rec := httptest.NewRecorder()
+		f.handler.Update(rec, f.request(http.MethodPatch, `{"allowed_window":null}`, path(f)))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		if f.environments.environment.Window != nil {
+			t.Fatalf("allowed_window: null left the window in place: %+v", *f.environments.environment.Window)
+		}
+		if strings.Contains(rec.Body.String(), "allowed_window") {
+			t.Fatalf("the response still carries a window: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("a window replaces it", func(t *testing.T) {
+		f := windowed(t)
+		rec := httptest.NewRecorder()
+		f.handler.Update(rec, f.request(http.MethodPatch,
+			`{"allowed_window":{"start":"01:00","end":"05:00","timezone":"Europe/Paris"}}`, path(f)))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+		if got := f.environments.environment.Window; got == nil || got.StartMinute != 60 || got.Zone != "Europe/Paris" {
+			t.Fatalf("the window is %+v, want 01:00 to 05:00 in Europe/Paris", got)
+		}
+	})
+}

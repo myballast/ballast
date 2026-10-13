@@ -4,7 +4,7 @@ import { Play } from "lucide-react";
 import { useActionState, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { verificationLabel } from "@/features/environments/components/environment-list";
+import { verificationLabel } from "@/features/environments/components/verification-status";
 import type { Environment } from "@/features/environments/types";
 import type { ScenarioSummary } from "@/features/scenarios/types";
 
