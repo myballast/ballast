@@ -3,10 +3,11 @@ import { CircleCheck, CircleX } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { noResults, type Results } from "../metrics";
 import type { Threshold } from "../types";
 
 // ThresholdList shows k6's own verdicts. Ballast never recomputes them.
-export function ThresholdList({ thresholds }: { thresholds: Threshold[] }) {
+export function ThresholdList({ thresholds, results }: { thresholds: Threshold[]; results: Results }) {
   return (
     <Card>
       <CardHeader>
@@ -17,7 +18,9 @@ export function ThresholdList({ thresholds }: { thresholds: Threshold[] }) {
       <CardContent>
         {thresholds.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            This scenario declares no thresholds.
+            {/* What the run was held to is frozen on the run: "this run", not
+                "this scenario", which may have changed since. */}
+            {noResults(results, "Verdicts") ?? "This run had no thresholds."}
           </p>
         ) : (
           <ul className="divide-y">

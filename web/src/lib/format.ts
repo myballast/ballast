@@ -92,3 +92,16 @@ export function formatRelative(iso: string | undefined, now: Date): string {
   }
   return "just now";
 }
+
+// formatBytes prints a size in bytes, kilobytes or megabytes, in powers of
+// 1024, which is how k6 counts data_received.
+export function formatBytes(bytes: number | null): string {
+  if (bytes === null) return missing;
+  if (bytes < 1024) return `${integer.format(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${oneDecimal.format(bytes / 1024)} KiB`;
+  return `${oneDecimal.format(bytes / (1024 * 1024))} MiB`;
+}
+
+export function formatCount(value: number | null): string {
+  return value === null ? missing : integer.format(value);
+}

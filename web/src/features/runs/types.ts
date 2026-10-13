@@ -17,6 +17,9 @@ export type ProfileKind = "smoke" | "load" | "stress" | "spike" | "soak";
 
 export const profileKinds: ProfileKind[] = ["smoke", "load", "stress", "spike", "soak"];
 
+// A run in one of these may still be stopped.
+export const stoppable: RunStatus[] = ["queued", "running"];
+
 export type ProfileParams = {
   target_vus: number;
   ramp_up_s: number;
@@ -47,6 +50,8 @@ export type Run = {
   params: ProfileParams;
   status: RunStatus;
   error_message?: string;
+  // Set as soon as somebody asks a running run to stop, before it has.
+  cancel_requested_at?: string;
   created_at: string;
   started_at?: string;
   ended_at?: string;

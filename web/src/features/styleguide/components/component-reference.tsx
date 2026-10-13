@@ -7,7 +7,10 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
 import { ProjectCard } from "@/features/projects/components/project-card";
+import { EndpointMetrics } from "@/features/runs/components/endpoint-metrics";
+import { HttpPhases } from "@/features/runs/components/http-phases";
 import { RunHistory } from "@/features/runs/components/run-history";
+import type { Metric } from "@/features/runs/types";
 import type { ProjectOverview } from "@/features/projects/types";
 import { RunStatusBadge } from "@/features/runs/components/run-status-badge";
 import type { RunStatus } from "@/features/runs/types";
@@ -80,6 +83,25 @@ const projectCards: ProjectOverview[] = [
   },
   { project: project("Media pipeline", "media-pipeline"), access: "full", environments: [], lastRun: null },
   { project: project("Partner gateway", "partner-gateway"), access: "restricted" },
+];
+
+// A trend's statistics, for the phase and endpoint tables below.
+const trendOf = (metric: string, avg: number, tag?: string): Metric[] =>
+  ([["avg", avg], ["med", avg * 0.9], ["p(95)", avg * 2.1], ["p(99)", avg * 3.4], ["max", avg * 6]] as const).map(
+    ([stat, value]) => ({ metric, tag, stat, value }),
+  );
+
+const sampleMetrics: Metric[] = [
+  ...trendOf("http_req_blocked", 0.4),
+  ...trendOf("http_req_connecting", 1.2),
+  ...trendOf("http_req_tls_handshaking", 3.8),
+  ...trendOf("http_req_sending", 0.1),
+  ...trendOf("http_req_waiting", 84.2),
+  ...trendOf("http_req_receiving", 2.6),
+  ...trendOf("http_req_duration", 120.5, "name:POST /login"),
+  { metric: "http_reqs", tag: "name:POST /login", stat: "count", value: 1840 },
+  { metric: "http_req_failed", tag: "name:POST /login", stat: "rate", value: 0.012 },
+  ...trendOf("http_req_duration", 35.1, "expected_response:true"),
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -181,6 +203,13 @@ export function ComponentReference() {
           }}
         />
         <RunHistory projectId="checkout" names={{ scenarios: {}, environments: {} }} first={{ rows: [] }} />
+      </Section>
+
+      <Section title="HTTP phases and endpoints">
+        <HttpPhases metrics={sampleMetrics} results="reported" />
+        <EndpointMetrics metrics={sampleMetrics} results="reported" />
+        <EndpointMetrics metrics={[]} results="reported" />
+        <EndpointMetrics metrics={[]} results="pending" />
       </Section>
 
       <Section title="Numbers in columns">
