@@ -28,7 +28,25 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+)
+
+// How a proxy publishes what it moved, and how a worker reads it back.
+//
+// The proxy has no database and no business having one: it is the component a
+// user's script talks to. So it says what it counted on its own output, and the
+// worker — which has both the Docker socket and the database — reads the line
+// and writes the figure against the run.
+//
+// Named here, once, rather than spelled out on each side: a message typed twice
+// is a message that stops matching the day somebody improves the wording.
+const (
+	// TrafficMessage is the log message carrying the totals.
+	TrafficMessage = "egress traffic"
+	// SentField and ReceivedField are the attributes it carries them in.
+	SentField     = "sent_bytes"
+	ReceivedField = "received_bytes"
 )
 
 // ErrNoGuard reports a proxy built without an address guard, which would be a
@@ -83,6 +101,28 @@ type Proxy struct {
 	resolver Resolver
 	log      *slog.Logger
 	server   *http.Server
+
+	// What crossed the socket, in both directions, for every connection this
+	// proxy opened. See Traffic.
+	sent     atomic.Int64
+	received atomic.Int64
+}
+
+// Traffic is how many bytes this proxy has moved, in each direction, since it
+// started: sent is what left for a target, received is what came back.
+//
+// This is the only place in Ballast that sees the real figure. The generator
+// counts what its script sent and received; what leaves the machine is that
+// plus TLS records, plus the headers of every request, and for a tunnel the
+// proxy cannot tell them apart — it copies bytes it never looks at, which is
+// the whole point of a tunnel.
+//
+// What is still missing from it, and must not be forgotten when this feeds a
+// price: the TCP and IP headers of every packet, retransmissions, and the DNS
+// queries the proxy makes to resolve a target. Those are below the socket, and
+// counting them means asking the kernel rather than the program.
+func (p *Proxy) Traffic() (sent, received int64) {
+	return p.sent.Load(), p.received.Load()
 }
 
 // New builds a proxy, refusing a configuration that would not be one.
@@ -110,6 +150,7 @@ func New(cfg Config) (*Proxy, error) {
 	}
 
 	proxy := &Proxy{allowed: allowed, guard: cfg.Guard, resolver: resolver, log: log}
+
 	proxy.server = &http.Server{
 		Handler:           proxy,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -257,6 +298,30 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, response.Body)
 }
 
+// counted wraps a connection so that every byte crossing it is added to the
+// proxy's totals.
+//
+// One wrapper, placed where connections are made, rather than a count at each
+// call site: the tunnel copies in two directions and the plain-http path writes
+// a request and reads a response, and all four are this socket. A path added
+// later is counted by having been dialled.
+type counted struct {
+	net.Conn
+	proxy *Proxy
+}
+
+func (c counted) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	c.proxy.received.Add(int64(n))
+	return n, err
+}
+
+func (c counted) Write(b []byte) (int, error) {
+	n, err := c.Conn.Write(b)
+	c.proxy.sent.Add(int64(n))
+	return n, err
+}
+
 // dial is where both gates are, and in this order: a host nobody allowed is
 // refused without being resolved, so the proxy is not a way to find out what
 // resolves.
@@ -299,7 +364,10 @@ func (p *Proxy) dial(ctx context.Context, hostPort string) (net.Conn, error) {
 	for _, addr := range addrs {
 		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(addr.String(), port))
 		if err == nil {
-			return conn, nil
+			// Counted from here on. A connection that was refused moved
+			// nothing, which is why the wrapper goes on the one that answered
+			// rather than on the attempt.
+			return counted{Conn: conn, proxy: p}, nil
 		}
 		if dialErr == nil {
 			dialErr = err

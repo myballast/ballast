@@ -7,11 +7,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/youssefmahersi/ballast/internal/infra/egress"
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
@@ -68,7 +73,47 @@ func serve() error {
 	log.Info("serving the run's only way out",
 		"addr", addr, "allowed", allowed, "allowed_networks", len(prefixes))
 
-	return proxy.Serve(listener)
+	// Stopping is how the totals are asked for: the worker stops this container
+	// before removing it, and the last line written is the one it reads.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	served := make(chan error, 1)
+	go func() { served <- proxy.Serve(listener) }()
+
+	// And a total every few seconds, as a net under that: a proxy killed
+	// outright writes no last line, and a run's figure is then short by at most
+	// one interval rather than by all of it.
+	ticker := time.NewTicker(trafficInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-served:
+			report(log, proxy)
+			return err
+
+		case <-ticker.C:
+			report(log, proxy)
+
+		case <-ctx.Done():
+			report(log, proxy)
+			return proxy.Close()
+		}
+	}
+}
+
+// trafficInterval is how often the totals are written while the run is under
+// way. Often enough that a proxy killed without warning loses little, rarely
+// enough that a soak test does not fill its log with arithmetic.
+const trafficInterval = 5 * time.Second
+
+// report writes what the proxy has moved so far, in the one line the worker
+// knows how to read.
+func report(log *slog.Logger, proxy *egress.Proxy) {
+	sent, received := proxy.Traffic()
+
+	log.Info(egress.TrafficMessage, egress.SentField, sent, egress.ReceivedField, received)
 }
 
 func split(raw string) []string {

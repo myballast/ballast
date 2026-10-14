@@ -23,7 +23,16 @@ type Repository interface {
 	ByID(ctx context.Context, orgID, id uuid.UUID) (domain.Run, error)
 	ClaimNextQueued(ctx context.Context, orgID uuid.UUID, at time.Time) (domain.Run, bool, error)
 	Finish(ctx context.Context, orgID, id uuid.UUID, status domain.RunStatus, at time.Time, message string) error
-	SaveResults(ctx context.Context, orgID, runID uuid.UUID, results domain.RunResults) error
+	// SaveResults stores everything a finished run measured, and what it
+	// moved. The two traffic figures travel together because they are stored
+	// together: the generator's, from the summary inside results, and the
+	// runner's, counted on the wire.
+	SaveResults(ctx context.Context, orgID, runID uuid.UUID, results domain.RunResults, egress domain.Traffic) error
+	// TrafficInPeriod sums what an organization moved between two instants,
+	// the first included and the second not.
+	TrafficInPeriod(ctx context.Context, orgID uuid.UUID, from, to time.Time) (domain.Usage, error)
+	// ProjectTrafficInPeriod is the same for one of its projects.
+	ProjectTrafficInPeriod(ctx context.Context, orgID, projectID uuid.UUID, from, to time.Time) (domain.Usage, error)
 	Results(ctx context.Context, orgID, runID uuid.UUID) (domain.RunResults, error)
 	// InProject is a project's runs, newest first, at most limit of them.
 	// With before set, only runs strictly older than it.
@@ -177,6 +186,11 @@ type Outcome struct {
 	Summary  []byte
 	ExitCode int64
 	TimedOut bool
+	// Egress is what the runner counted leaving for the target: a different
+	// measurement from the one in the summary — what crossed the socket rather
+	// than what the script sent — kept apart because their difference is the
+	// overhead this installation pays.
+	Egress domain.Traffic
 }
 
 // Executor runs a job to completion.

@@ -285,7 +285,7 @@ func (r *RunRepository) Finish(
 // SaveResults stores everything the generator measured, in one transaction: a
 // run whose metrics are half written describes nothing.
 func (r *RunRepository) SaveResults(
-	ctx context.Context, orgID, runID uuid.UUID, results domain.RunResults,
+	ctx context.Context, orgID, runID uuid.UUID, results domain.RunResults, egress domain.Traffic,
 ) error {
 	names := make([]string, 0, len(results.Metrics))
 	tags := make([]string, 0, len(results.Metrics))
@@ -321,6 +321,24 @@ func (r *RunRepository) SaveResults(
 			}); err != nil {
 				return fmt.Errorf("insert the metrics: %w", err)
 			}
+		}
+
+		// Written here rather than in a call of its own: the copy on the run
+		// and the rows in run_metric are the same fact, so they are written in
+		// the same transaction from the same parsed summary and cannot drift.
+		//
+		// Measured only when both measurements are: a run half counted is a run
+		// whose total nobody should put a price on.
+		if err := queries.RecordRunTraffic(ctx, sqlc.RecordRunTrafficParams{
+			OrgID:             orgID,
+			ID:                runID,
+			EgressBytes:       egress.SentBytes,
+			IngressBytes:      egress.ReceivedBytes,
+			DataSentBytes:     results.Traffic.SentBytes,
+			DataReceivedBytes: results.Traffic.ReceivedBytes,
+			TrafficMeasured:   egress.Measured && results.Traffic.Measured,
+		}); err != nil {
+			return fmt.Errorf("record what the run moved: %w", err)
 		}
 
 		if len(metrics) > 0 {
@@ -651,4 +669,69 @@ func (r *RunRepository) InProject(
 	})
 
 	return found, err
+}
+
+// TrafficInPeriod sums what an organization moved between two instants.
+func (r *RunRepository) TrafficInPeriod(
+	ctx context.Context, orgID uuid.UUID, from, to time.Time,
+) (domain.Usage, error) {
+	var usage domain.Usage
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		row, err := sqlc.New(tx).TrafficInPeriod(ctx, sqlc.TrafficInPeriodParams{
+			OrgID:     orgID,
+			EndedAt:   &from,
+			EndedAt_2: &to,
+		})
+		if err != nil {
+			return fmt.Errorf("sum the organization's traffic: %w", err)
+		}
+
+		usage = domain.Usage{
+			From:              from,
+			To:                to,
+			EgressBytes:       row.EgressBytes,
+			IngressBytes:      row.IngressBytes,
+			DataSentBytes:     row.DataSentBytes,
+			DataReceivedBytes: row.DataReceivedBytes,
+			Runs:              int(row.Runs),
+			UnmeasuredRuns:    int(row.UnmeasuredRuns),
+		}
+		return nil
+	})
+
+	return usage, err
+}
+
+// ProjectTrafficInPeriod is the same for one project.
+func (r *RunRepository) ProjectTrafficInPeriod(
+	ctx context.Context, orgID, projectID uuid.UUID, from, to time.Time,
+) (domain.Usage, error) {
+	var usage domain.Usage
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		row, err := sqlc.New(tx).ProjectTrafficInPeriod(ctx, sqlc.ProjectTrafficInPeriodParams{
+			OrgID:     orgID,
+			ProjectID: projectID,
+			EndedAt:   &from,
+			EndedAt_2: &to,
+		})
+		if err != nil {
+			return fmt.Errorf("sum the project's traffic: %w", err)
+		}
+
+		usage = domain.Usage{
+			From:              from,
+			To:                to,
+			EgressBytes:       row.EgressBytes,
+			IngressBytes:      row.IngressBytes,
+			DataSentBytes:     row.DataSentBytes,
+			DataReceivedBytes: row.DataReceivedBytes,
+			Runs:              int(row.Runs),
+			UnmeasuredRuns:    int(row.UnmeasuredRuns),
+		}
+		return nil
+	})
+
+	return usage, err
 }

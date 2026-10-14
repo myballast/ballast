@@ -143,7 +143,20 @@ func (s *Service) execute(
 		return domain.StatusErrored, fmt.Sprintf("the generator's report could not be read: %v", err)
 	}
 
-	if err := s.runs.SaveResults(ctx, orgID, current.ID, results); err != nil {
+	// The generator's own counters may be unusable, and the runner may have
+	// failed to read the proxy's. Either way the volumes stored are zero and
+	// the run is marked unmeasured, so that a month's total can say how much of
+	// it nobody counted instead of quietly reading as free.
+	if !results.Traffic.Measured {
+		s.log.WarnContext(ctx, "the generator reported traffic counters that cannot be believed",
+			"run_id", current.ID)
+	}
+	if !outcome.Egress.Measured {
+		s.log.WarnContext(ctx, "what this run sent could not be counted on the wire",
+			"run_id", current.ID)
+	}
+
+	if err := s.runs.SaveResults(ctx, orgID, current.ID, results, outcome.Egress); err != nil {
 		return domain.StatusErrored, fmt.Sprintf("the results could not be stored: %v", err)
 	}
 

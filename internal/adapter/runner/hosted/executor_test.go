@@ -82,9 +82,12 @@ func TestEveryFieldOfAJobCrossesTheBoundary(t *testing.T) {
 
 func TestEveryFieldOfAnOutcomeCrossesTheBoundary(t *testing.T) {
 	reported := Result{
-		Summary:  []byte(`{"metrics":{}}`),
-		ExitCode: 99,
-		TimedOut: true,
+		Summary:        []byte(`{"metrics":{}}`),
+		ExitCode:       99,
+		TimedOut:       true,
+		EgressBytes:    4096,
+		IngressBytes:   65536,
+		EgressMeasured: true,
 	}
 
 	if empty := unset(t, reported); len(empty) > 0 {
@@ -100,5 +103,16 @@ func TestEveryFieldOfAnOutcomeCrossesTheBoundary(t *testing.T) {
 		translated.ExitCode != reported.ExitCode ||
 		translated.TimedOut != reported.TimedOut {
 		t.Fatalf("the outcome crossed as %+v", translated)
+	}
+
+	// The egress is a struct of its own on the far side, so the check above
+	// would pass with it left empty.
+	if empty := unset(t, translated.Egress); len(empty) > 0 {
+		t.Fatalf("%v did not cross into run.Egress", empty)
+	}
+	if translated.Egress.SentBytes != reported.EgressBytes ||
+		translated.Egress.ReceivedBytes != reported.IngressBytes ||
+		translated.Egress.Measured != reported.EgressMeasured {
+		t.Fatalf("the egress crossed as %+v", translated.Egress)
 	}
 }

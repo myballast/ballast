@@ -57,5 +57,10 @@ func outcomeFrom(result Result) run.Outcome {
 		Summary:  result.Summary,
 		ExitCode: result.ExitCode,
 		TimedOut: result.TimedOut,
+		Egress: domain.Traffic{
+			SentBytes:     result.EgressBytes,
+			ReceivedBytes: result.IngressBytes,
+			Measured:      result.EgressMeasured,
+		},
 	}
 }

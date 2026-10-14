@@ -294,7 +294,7 @@ func TestDroppingAThresholdLeavesRecordedVerdictsAlone(t *testing.T) {
 		Thresholds: []domain.ThresholdResult{
 			{Metric: added.Metric, Expression: added.Expression, Passed: false},
 		},
-	}); err != nil {
+	}, domain.Traffic{}); err != nil {
 		t.Fatalf("save the results: %v", err)
 	}
 
