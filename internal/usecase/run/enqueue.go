@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +33,11 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	if !s.accepting {
 		s.log.WarnContext(ctx, "run refused: this installation is not accepting new runs",
 			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID)
+		// No project: nothing about the request was read, because during an
+		// incident the answer does not depend on it. The entry belongs to the
+		// organization, and every project's journal shows it.
+		s.record(ctx, refused(cmd.Actor,
+			"this installation is not accepting new runs", s.clock.Now()))
 		return domain.Run{}, domain.ErrRunsSuspended
 	}
 
@@ -59,6 +65,9 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		s.log.InfoContext(ctx, "run refused for want of permission",
 			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID,
 			"project_id", scenario.ProjectID, "scenario_id", scenario.ID)
+		s.record(ctx, refused(cmd.Actor,
+			"the caller may not run tests in this project", s.clock.Now()).
+			InProject(scenario.ProjectID))
 		return domain.Run{}, domain.ErrForbidden
 	}
 
@@ -72,6 +81,9 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	// and a run that mixes two is a run against a target the scenario's project
 	// was never allowed to reach.
 	if err := domain.RequireSameProject(scenario.ProjectID, environment.ProjectID); err != nil {
+		s.record(ctx, refused(cmd.Actor,
+			"the scenario and the environment belong to different projects", s.clock.Now()).
+			InProject(scenario.ProjectID))
 		return domain.Run{}, err
 	}
 
@@ -84,6 +96,13 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 			"environment_id", environment.ID,
 			"verification_status", environment.VerificationStatus,
 		)
+		// The refusal the whole product rests on, and the entry a pilot is
+		// measured by: somebody tried to send load at a host nobody proved
+		// they own.
+		s.record(ctx, refused(cmd.Actor,
+			"the target environment has not been verified", s.clock.Now()).
+			InProject(scenario.ProjectID).
+			With("environment_id", environment.ID.String()))
 		return domain.Run{}, domain.ErrTargetNotVerified
 	}
 
@@ -109,6 +128,11 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 			"duration_s", params.TotalDuration(),
 			"reason", err.Error(),
 		)
+		s.record(ctx, refused(cmd.Actor,
+			"the target accepts no load at this hour", now).
+			InProject(scenario.ProjectID).
+			With("environment_id", environment.ID.String()).
+			With("duration_s", strconv.Itoa(params.TotalDuration())))
 		return domain.Run{}, err
 	}
 
@@ -118,6 +142,14 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	if err != nil {
 		return domain.Run{}, err
 	}
+
+	s.record(ctx, domain.Allow(
+		cmd.Actor.OrgID, &cmd.Actor.UserID, domain.ActionRunQueued, domain.TargetRun, now,
+	).InProject(scenario.ProjectID).On(created.ID).
+		With("environment_id", environment.ID.String()).
+		With("profile", string(cmd.Profile)).
+		With("target_vus", strconv.Itoa(params.TargetVUs)).
+		With("duration_s", strconv.Itoa(params.TotalDuration())))
 
 	s.log.InfoContext(ctx, "run queued",
 		"run_id", created.ID,

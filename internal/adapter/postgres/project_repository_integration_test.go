@@ -169,7 +169,7 @@ func TestProjectRepositoryRoundTrip(t *testing.T) {
 		t.Errorf("after renaming: %+v", renamed)
 	}
 
-	if err := memberships.SetRole(ctx, who.OrgID, created.ID, other, domain.RoleRunner); err != nil {
+	if err := memberships.SetRole(ctx, who.OrgID, created.ID, other, domain.RoleRunner, roleChange(who, created.ID, other)); err != nil {
 		t.Fatalf("SetRole: %v", err)
 	}
 
@@ -192,7 +192,7 @@ func TestProjectRepositoryRoundTrip(t *testing.T) {
 	}
 
 	// Changing a role keeps the row, it does not add one.
-	if err := memberships.SetRole(ctx, who.OrgID, created.ID, other, domain.RoleMaintainer); err != nil {
+	if err := memberships.SetRole(ctx, who.OrgID, created.ID, other, domain.RoleMaintainer, roleChange(who, created.ID, other)); err != nil {
 		t.Fatalf("SetRole again: %v", err)
 	}
 	members, err = memberships.InProject(ctx, who.OrgID, created.ID)
@@ -203,10 +203,10 @@ func TestProjectRepositoryRoundTrip(t *testing.T) {
 		t.Errorf("changing a role left %d member(s)", len(members))
 	}
 
-	if err := memberships.Remove(ctx, who.OrgID, created.ID, other); err != nil {
+	if err := memberships.Remove(ctx, who.OrgID, created.ID, other, roleChange(who, created.ID, other)); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if err := memberships.Remove(ctx, who.OrgID, created.ID, other); !errors.Is(err, domain.ErrNotFound) {
+	if err := memberships.Remove(ctx, who.OrgID, created.ID, other, roleChange(who, created.ID, other)); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("removing twice: got %v, want ErrNotFound", err)
 	}
 
@@ -344,4 +344,13 @@ func TestProjectRepositoryKeepsOrganizationsApart(t *testing.T) {
 	if _, found, err := memberships.OfMember(ctx, beta, alphaProject.ID); err != nil || found {
 		t.Errorf("beta holds a membership in alpha's project: found=%t err=%v", found, err)
 	}
+}
+
+// roleChange is the audit entry a membership change carries into the
+// transaction that performs it. What it holds is tested in usecase/project;
+// here it only has to be a valid entry, because the same transaction writes it.
+func roleChange(who domain.Identity, projectID, userID uuid.UUID) domain.AuditEntry {
+	return domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionRoleChanged, domain.TargetMembership, time.Now().UTC(),
+	).InProject(projectID).On(userID)
 }

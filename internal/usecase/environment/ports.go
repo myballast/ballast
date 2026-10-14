@@ -37,7 +37,10 @@ type Repository interface {
 	// Approve records the human decision that lets load reach a target, and
 	// adds its host to the project's allowlist, in one transaction. A target
 	// whose proof is not in is refused by the statement itself.
-	Approve(ctx context.Context, orgID, id uuid.UUID, by domain.Identity, at time.Time, host string) (domain.Environment, error)
+	// The audit entry travels with it and is written in that same transaction:
+	// an approval without a trace of who gave it is the one record an abuse
+	// report has to be answered with.
+	Approve(ctx context.Context, orgID, id uuid.UUID, by domain.Identity, at time.Time, host string, entry domain.AuditEntry) (domain.Environment, error)
 	// Delete refuses an environment that still holds runs, and checks that in
 	// the transaction that would have deleted it.
 	Delete(ctx context.Context, orgID, id uuid.UUID) error
@@ -89,4 +92,13 @@ type Authorizer interface {
 // controlled in a test.
 type Clock interface {
 	Now() time.Time
+}
+
+// AuditLog records what happened, for the people who have to answer for it.
+//
+// Declared here as well as in the other packages that write to it: each one
+// consumes the same two words of the interface, and a shared one would be an
+// interface declared somewhere other than where it is used.
+type AuditLog interface {
+	Record(ctx context.Context, entry domain.AuditEntry) error
 }

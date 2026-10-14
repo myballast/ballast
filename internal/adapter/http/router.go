@@ -9,6 +9,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/http/handler"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/middleware"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
+	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
@@ -35,6 +36,7 @@ func NewRouter(
 	projects *project.Service,
 	scenarios *scenario.Service,
 	environments *environment.Service,
+	journal *audit.Service,
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
 	sessions *session.Manager,
@@ -45,6 +47,7 @@ func NewRouter(
 	projectHandler := handler.NewProject(projects, log)
 	scenarioHandler := handler.NewScenario(scenarios, log)
 	environmentHandler := handler.NewEnvironment(environments, log)
+	auditHandler := handler.NewAudit(journal, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
 
 	handlers := map[string]http.HandlerFunc{
@@ -69,6 +72,7 @@ func NewRouter(
 		"GET /projects/{projectId}":                     projectHandler.ByID,
 		"PATCH /projects/{projectId}":                   projectHandler.Update,
 		"DELETE /projects/{projectId}":                  projectHandler.Delete,
+		"GET /projects/{projectId}/audit":               auditHandler.InProject,
 		"GET /projects/{projectId}/members":             projectHandler.Members,
 		"GET /projects/{projectId}/permissions":         projectHandler.Permissions,
 		"PUT /projects/{projectId}/members/{userId}":    projectHandler.SetMemberRole,

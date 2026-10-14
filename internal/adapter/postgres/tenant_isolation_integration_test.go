@@ -26,6 +26,15 @@ var expectedRefusalByTable = map[string]string{
 	"organization": sqlStateGeneratedAlways,
 }
 
+// appendOnly names the tables the application role may write but never rewrite.
+//
+// The journal is one: an entry that can be edited is not evidence of anything,
+// so UPDATE and DELETE were taken away from the role entirely. That is stronger
+// than row-level security, not weaker — it cannot touch another organization's
+// entries because it cannot touch any — and the tests below say so rather than
+// stepping around it.
+var appendOnly = map[string]bool{"audit_log": true}
+
 // Returned by a callback that only wants its transaction undone.
 var errRollback = errors.New("rolling back on purpose")
 
@@ -171,11 +180,16 @@ func seedEveryTable(ctx context.Context, t *testing.T, db *postgres.DB, label st
 // Reverse of the insertion order. The cascade from organization would be
 // shorter, but referential actions and FORCE ROW LEVEL SECURITY interact in
 // ways this suite has no business depending on.
+//
+// audit_log is the one exception, and not by choice: the application role
+// cannot delete from it, so the cascade from organization is what removes its
+// rows here. A test that could clean up the journal by hand would be a test
+// running with rights the application does not have.
 func dropEverything(ctx context.Context, t *testing.T, db *postgres.DB, org uuid.UUID) {
 	t.Helper()
 
 	tables := []string{
-		"audit_log", "run_log", "run_artifact", "run_threshold", "run_metric",
+		"run_log", "run_artifact", "run_threshold", "run_metric",
 		"environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
 		"environment", "membership",
 		"project_allowed_host", "project", "app_user", "organization",
@@ -350,6 +364,19 @@ func TestCannotTouchAnotherOrgRows(t *testing.T) {
 			}
 			return errRollback
 		})
+
+		// An append-only table answers something stronger than "nothing was
+		// touched": the statement is refused outright, for every row of every
+		// organization including this one's.
+		if appendOnly[table] {
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != sqlStateInsufficientPrivilege {
+				t.Errorf("%s is append-only and a delete answered %v, want SQLSTATE %s",
+					table, err, sqlStateInsufficientPrivilege)
+			}
+			continue
+		}
+
 		if err != nil && !errors.Is(err, errRollback) {
 			t.Errorf("%s: %v", table, err)
 		}

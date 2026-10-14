@@ -79,6 +79,27 @@ func (w queueWorld) anotherEnvironment(ctx context.Context, t *testing.T) domain
 	return domain.Environment{ID: id, ProjectID: w.scenario.ProjectID, MaxVUs: 10, MaxDurationS: 60}
 }
 
+// provenEnvironment adds a target that has served its challenge and awaits an
+// approval, and returns its identifier.
+func (w queueWorld) provenEnvironment(ctx context.Context, t *testing.T) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	if err := w.db.InTenantTx(ctx, w.org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO environment
+			(id, org_id, project_id, name, base_url, verification_token,
+			 verification_status, max_vus, max_duration_s)
+		  VALUES ($1, $2, $3, $4, 'https://staging.example.test', 'token',
+			 'proof_ok', 10, 60)`,
+			id, w.org, w.scenario.ProjectID, "proven-"+id.String()[:8])
+		return err
+	}); err != nil {
+		t.Fatalf("seed a proven environment: %v", err)
+	}
+
+	return id
+}
+
 // queue puts a run in the queue, against the given target.
 func (w queueWorld) queue(ctx context.Context, t *testing.T, env domain.Environment) domain.Run {
 	t.Helper()

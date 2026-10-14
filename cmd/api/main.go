@@ -23,6 +23,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
 	"github.com/youssefmahersi/ballast/internal/infra/oidc"
+	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
@@ -62,6 +63,10 @@ func serve(log *slog.Logger) error {
 	memberships := postgres.NewMembershipRepository(db)
 	permissions := authz.NewService(memberships, log)
 
+	// One journal, written by three services: who launched or was refused a
+	// run, who proved and approved a target, who changed somebody's role.
+	journal := postgres.NewAuditRepository(db)
+
 	cipher, err := crypto.NewCipher(cfg.SecretKey)
 	if err != nil {
 		return err
@@ -86,6 +91,7 @@ func serve(log *slog.Logger) error {
 		// The worker appends the generator's output here; the API reads it back
 		// for the live view.
 		postgres.NewLogRepository(db),
+		journal,
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
@@ -122,10 +128,13 @@ func serve(log *slog.Logger) error {
 		// publicly, which is what keeps the endpoint from being a way to read
 		// Ballast's own network.
 		verifier.New(),
+		journal,
 		permissions,
 		infra.SystemClock{},
 		log,
 	)
+
+	journalReader := audit.NewService(journal, permissions, log)
 
 	sessions, err := session.NewManager(cfg.SessionSecret, cfg.SessionTTL, infra.SystemClock{})
 	if err != nil {
@@ -145,7 +154,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, signIn, permissions, sessions, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, journalReader, signIn, permissions, sessions, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -309,6 +309,7 @@ func (r *EnvironmentWriteRepository) recordProof(
 // egress permission nobody granted.
 func (r *EnvironmentWriteRepository) Approve(
 	ctx context.Context, orgID, id uuid.UUID, by domain.Identity, at time.Time, host string,
+	entry domain.AuditEntry,
 ) (domain.Environment, error) {
 	var approved domain.Environment
 
@@ -339,6 +340,13 @@ func (r *EnvironmentWriteRepository) Approve(
 			Host:      host,
 		}); err != nil {
 			return fmt.Errorf("allow the host for the project: %w", err)
+		}
+
+		// The third statement of the same transaction. Either all of it
+		// happened — the approval, the host on the allowlist, and the record of
+		// who decided — or none of it did.
+		if err := insertAudit(ctx, tx, entry); err != nil {
+			return err
 		}
 
 		approved = toDomainEnvironment(row)

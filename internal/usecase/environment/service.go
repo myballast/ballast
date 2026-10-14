@@ -17,6 +17,7 @@ type Service struct {
 	secrets      Secrets
 	tokens       Tokens
 	proof        ProofReader
+	journal      AuditLog
 	authz        Authorizer
 	clock        Clock
 	log          *slog.Logger
@@ -28,6 +29,7 @@ func NewService(
 	secrets Secrets,
 	tokens Tokens,
 	proof ProofReader,
+	journal AuditLog,
 	authz Authorizer,
 	clock Clock,
 	log *slog.Logger,
@@ -37,6 +39,7 @@ func NewService(
 		secrets:      secrets,
 		tokens:       tokens,
 		proof:        proof,
+		journal:      journal,
 		authz:        authz,
 		clock:        clock,
 		log:          log,
@@ -331,4 +334,21 @@ func originOf(raw string) string {
 		return raw
 	}
 	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+}
+
+// record writes one line of the journal, and says so loudly when it cannot.
+//
+// A failure here does not undo what happened: the target was verified, the role
+// was changed, and pretending otherwise would be a second lie on top of a
+// missing line. What it must never be is silent — a journal with holes nobody
+// knows about is worse than one with holes everybody knows about.
+//
+// The entries that must not be missing at all are not written here: they travel
+// into the transaction that performs the action.
+func (s *Service) record(ctx context.Context, entry domain.AuditEntry) {
+	if err := s.journal.Record(ctx, entry); err != nil {
+		s.log.ErrorContext(ctx, "an audit entry could not be recorded",
+			"action", entry.Action, "outcome", entry.Outcome,
+			"org_id", entry.OrgID, "error", err)
+	}
 }

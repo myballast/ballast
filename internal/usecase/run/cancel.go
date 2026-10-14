@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -47,6 +48,10 @@ func (s *Service) Cancel(
 		s.log.InfoContext(ctx, "cancellation refused for want of permission",
 			"org_id", who.OrgID, "user_id", who.UserID,
 			"project_id", found.ProjectID, "run_id", id)
+		s.record(ctx, domain.Refuse(
+			who.OrgID, &who.UserID, domain.ActionRunCancelled, domain.TargetRun,
+			"the caller may not cancel runs in this project", s.clock.Now(),
+		).InProject(found.ProjectID).On(id))
 		return "", domain.ErrNotFound
 	}
 
@@ -62,6 +67,13 @@ func (s *Service) Cancel(
 	if err != nil {
 		return "", err
 	}
+
+	// The outcome is in the entry because the two are different facts: a queued
+	// run is over when this returns, a running one has been asked to stop and
+	// is ended by the worker that stops it.
+	s.record(ctx, domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionRunCancelled, domain.TargetRun, s.clock.Now(),
+	).InProject(found.ProjectID).On(id).With("result", string(outcome)))
 
 	s.log.InfoContext(ctx, "run cancelled",
 		"run_id", id, "project_id", found.ProjectID,
@@ -101,6 +113,14 @@ func (s *Service) StopEverything(ctx context.Context, who domain.Identity) (int,
 			if !allowed {
 				s.log.WarnContext(ctx, "emergency stop refused: the caller does not administer every project",
 					"org_id", who.OrgID, "user_id", who.UserID, "project_id", project)
+				// On the organization, like the stop itself: somebody tried to
+				// stop everything and was not allowed to, which every project
+				// has an interest in knowing.
+				s.record(ctx, domain.Refuse(
+					who.OrgID, &who.UserID, domain.ActionRunsStopped, domain.TargetOrg,
+					"the caller does not administer every project of the organization",
+					s.clock.Now(),
+				))
 				return 0, 0, domain.ErrForbidden
 			}
 		}
@@ -110,6 +130,13 @@ func (s *Service) StopEverything(ctx context.Context, who domain.Identity) (int,
 	if err != nil {
 		return 0, 0, err
 	}
+
+	// No project: the action is on the organization, and it is read from every
+	// project's journal rather than written once per project.
+	s.record(ctx, domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionRunsStopped, domain.TargetOrg, s.clock.Now(),
+	).With("cancelled", strconv.Itoa(cancelled)).
+		With("asked_to_stop", strconv.Itoa(asked)))
 
 	// At error level deliberately: an emergency stop is not routine, and the
 	// line that records it is the one somebody will look for afterwards.

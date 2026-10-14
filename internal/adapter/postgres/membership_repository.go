@@ -125,6 +125,7 @@ func (r *MembershipRepository) InProject(
 // SetRole grants or changes somebody's role in a project.
 func (r *MembershipRepository) SetRole(
 	ctx context.Context, orgID, projectID, userID uuid.UUID, role domain.Role,
+	entry domain.AuditEntry,
 ) error {
 	return r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
 		queries := sqlc.New(tx)
@@ -147,13 +148,17 @@ func (r *MembershipRepository) SetRole(
 		}); err != nil {
 			return fmt.Errorf("set the role: %w", err)
 		}
-		return nil
+
+		// In the same transaction as the grant itself: a permission that
+		// arrived with nobody's name on it is indistinguishable from one
+		// nobody gave.
+		return insertAudit(ctx, tx, entry)
 	})
 }
 
 // Remove takes somebody out of a project.
 func (r *MembershipRepository) Remove(
-	ctx context.Context, orgID, projectID, userID uuid.UUID,
+	ctx context.Context, orgID, projectID, userID uuid.UUID, entry domain.AuditEntry,
 ) error {
 	return r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
 		affected, err := sqlc.New(tx).DeleteMembership(ctx, sqlc.DeleteMembershipParams{
@@ -167,6 +172,7 @@ func (r *MembershipRepository) Remove(
 		if affected == 0 {
 			return domain.ErrNotFound
 		}
-		return nil
+
+		return insertAudit(ctx, tx, entry)
 	})
 }

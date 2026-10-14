@@ -73,6 +73,7 @@ func (s *stubEnvironments) RecordProofFailed(
 
 func (s *stubEnvironments) Approve(
 	_ context.Context, _, _ uuid.UUID, by domain.Identity, at time.Time, host string,
+	_ domain.AuditEntry,
 ) (domain.Environment, error) {
 	s.environment.VerificationStatus = domain.VerificationVerified
 	s.environment.VerifiedAt, s.environment.VerifiedBy = &at, &by.UserID
@@ -164,7 +165,8 @@ func newEnvironmentFixtureWithProof(t *testing.T, proofErr error) environmentFix
 
 	return environmentFixture{
 		handler: handler.NewEnvironment(environment.NewService(
-			environments, secrets, stubTokens{}, stubProof{err: proofErr}, permissive{},
+			environments, secrets, stubTokens{}, stubProof{err: proofErr},
+			stubJournal{}, permissive{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			discard(),
 		), discard()),
@@ -174,6 +176,12 @@ func newEnvironmentFixtureWithProof(t *testing.T, proofErr error) environmentFix
 		id:           id,
 	}
 }
+
+// stubJournal stands in for the audit log. What the journal records is tested
+// in the usecase; here it only has to exist.
+type stubJournal struct{}
+
+func (stubJournal) Record(context.Context, domain.AuditEntry) error { return nil }
 
 // request builds a signed-in request with the path values the router would have
 // filled in, since the handler reads them rather than parsing the path itself.
