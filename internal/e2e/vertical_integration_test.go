@@ -232,6 +232,7 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 		runner,
 		postgres.NewProjectRepository(db),
 		postgres.NewLogRepository(db),
+		postgres.NewAuditRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
@@ -261,7 +262,8 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 	}
 
 	api := httptest.NewServer(httpadapter.NewRouter(
-		service, nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		service, nil, nil, nil, nil,
+		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 

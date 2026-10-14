@@ -23,6 +23,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
+	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
@@ -181,6 +182,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		nil,
 		postgres.NewProjectRepository(db),
 		postgres.NewLogRepository(db),
+		postgres.NewAuditRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
@@ -210,7 +212,9 @@ func newWorld(ctx context.Context, t *testing.T) world {
 
 	web, _ := url.Parse("http://web.test")
 	api := httptest.NewServer(httpadapter.NewRouter(
-		runs, projects, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		runs, projects, nil, nil,
+		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
+		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)
 

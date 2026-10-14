@@ -109,6 +109,7 @@ func (s *Service) execute(
 ) (domain.RunStatus, string) {
 	job, err := s.buildJob(ctx, orgID, current)
 	if err != nil {
+		s.recordRefusalAtTheLastMoment(ctx, orgID, current, err)
 		return domain.StatusErrored, err.Error()
 	}
 
@@ -416,4 +417,40 @@ func (s *Service) watch(
 	}()
 
 	return stopped
+}
+
+// recordRefusalAtTheLastMoment writes the journal entry for a run that was
+// accepted hours ago and stopped on the doorstep: its target is no longer
+// verified, its host has left the project's allowlist, or the window it fitted
+// in has closed since.
+//
+// It has no author. Nobody asked for this refusal — the person who queued the
+// run asked for the opposite — and naming them would make the journal read as
+// though they had done something at three in the morning.
+//
+// Only refusals are recorded, not every failed execution: a generator that
+// could not start is an incident, and the run itself says so in its own error
+// message. What belongs here is somebody being stopped from reaching a target.
+func (s *Service) recordRefusalAtTheLastMoment(
+	ctx context.Context, orgID uuid.UUID, current domain.Run, err error,
+) {
+	var reason string
+	switch {
+	case errors.Is(err, domain.ErrTargetNotVerified):
+		// One message for two causes on purpose: the allowlist disagreeing
+		// with the verification wraps the same sentinel, and at this point
+		// Ballast does not decide which of the two records to believe.
+		reason = "the target is not verified, or its host is not among those the project may reach"
+
+	case errors.Is(err, domain.ErrOutsideAllowedWindow):
+		reason = "the target accepts no load at this hour"
+
+	default:
+		return
+	}
+
+	s.record(ctx, domain.Refuse(
+		orgID, nil, domain.ActionRunRefused, domain.TargetRun, reason, s.clock.Now(),
+	).InProject(current.ProjectID).On(current.ID).
+		With("environment_id", current.EnvironmentID.String()))
 }

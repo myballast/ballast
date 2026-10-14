@@ -104,6 +104,7 @@ func worker(t *testing.T, db *postgres.DB, executor run.Executor) *run.Service {
 		nil,
 		postgres.NewProjectRepository(db),
 		postgres.NewLogRepository(db),
+		postgres.NewAuditRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),

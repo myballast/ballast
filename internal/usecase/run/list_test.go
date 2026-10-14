@@ -18,7 +18,7 @@ func listService(runs *fakeRuns, authz Authorizer) *Service {
 		fakeEnvironments{},
 		&fakeAllowlist{},
 		noSecrets{},
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, &fakeJournal{}, nil, nil,
 		authz,
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),

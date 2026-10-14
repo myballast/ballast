@@ -28,8 +28,11 @@ type Repository interface {
 // Memberships stores who belongs to a project.
 type Memberships interface {
 	InProject(ctx context.Context, orgID, projectID uuid.UUID) ([]Member, error)
-	SetRole(ctx context.Context, orgID, projectID, userID uuid.UUID, role domain.Role) error
-	Remove(ctx context.Context, orgID, projectID, userID uuid.UUID) error
+	// Both take the audit entry and write it in the transaction that performs
+	// the change: a role granted with no record of who granted it is how a
+	// privilege arrives without anybody having given it.
+	SetRole(ctx context.Context, orgID, projectID, userID uuid.UUID, role domain.Role, entry domain.AuditEntry) error
+	Remove(ctx context.Context, orgID, projectID, userID uuid.UUID, entry domain.AuditEntry) error
 }
 
 // Member is a membership plus enough of the person to show them in a list.

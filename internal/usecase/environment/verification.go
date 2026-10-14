@@ -57,6 +57,16 @@ func (s *Service) Verify(
 			return domain.Environment{}, err
 		}
 
+		// A failed verification is worth as much to the journal as a successful
+		// one: somebody repeatedly failing to prove they own a host is the
+		// shape of an attempt to point Ballast at a server that is not theirs.
+		// The reason is this code's own words — an error from deeper down can
+		// name an address or an identifier that has no business here.
+		s.record(ctx, domain.Refuse(
+			who.OrgID, &who.UserID, domain.ActionTargetVerified, domain.TargetEnvironment,
+			"the target did not serve its challenge", s.clock.Now(),
+		).InProject(found.ProjectID).On(id).With("host", hostOf(found)))
+
 		// Both wrapped: callers match on the sentinel, and the person who
 		// declared the environment needs the reason, since the four of them are
 		// fixed four different ways.
@@ -71,6 +81,12 @@ func (s *Service) Verify(
 	s.log.InfoContext(ctx, "target proof accepted, awaiting approval",
 		"org_id", who.OrgID, "user_id", who.UserID,
 		"environment_id", id, "host", hostOf(found))
+
+	// The host, never the URL: the URL carries the challenge token, and a
+	// journal is read by more people than it is written by.
+	s.record(ctx, domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionTargetVerified, domain.TargetEnvironment, s.clock.Now(),
+	).InProject(found.ProjectID).On(id).With("host", hostOf(found)))
 
 	return proven, nil
 }
@@ -102,7 +118,17 @@ func (s *Service) Approve(
 		return domain.Environment{}, err
 	}
 
-	approved, err := s.environments.Approve(ctx, who.OrgID, id, who, s.clock.Now(), host)
+	// The entry travels into the transaction that approves, rather than being
+	// written after it. Approving is what lets traffic leave Ballast's servers
+	// at somebody's host; if the journal entry were a separate write, a process
+	// dying in between would leave load authorised with nobody's name on it —
+	// which is the one question this journal exists to answer.
+	at := s.clock.Now()
+	entry := domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionTargetApproved, domain.TargetEnvironment, at,
+	).InProject(found.ProjectID).On(id).With("host", host)
+
+	approved, err := s.environments.Approve(ctx, who.OrgID, id, who, at, host, entry)
 	if err != nil {
 		return domain.Environment{}, err
 	}

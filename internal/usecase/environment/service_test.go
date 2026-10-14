@@ -32,6 +32,8 @@ type fakeEnvironments struct {
 	approved    int
 	approvedBy  uuid.UUID
 	allowedHost string
+	// approvalEntry is the audit entry the approval carried with it.
+	approvalEntry domain.AuditEntry
 }
 
 func (f *fakeEnvironments) Create(
@@ -93,10 +95,14 @@ func (f *fakeEnvironments) RecordProofFailed(
 
 func (f *fakeEnvironments) Approve(
 	_ context.Context, _, id uuid.UUID, by domain.Identity, _ time.Time, host string,
+	entry domain.AuditEntry,
 ) (domain.Environment, error) {
 	f.approved++
 	f.approvedBy = by.UserID
 	f.allowedHost = host
+	// Kept here rather than in the journal fake: the entry travels into the
+	// transaction that approves, so this is where a test sees it.
+	f.approvalEntry = entry
 	return f.move(id, domain.VerificationVerified)
 }
 
@@ -165,6 +171,18 @@ func (f *fakeSecrets) Remove(_ context.Context, _, _ uuid.UUID, key string) erro
 	return nil
 }
 
+// fakeJournal stands in for the audit log: it keeps what it was handed, which
+// is all a test needs to ask what the journal will hold.
+type fakeJournal struct {
+	entries []domain.AuditEntry
+	err     error
+}
+
+func (f *fakeJournal) Record(_ context.Context, entry domain.AuditEntry) error {
+	f.entries = append(f.entries, entry)
+	return f.err
+}
+
 type fixedTokens struct{ token string }
 
 func (t fixedTokens) New() (string, error) { return t.token, nil }
@@ -200,6 +218,7 @@ type fixture struct {
 	environments *fakeEnvironments
 	secrets      *fakeSecrets
 	proof        *fakeProof
+	journal      *fakeJournal
 	logged       *bytes.Buffer
 	who          domain.Identity
 	projectID    uuid.UUID
@@ -212,6 +231,7 @@ func newFixture(authz Authorizer) fixture {
 	}
 	secrets := &fakeSecrets{values: map[string]string{}}
 	proof := &fakeProof{}
+	journal := &fakeJournal{}
 	logged := &bytes.Buffer{}
 
 	return fixture{
@@ -219,6 +239,7 @@ func newFixture(authz Authorizer) fixture {
 			environments, secrets,
 			fixedTokens{token: "challenge-token"},
 			proof,
+			journal,
 			authz,
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			// Everything the service logs, at every level, so a test can read it.
@@ -226,6 +247,7 @@ func newFixture(authz Authorizer) fixture {
 		),
 		environments: environments,
 		secrets:      secrets,
+		journal:      journal,
 		proof:        proof,
 		logged:       logged,
 		who:          domain.Identity{UserID: uuid.New(), OrgID: uuid.New()},

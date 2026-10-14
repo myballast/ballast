@@ -71,6 +71,10 @@ type fakeMemberships struct {
 		role   domain.Role
 	}
 	removed []uuid.UUID
+	// recorded is the audit entry each change carried into the repository. It
+	// travels with the change rather than being written beside it, so this is
+	// where a test sees what the journal will hold.
+	recorded []domain.AuditEntry
 }
 
 func (f *fakeMemberships) InProject(_ context.Context, _, projectID uuid.UUID) ([]Member, error) {
@@ -78,8 +82,9 @@ func (f *fakeMemberships) InProject(_ context.Context, _, projectID uuid.UUID) (
 }
 
 func (f *fakeMemberships) SetRole(
-	_ context.Context, _, _, userID uuid.UUID, role domain.Role,
+	_ context.Context, _, _, userID uuid.UUID, role domain.Role, entry domain.AuditEntry,
 ) error {
+	f.recorded = append(f.recorded, entry)
 	f.set = append(f.set, struct {
 		userID uuid.UUID
 		role   domain.Role
@@ -87,7 +92,10 @@ func (f *fakeMemberships) SetRole(
 	return nil
 }
 
-func (f *fakeMemberships) Remove(_ context.Context, _, _, userID uuid.UUID) error {
+func (f *fakeMemberships) Remove(
+	_ context.Context, _, _, userID uuid.UUID, entry domain.AuditEntry,
+) error {
+	f.recorded = append(f.recorded, entry)
 	f.removed = append(f.removed, userID)
 	return nil
 }

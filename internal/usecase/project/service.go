@@ -162,7 +162,11 @@ func (s *Service) SetMemberRole(
 		}
 	}
 
-	if err := s.memberships.SetRole(ctx, who.OrgID, projectID, userID, role); err != nil {
+	entry := domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionRoleChanged, domain.TargetMembership, s.clock.Now(),
+	).InProject(projectID).On(userID).With("role", string(role))
+
+	if err := s.memberships.SetRole(ctx, who.OrgID, projectID, userID, role, entry); err != nil {
 		return err
 	}
 
@@ -184,7 +188,11 @@ func (s *Service) RemoveMember(
 		return err
 	}
 
-	if err := s.memberships.Remove(ctx, who.OrgID, projectID, userID); err != nil {
+	entry := domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionMemberRemoved, domain.TargetMembership, s.clock.Now(),
+	).InProject(projectID).On(userID)
+
+	if err := s.memberships.Remove(ctx, who.OrgID, projectID, userID, entry); err != nil {
 		return err
 	}
 

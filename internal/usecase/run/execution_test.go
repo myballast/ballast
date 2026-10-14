@@ -71,6 +71,7 @@ type executionFixture struct {
 	executor *recordingExecutor
 	parser   *scriptedParser
 	logs     *fakeLogs
+	audit    *fakeJournal
 	orgID    uuid.UUID
 	claimed  domain.Run
 }
@@ -95,6 +96,7 @@ func newExecutionFixture() executionFixture {
 	executor := &recordingExecutor{outcome: Outcome{Summary: []byte(`{"metrics":{}}`)}}
 	parser := &scriptedParser{}
 	logs := &fakeLogs{journal: shared}
+	audit := &fakeJournal{}
 
 	service := NewService(
 		runs,
@@ -106,6 +108,7 @@ func newExecutionFixture() executionFixture {
 		&fakeContainers{journal: &journal{}},
 		&fakeProjects{},
 		logs,
+		audit,
 		staticOptions{},
 		parser,
 		allowAll{},
@@ -127,6 +130,7 @@ func newExecutionFixture() executionFixture {
 		executor: executor,
 		parser:   parser,
 		logs:     logs,
+		audit:    audit,
 		orgID:    uuid.New(),
 		claimed:  claimed,
 	}

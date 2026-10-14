@@ -697,6 +697,73 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/audit:
+    get:
+      tags: [projects]
+      summary: Read a project's journal
+      description: |
+        Who did what, to which target, with what result, and when — newest
+        first. Refusals as much as successes: an attempt to send load at a
+        target nobody verified is exactly what this records, and nothing else
+        records it, because nothing else happened.
+
+        What it holds: runs queued and runs refused, cancellations, emergency
+        stops, targets proved and approved, roles granted and revoked.
+
+        Entries with no `project_id` belong to the organization rather than to
+        any project — an emergency stop is one — and appear in every project's
+        journal: an action on the organization concerns each of its projects.
+        Entries with no `actor_id` were caused by Ballast itself, with nobody
+        behind them: a worker refusing at the last moment a run that was
+        accepted hours earlier.
+
+        Reserved to an administrator of the project. The journal is the record
+        people are held to, and reading it is a different thing from taking
+        part in the project.
+
+        Nothing here ever carries a secret, a token, a verification challenge
+        or a header: `details` holds a small set of keys chosen per action.
+      operationId: readProjectAudit
+      x-ballast-permission: manage_project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          required: false
+          description: |
+            How many entries to return, newest first. Defaults to 100 and is
+            capped at 500: a journal only grows, so no reading is the whole of
+            it.
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: The journal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditListResponse"
+        "400":
+          description: The project id is not a UUID, or limit is not a positive whole number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: The caller is not an administrator of this project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /projects/{projectId}/members:
     parameters:
       - $ref: "#/components/parameters/ProjectID"
@@ -2100,6 +2167,66 @@ components:
           description: |
             How many running runs were asked to stop. Each is ended by the
             worker executing it, once it has destroyed the container.
+
+    AuditEntry:
+      type: object
+      description: One line of a project's journal.
+      required: [action, outcome, target_type, details, at]
+      properties:
+        action:
+          type: string
+          description: |
+            What was attempted. The values are stored, so they do not change.
+          enum:
+            - run.queued
+            - run.refused
+            - run.cancelled
+            - runs.stopped
+            - target.verified
+            - target.approved
+            - member.role_changed
+            - member.removed
+        outcome:
+          type: string
+          description: Whether it was allowed.
+          enum: [allowed, refused]
+        actor_id:
+          type: string
+          format: uuid
+          description: |
+            Who did it. Absent when Ballast itself acted with nobody behind it.
+        project_id:
+          type: string
+          format: uuid
+          description: |
+            The project concerned. Absent for an action on the organization.
+        target_type:
+          type: string
+          enum: [run, environment, membership, organization]
+        target_id:
+          type: string
+          format: uuid
+          description: Absent when the action has no single target.
+        details:
+          type: object
+          additionalProperties: { type: string }
+          description: |
+            A small set of keys chosen per action — a refusal's `reason`, an
+            approval's `host`, a run's `profile`. Never a secret, a token or a
+            header.
+          example:
+            reason: the target environment has not been verified
+            environment_id: 2c6f0f0e-2b64-4e3f-9b1a-9a9d2f8a1e55
+        at: { type: string, format: date-time }
+
+    AuditListResponse:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
 
     LogLine:
       type: object

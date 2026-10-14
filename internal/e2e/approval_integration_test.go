@@ -25,6 +25,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/infra/crypto"
+	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
@@ -52,6 +53,7 @@ func (s *servedFiles) ReadProof(_ context.Context, proofURL, expected string) er
 
 type approvalWorld struct {
 	api        *httptest.Server
+	users      map[domain.Role]uuid.UUID
 	db         *postgres.DB
 	org        uuid.UUID
 	project    uuid.UUID
@@ -148,6 +150,7 @@ func newApprovalWorld(ctx context.Context, t *testing.T) approvalWorld {
 		nil,
 		postgres.NewProjectRepository(db),
 		postgres.NewLogRepository(db),
+		postgres.NewAuditRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		permissions,
@@ -165,6 +168,7 @@ func newApprovalWorld(ctx context.Context, t *testing.T) approvalWorld {
 		nil,
 		crypto.NewRandomTokens(),
 		target,
+		postgres.NewAuditRepository(db),
 		permissions,
 		infra.SystemClock{},
 		log,
@@ -187,15 +191,22 @@ func newApprovalWorld(ctx context.Context, t *testing.T) approvalWorld {
 
 	web, _ := url.Parse("http://web.test")
 	api := httptest.NewServer(httpadapter.NewRouter(
-		runs, projects, nil, environments, auth.NewService(nil, nil, infra.SystemClock{}, log),
+		runs, projects, nil, environments,
+		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
+		auth.NewService(nil, nil, infra.SystemClock{}, log),
 		permissions, manager, web, log,
 	))
 	t.Cleanup(api.Close)
 
 	return approvalWorld{
-		api: api, db: db, org: org, project: projectID, scenario: scenarioID,
+		api: api, users: users, db: db, org: org, project: projectID, scenario: scenarioID,
 		sessions: sessions, targetHost: target,
 	}
+}
+
+// member is who holds a role in this world.
+func (w approvalWorld) member(role domain.Role) uuid.UUID {
+	return w.users[role]
 }
 
 // as sends a request with the session of the member holding role, and decodes

@@ -77,6 +77,10 @@ func work(log *slog.Logger) error {
 		// The worker appends the generator's output here; the API reads it back
 		// for the live view.
 		postgres.NewLogRepository(db),
+		// The worker writes to the journal too: a run stopped on the doorstep
+		// because its target was unverified since is a refusal, and refusals
+		// are what the journal is for.
+		postgres.NewAuditRepository(db),
 		k6.NewOptionsBuilder(),
 		k6.NewSummaryParser(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),

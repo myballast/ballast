@@ -141,6 +141,14 @@ func Routes() []Route {
 				"nothing else: a caller with no membership in the project is " +
 				"told it is not found",
 		},
+		// The journal. Reserved to an administrator of the project: it records
+		// who ran what against which host, who was refused, and who changed
+		// somebody's rights. Reading that is a different thing from taking
+		// part in the project.
+		{
+			Method: "GET", Path: "/projects/{projectId}/audit",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
 		{
 			Method: "GET", Path: "/projects/{projectId}/members",
 			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",

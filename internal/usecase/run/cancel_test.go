@@ -46,7 +46,7 @@ func cancelFixture(status domain.RunStatus, outcome domain.CancelOutcome) (
 		fakeEnvironments{},
 		&fakeAllowlist{},
 		noSecrets{},
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, &fakeJournal{}, nil, nil,
 		allowAll{},
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),
@@ -133,11 +133,12 @@ func TestTheEmergencyStopIsRefusedToAPartialAdministrator(t *testing.T) {
 	theirs, somebodyElses := uuid.New(), uuid.New()
 
 	runs := &fakeRuns{stoppedQueued: 3, stoppedRunning: 2}
+	journal := &fakeJournal{}
 	service := NewService(
 		runs, fakeScenarios{}, fakeEnvironments{}, &fakeAllowlist{}, noSecrets{},
 		nil, nil,
 		&fakeProjects{ids: []uuid.UUID{theirs, somebodyElses}},
-		nil, nil, nil,
+		nil, journal, nil, nil,
 		&adminOf{projects: map[uuid.UUID]bool{theirs: true}},
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),
@@ -161,11 +162,12 @@ func TestTheEmergencyStopStopsEverythingForAnAdministratorOfAllOfIt(t *testing.T
 
 	runs := &fakeRuns{stoppedQueued: 3, stoppedRunning: 2}
 	authz := &adminOf{projects: map[uuid.UUID]bool{first: true, second: true}}
+	journal := &fakeJournal{}
 	service := NewService(
 		runs, fakeScenarios{}, fakeEnvironments{}, &fakeAllowlist{}, noSecrets{},
 		nil, nil,
 		&fakeProjects{ids: []uuid.UUID{first, second}},
-		nil, nil, nil, authz,
+		nil, journal, nil, nil, authz,
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),
 		discardLogger(),

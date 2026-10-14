@@ -88,6 +88,15 @@ type ProjectDirectory interface {
 	ProjectIDs(ctx context.Context, orgID uuid.UUID) ([]uuid.UUID, error)
 }
 
+// AuditLog records what happened, for the people who have to answer for it.
+//
+// Refusals as much as successes: an attempt to load a target nobody verified is
+// exactly what a journal is for, and it is the only trace such an attempt
+// leaves — nothing else is written, because nothing else happened.
+type AuditLog interface {
+	Record(ctx context.Context, entry domain.AuditEntry) error
+}
+
 // Accepting says whether this installation takes new runs at all.
 //
 // A named type rather than a bare bool in a long parameter list: a wiring

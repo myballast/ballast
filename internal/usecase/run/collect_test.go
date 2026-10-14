@@ -70,6 +70,34 @@ func (f *fakeContainers) DestroyExcept(_ context.Context, keep []uuid.UUID) (int
 	return f.destroyed, f.err
 }
 
+// fakeJournal stands in for the audit log: it keeps what it was handed, and
+// can refuse, so a test can ask what a run's record will say and what happens
+// when it cannot be written.
+type fakeJournal struct {
+	mu      sync.Mutex
+	entries []domain.AuditEntry
+	err     error
+}
+
+func (f *fakeJournal) Record(_ context.Context, entry domain.AuditEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.entries = append(f.entries, entry)
+	return f.err
+}
+
+// recorded is what the journal holds, read from the test's goroutine while the
+// service's own may still be writing.
+func (f *fakeJournal) recorded() []domain.AuditEntry {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]domain.AuditEntry, len(f.entries))
+	copy(out, f.entries)
+	return out
+}
+
 // fakeProjects stands in for the project directory the emergency stop reads.
 type fakeProjects struct {
 	ids []uuid.UUID
@@ -183,6 +211,7 @@ type collectFixture struct {
 	runs       *fakeRuns
 	containers *fakeContainers
 	logs       *fakeLogs
+	audit      *fakeJournal
 	journal    *journal
 	orgID      uuid.UUID
 	now        time.Time
@@ -193,6 +222,7 @@ func newCollectFixture(executor Executor) collectFixture {
 	runs := &fakeRuns{journal: shared}
 	containers := &fakeContainers{journal: shared}
 	logs := &fakeLogs{}
+	audit := &fakeJournal{}
 	now := time.Date(2026, 3, 14, 15, 9, 26, 0, time.UTC)
 
 	service := NewService(
@@ -205,6 +235,7 @@ func newCollectFixture(executor Executor) collectFixture {
 		containers,
 		&fakeProjects{},
 		logs,
+		audit,
 		staticOptions{},
 		emptyResults{},
 		allowAll{},
@@ -221,6 +252,7 @@ func newCollectFixture(executor Executor) collectFixture {
 		runs:       runs,
 		containers: containers,
 		logs:       logs,
+		audit:      audit,
 		journal:    shared,
 		orgID:      uuid.New(),
 		now:        now,

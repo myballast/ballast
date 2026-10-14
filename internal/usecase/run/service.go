@@ -1,6 +1,7 @@
 package run
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -19,6 +20,7 @@ type Service struct {
 	cleaner   Containers
 	projects  ProjectDirectory
 	logs      LogStore
+	journal   AuditLog
 	options   OptionsBuilder
 	parser    SummaryParser
 	authz     Authorizer
@@ -56,6 +58,7 @@ func NewService(
 	cleaner Containers,
 	projects ProjectDirectory,
 	logs LogStore,
+	journal AuditLog,
 	options OptionsBuilder,
 	parser SummaryParser,
 	authz Authorizer,
@@ -73,6 +76,7 @@ func NewService(
 		cleaner:   cleaner,
 		projects:  projects,
 		logs:      logs,
+		journal:   journal,
 		options:   options,
 		parser:    parser,
 		authz:     authz,
@@ -84,4 +88,28 @@ func NewService(
 		watchEvery: domain.CancelPollInterval,
 		flushEvery: logFlushInterval,
 	}
+}
+
+// record writes one line of the journal, and says so loudly when it cannot.
+//
+// A failure here does not undo what happened: the run was queued, or refused,
+// and pretending otherwise would be a second lie on top of a missing line. What
+// it must never be is silent.
+func (s *Service) record(ctx context.Context, entry domain.AuditEntry) {
+	if err := s.journal.Record(ctx, entry); err != nil {
+		s.log.ErrorContext(ctx, "an audit entry could not be recorded",
+			"action", entry.Action, "outcome", entry.Outcome,
+			"org_id", entry.OrgID, "error", err)
+	}
+}
+
+// refused is the entry for an attempt a guard turned away.
+//
+// Only the refusals a guard decided are recorded, not every rejected request: a
+// profile that does not exist or parameters that describe no runnable test are
+// somebody mistyping, and a journal that fills up with those is a journal
+// nobody reads. What goes in is what somebody was stopped from doing.
+func refused(who domain.Identity, reason string, at time.Time) domain.AuditEntry {
+	return domain.Refuse(
+		who.OrgID, &who.UserID, domain.ActionRunRefused, domain.TargetRun, reason, at)
 }

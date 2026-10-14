@@ -194,6 +194,7 @@ func discardLogger() *slog.Logger {
 type fixture struct {
 	service  *Service
 	runs     *fakeRuns
+	audit    *fakeJournal
 	scenario domain.Scenario
 	env      domain.Environment
 	actor    domain.Identity
@@ -226,6 +227,7 @@ func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)
 	}
 
 	runs := &fakeRuns{}
+	audit := &fakeJournal{}
 
 	return fixture{
 		service: NewService(
@@ -234,13 +236,14 @@ func newFixture(t *testing.T, mutate func(*domain.Scenario, *domain.Environment)
 			fakeEnvironments{environment: environment},
 			&fakeAllowlist{hosts: []string{"staging.example.test"}},
 			noSecrets{},
-			nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, audit, nil, nil,
 			allowAll{},
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			Accepting(true),
 			discardLogger(),
 		),
 		runs:     runs,
+		audit:    audit,
 		scenario: scenario,
 		env:      environment,
 		actor:    domain.Identity{UserID: uuid.New(), OrgID: uuid.New()},
@@ -375,7 +378,7 @@ func serviceWith(t *testing.T, authz Authorizer, scenario domain.Scenario, envir
 		fakeEnvironments{environment: environment},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, &fakeJournal{}, nil, nil,
 		authz,
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),
@@ -468,7 +471,7 @@ func TestByIDHidesARunTheCallerMayNotSee(t *testing.T) {
 		fakeEnvironments{environment: f.env},
 		&fakeAllowlist{hosts: []string{"staging.example.test"}},
 		noSecrets{},
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, &fakeJournal{}, nil, nil,
 		refuseAll{},
 		fixedClock{at: time.Unix(0, 0).UTC()},
 		Accepting(true),

@@ -45,7 +45,7 @@ func TestApprovingWritesTheStatusTheApproverAndTheAllowedHostTogether(t *testing
 	}
 
 	at := time.Now().UTC().Truncate(time.Millisecond)
-	approved, err := environments.Approve(ctx, who.OrgID, created.ID, who, at, "staging.example.test")
+	approved, err := environments.Approve(ctx, who.OrgID, created.ID, who, at, "staging.example.test", approval(who, created))
 	if err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestApprovingASecondTargetOnTheSameHostIsNotAConflict(t *testing.T) {
 		if _, err := environments.RecordProofOK(ctx, who.OrgID, created.ID); err != nil {
 			return err
 		}
-		_, err = environments.Approve(ctx, who.OrgID, created.ID, who, time.Now().UTC(), "staging.example.test")
+		_, err = environments.Approve(ctx, who.OrgID, created.ID, who, time.Now().UTC(), "staging.example.test", approval(who, created))
 		return err
 	}
 
@@ -169,6 +169,7 @@ func TestApprovingDoesNotAllowTheHostForAnotherProject(t *testing.T) {
 	}
 	if _, err := environments.Approve(
 		ctx, who.OrgID, created.ID, who, time.Now().UTC(), "staging.example.test",
+		approval(who, created),
 	); err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
@@ -251,4 +252,14 @@ func TestTheSchemaRefusesAVerifiedTargetWithNoApprover(t *testing.T) {
 	if errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("the insert failed for the wrong reason: %v", err)
 	}
+}
+
+// approval is the audit entry an approval carries into the transaction that
+// performs it. What it holds is tested in usecase/environment; here it only
+// has to be a valid entry, because the same transaction writes it.
+func approval(who domain.Identity, environment domain.Environment) domain.AuditEntry {
+	return domain.Allow(
+		who.OrgID, &who.UserID, domain.ActionTargetApproved, domain.TargetEnvironment,
+		time.Now().UTC(),
+	).InProject(environment.ProjectID).On(environment.ID)
 }

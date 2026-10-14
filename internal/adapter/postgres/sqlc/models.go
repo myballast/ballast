@@ -28,6 +28,8 @@ type AuditLog struct {
 	TargetID   *uuid.UUID
 	Metadata   []byte
 	CreatedAt  time.Time
+	Outcome    string
+	ProjectID  *uuid.UUID
 }
 
 type Environment struct {
