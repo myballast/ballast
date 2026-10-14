@@ -49,6 +49,12 @@ type fakeRuns struct {
 	// live is what LiveRunIDs returns, and since what it was asked.
 	live  []uuid.UUID
 	since time.Time
+	// What a usage reading asked for, and what it was given.
+	usage        domain.Usage
+	usageAsked   int
+	askedProject uuid.UUID
+	askedFrom    time.Time
+	askedTo      time.Time
 	// journal records the calls whose order is the rule, shared with the fake
 	// that destroys containers.
 	journal *journal
@@ -56,9 +62,12 @@ type fakeRuns struct {
 	next *domain.Run
 	// saved is what SaveResults was given and savedFor which run for, so a
 	// test can check that what the generator reported is what was stored.
-	saved    domain.RunResults
-	savedFor uuid.UUID
-	saveErr  error
+	saved domain.RunResults
+	// savedEgress is what the runner counted on the wire, which travels with
+	// the results rather than beside them.
+	savedEgress domain.Traffic
+	savedFor    uuid.UUID
+	saveErr     error
 	// cancelled is what Cancel answers, and cancelErr what it fails with.
 	cancelled domain.CancelOutcome
 	cancelErr error
@@ -111,12 +120,12 @@ func (f *fakeRuns) Finish(
 }
 
 func (f *fakeRuns) SaveResults(
-	_ context.Context, _, runID uuid.UUID, results domain.RunResults,
+	_ context.Context, _, runID uuid.UUID, results domain.RunResults, egress domain.Traffic,
 ) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.saved, f.savedFor = results, runID
+	f.saved, f.savedFor, f.savedEgress = results, runID, egress
 	return f.saveErr
 }
 
@@ -655,4 +664,27 @@ func (f *fakeRuns) CancelEverything(
 
 	f.everythingStopped++
 	return f.stoppedQueued, f.stoppedRunning, f.err
+}
+
+func (f *fakeRuns) TrafficInPeriod(
+	_ context.Context, _ uuid.UUID, from, to time.Time,
+) (domain.Usage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.askedFrom, f.askedTo = from, to
+	f.usageAsked++
+	return f.usage, f.err
+}
+
+func (f *fakeRuns) ProjectTrafficInPeriod(
+	_ context.Context, _, projectID uuid.UUID, from, to time.Time,
+) (domain.Usage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.askedProject = projectID
+	f.askedFrom, f.askedTo = from, to
+	f.usageAsked++
+	return f.usage, f.err
 }

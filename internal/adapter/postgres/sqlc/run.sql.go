@@ -102,7 +102,7 @@ const cancelEveryQueuedRun = `-- name: CancelEveryQueuedRun :many
 UPDATE run
 SET status = 'cancelled', ended_at = $2, error_message = $3, cancel_requested_at = $2
 WHERE org_id = $1 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type CancelEveryQueuedRunParams struct {
@@ -140,6 +140,10 @@ func (q *Queries) CancelEveryQueuedRun(ctx context.Context, arg CancelEveryQueue
 			&i.EndedAt,
 			&i.HeartbeatAt,
 			&i.CancelRequestedAt,
+			&i.IngressBytes,
+			&i.DataSentBytes,
+			&i.DataReceivedBytes,
+			&i.TrafficMeasured,
 		); err != nil {
 			return nil, err
 		}
@@ -155,7 +159,7 @@ const cancelQueuedRun = `-- name: CancelQueuedRun :one
 UPDATE run
 SET status = 'cancelled', ended_at = $3, error_message = $4, cancel_requested_at = $3
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type CancelQueuedRunParams struct {
@@ -196,6 +200,10 @@ func (q *Queries) CancelQueuedRun(ctx context.Context, arg CancelQueuedRunParams
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -206,7 +214,7 @@ INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
     scenario_version, profile, profile_params, triggered_by, status
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued')
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type CreateRunParams struct {
@@ -255,6 +263,10 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -263,7 +275,7 @@ const failOrphanedRun = `-- name: FailOrphanedRun :one
 UPDATE run
 SET status = 'errored', ended_at = $3, error_message = $4
 WHERE org_id = $1 AND id = $2 AND status = 'orphaned'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type FailOrphanedRunParams struct {
@@ -304,6 +316,10 @@ func (q *Queries) FailOrphanedRun(ctx context.Context, arg FailOrphanedRunParams
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -312,7 +328,7 @@ const finishRun = `-- name: FinishRun :one
 UPDATE run
 SET status = $3, ended_at = $4, error_message = $5
 WHERE org_id = $1 AND id = $2 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type FinishRunParams struct {
@@ -353,6 +369,10 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) (Run, erro
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -391,7 +411,7 @@ func (q *Queries) GetEnvironment(ctx context.Context, arg GetEnvironmentParams) 
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at FROM run WHERE org_id = $1 AND id = $2
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured FROM run WHERE org_id = $1 AND id = $2
 `
 
 type GetRunParams struct {
@@ -421,6 +441,10 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (Run, error) {
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -505,7 +529,7 @@ func (q *Queries) InsertRunThresholds(ctx context.Context, arg InsertRunThreshol
 }
 
 const listOrphanedRuns = `-- name: ListOrphanedRuns :many
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at FROM run
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured FROM run
 WHERE org_id = $1 AND status = 'orphaned'
 ORDER BY created_at
 `
@@ -540,6 +564,10 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 			&i.EndedAt,
 			&i.HeartbeatAt,
 			&i.CancelRequestedAt,
+			&i.IngressBytes,
+			&i.DataSentBytes,
+			&i.DataReceivedBytes,
+			&i.TrafficMeasured,
 		); err != nil {
 			return nil, err
 		}
@@ -552,7 +580,7 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 }
 
 const listProjectRuns = `-- name: ListProjectRuns :many
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at FROM run
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured FROM run
 WHERE org_id = $1 AND project_id = $2
   AND (
     $3::timestamptz IS NULL
@@ -609,6 +637,10 @@ func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams
 			&i.EndedAt,
 			&i.HeartbeatAt,
 			&i.CancelRequestedAt,
+			&i.IngressBytes,
+			&i.DataSentBytes,
+			&i.DataReceivedBytes,
+			&i.TrafficMeasured,
 		); err != nil {
 			return nil, err
 		}
@@ -770,7 +802,7 @@ func (q *Queries) LiveRunIDs(ctx context.Context, arg LiveRunIDsParams) ([]uuid.
 }
 
 const nextClaimableRun = `-- name: NextClaimableRun :one
-SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at, r.cancel_requested_at FROM run AS r
+SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at, r.cancel_requested_at, r.ingress_bytes, r.data_sent_bytes, r.data_received_bytes, r.traffic_measured FROM run AS r
 WHERE r.org_id = $1 AND r.status = 'queued'
   AND NOT EXISTS (
     SELECT 1 FROM environment_lock AS held
@@ -819,6 +851,10 @@ func (q *Queries) NextClaimableRun(ctx context.Context, arg NextClaimableRunPara
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -828,7 +864,7 @@ UPDATE run
 SET status = 'orphaned'
 WHERE org_id = $1 AND status = 'running'
   AND (heartbeat_at IS NULL OR heartbeat_at <= $2)
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type OrphanStaleRunsParams struct {
@@ -878,6 +914,10 @@ func (q *Queries) OrphanStaleRuns(ctx context.Context, arg OrphanStaleRunsParams
 			&i.EndedAt,
 			&i.HeartbeatAt,
 			&i.CancelRequestedAt,
+			&i.IngressBytes,
+			&i.DataSentBytes,
+			&i.DataReceivedBytes,
+			&i.TrafficMeasured,
 		); err != nil {
 			return nil, err
 		}
@@ -887,6 +927,93 @@ func (q *Queries) OrphanStaleRuns(ctx context.Context, arg OrphanStaleRunsParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const projectTrafficInPeriod = `-- name: ProjectTrafficInPeriod :one
+SELECT
+    coalesce(sum(egress_bytes), 0)::bigint                AS egress_bytes,
+    coalesce(sum(ingress_bytes), 0)::bigint               AS ingress_bytes,
+    coalesce(sum(data_sent_bytes), 0)::bigint             AS data_sent_bytes,
+    coalesce(sum(data_received_bytes), 0)::bigint         AS data_received_bytes,
+    count(*)::bigint                                      AS runs,
+    count(*) FILTER (WHERE NOT traffic_measured)::bigint  AS unmeasured_runs
+FROM run
+WHERE org_id = $1 AND project_id = $2 AND ended_at >= $3 AND ended_at < $4
+`
+
+type ProjectTrafficInPeriodParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	EndedAt   *time.Time
+	EndedAt_2 *time.Time
+}
+
+type ProjectTrafficInPeriodRow struct {
+	EgressBytes       int64
+	IngressBytes      int64
+	DataSentBytes     int64
+	DataReceivedBytes int64
+	Runs              int64
+	UnmeasuredRuns    int64
+}
+
+// The same, for one project of it.
+func (q *Queries) ProjectTrafficInPeriod(ctx context.Context, arg ProjectTrafficInPeriodParams) (ProjectTrafficInPeriodRow, error) {
+	row := q.db.QueryRow(ctx, projectTrafficInPeriod,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.EndedAt,
+		arg.EndedAt_2,
+	)
+	var i ProjectTrafficInPeriodRow
+	err := row.Scan(
+		&i.EgressBytes,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.Runs,
+		&i.UnmeasuredRuns,
+	)
+	return i, err
+}
+
+const recordRunTraffic = `-- name: RecordRunTraffic :exec
+UPDATE run
+SET egress_bytes        = $3,
+    ingress_bytes       = $4,
+    data_sent_bytes     = $5,
+    data_received_bytes = $6,
+    traffic_measured    = $7
+WHERE org_id = $1 AND id = $2
+`
+
+type RecordRunTrafficParams struct {
+	OrgID             uuid.UUID
+	ID                uuid.UUID
+	EgressBytes       int64
+	IngressBytes      int64
+	DataSentBytes     int64
+	DataReceivedBytes int64
+	TrafficMeasured   bool
+}
+
+// What the run moved, written beside the metrics it came from.
+//
+// Two measurements: what the proxy counted leaving the machine, and what the
+// generator reported. Written in the transaction that writes the metrics, from
+// the same parsed summary, so the copy on the run and the rows in run_metric
+// cannot drift apart.
+func (q *Queries) RecordRunTraffic(ctx context.Context, arg RecordRunTrafficParams) error {
+	_, err := q.db.Exec(ctx, recordRunTraffic,
+		arg.OrgID,
+		arg.ID,
+		arg.EgressBytes,
+		arg.IngressBytes,
+		arg.DataSentBytes,
+		arg.DataReceivedBytes,
+		arg.TrafficMeasured,
+	)
+	return err
 }
 
 const releaseEnvironmentLock = `-- name: ReleaseEnvironmentLock :execrows
@@ -914,7 +1041,7 @@ const requestEveryRunningCancellation = `-- name: RequestEveryRunningCancellatio
 UPDATE run
 SET cancel_requested_at = coalesce(cancel_requested_at, $2)
 WHERE org_id = $1 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type RequestEveryRunningCancellationParams struct {
@@ -953,6 +1080,10 @@ func (q *Queries) RequestEveryRunningCancellation(ctx context.Context, arg Reque
 			&i.EndedAt,
 			&i.HeartbeatAt,
 			&i.CancelRequestedAt,
+			&i.IngressBytes,
+			&i.DataSentBytes,
+			&i.DataReceivedBytes,
+			&i.TrafficMeasured,
 		); err != nil {
 			return nil, err
 		}
@@ -968,7 +1099,7 @@ const requestRunCancellation = `-- name: RequestRunCancellation :one
 UPDATE run
 SET cancel_requested_at = coalesce(cancel_requested_at, $3)
 WHERE org_id = $1 AND id = $2 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type RequestRunCancellationParams struct {
@@ -1005,6 +1136,10 @@ func (q *Queries) RequestRunCancellation(ctx context.Context, arg RequestRunCanc
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -1068,7 +1203,7 @@ const startRun = `-- name: StartRun :one
 UPDATE run
 SET status = 'running', started_at = $3, heartbeat_at = $3
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured
 `
 
 type StartRunParams struct {
@@ -1101,6 +1236,10 @@ func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (Run, error)
 		&i.EndedAt,
 		&i.HeartbeatAt,
 		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
 	)
 	return i, err
 }
@@ -1128,4 +1267,50 @@ func (q *Queries) TouchRun(ctx context.Context, arg TouchRunParams) (int64, erro
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const trafficInPeriod = `-- name: TrafficInPeriod :one
+SELECT
+    coalesce(sum(egress_bytes), 0)::bigint                AS egress_bytes,
+    coalesce(sum(ingress_bytes), 0)::bigint               AS ingress_bytes,
+    coalesce(sum(data_sent_bytes), 0)::bigint             AS data_sent_bytes,
+    coalesce(sum(data_received_bytes), 0)::bigint         AS data_received_bytes,
+    count(*)::bigint                                      AS runs,
+    count(*) FILTER (WHERE NOT traffic_measured)::bigint  AS unmeasured_runs
+FROM run
+WHERE org_id = $1 AND ended_at >= $2 AND ended_at < $3
+`
+
+type TrafficInPeriodParams struct {
+	OrgID     uuid.UUID
+	EndedAt   *time.Time
+	EndedAt_2 *time.Time
+}
+
+type TrafficInPeriodRow struct {
+	EgressBytes       int64
+	IngressBytes      int64
+	DataSentBytes     int64
+	DataReceivedBytes int64
+	Runs              int64
+	UnmeasuredRuns    int64
+}
+
+// One organization's traffic over a period, from the runs that ended inside it.
+//
+// The lower bound is included and the upper is not: two consecutive months must
+// not both count a run that ended at midnight. A run with no end has no volumes
+// either, and the comparison leaves it out on its own.
+func (q *Queries) TrafficInPeriod(ctx context.Context, arg TrafficInPeriodParams) (TrafficInPeriodRow, error) {
+	row := q.db.QueryRow(ctx, trafficInPeriod, arg.OrgID, arg.EndedAt, arg.EndedAt_2)
+	var i TrafficInPeriodRow
+	err := row.Scan(
+		&i.EgressBytes,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.Runs,
+		&i.UnmeasuredRuns,
+	)
+	return i, err
 }

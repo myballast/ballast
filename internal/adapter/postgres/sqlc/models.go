@@ -110,6 +110,10 @@ type Run struct {
 	EndedAt           *time.Time
 	HeartbeatAt       *time.Time
 	CancelRequestedAt *time.Time
+	IngressBytes      int64
+	DataSentBytes     int64
+	DataReceivedBytes int64
+	TrafficMeasured   bool
 }
 
 type RunArtifact struct {

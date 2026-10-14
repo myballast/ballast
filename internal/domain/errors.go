@@ -87,3 +87,6 @@ var ErrNotCancellable = errors.New("the run has already finished")
 // anything about the request, so it says nothing about the scenario or target
 // it was asked for.
 var ErrRunsSuspended = errors.New("this installation is not accepting new runs")
+
+// ErrInvalidMonth reports a period that is not a month written as YYYY-MM.
+var ErrInvalidMonth = errors.New("invalid month")

@@ -72,6 +72,8 @@ func NewRouter(
 		"GET /projects/{projectId}":                     projectHandler.ByID,
 		"PATCH /projects/{projectId}":                   projectHandler.Update,
 		"DELETE /projects/{projectId}":                  projectHandler.Delete,
+		"GET /usage":                                    runHandler.Usage,
+		"GET /projects/{projectId}/usage":               runHandler.ProjectUsage,
 		"GET /projects/{projectId}/audit":               auditHandler.InProject,
 		"GET /projects/{projectId}/members":             projectHandler.Members,
 		"GET /projects/{projectId}/permissions":         projectHandler.Permissions,

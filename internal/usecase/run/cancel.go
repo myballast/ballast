@@ -146,3 +146,31 @@ func (s *Service) StopEverything(ctx context.Context, who domain.Identity) (int,
 
 	return cancelled, asked, nil
 }
+
+// requireAdministratorEverywhere refuses anybody who does not administer every
+// project of the organization.
+//
+// Project by project, because a permission says what somebody may do and never
+// what to: there is no organization-wide question to ask. Used by the readings
+// and the actions that are about the whole organization rather than one of its
+// projects.
+func (s *Service) requireAdministratorEverywhere(ctx context.Context, who domain.Identity) error {
+	projects, err := s.projects.ProjectIDs(ctx, who.OrgID)
+	if err != nil {
+		return fmt.Errorf("list the projects: %w", err)
+	}
+
+	for _, project := range projects {
+		allowed, err := s.authz.Can(ctx, who, domain.PermManageProject, project)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			s.log.InfoContext(ctx, "an organization-wide reading was refused",
+				"org_id", who.OrgID, "user_id", who.UserID, "project_id", project)
+			return domain.ErrForbidden
+		}
+	}
+
+	return nil
+}

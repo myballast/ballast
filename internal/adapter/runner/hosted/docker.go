@@ -151,6 +151,16 @@ type Result struct {
 	ExitCode int64
 	// TimedOut reports that the hard TTL killed the container.
 	TimedOut bool
+	// EgressBytes and IngressBytes are what crossed the socket to the target,
+	// counted by the proxy. The generator's own figures are in its summary and
+	// are smaller: they count what a script sent, not what left the machine.
+	EgressBytes  int64
+	IngressBytes int64
+	// EgressMeasured says those two were read. False means they are zero
+	// because nothing could be read — not because nothing moved. The
+	// difference matters to whoever sums a month of traffic, so it travels
+	// rather than being guessed at later.
+	EgressMeasured bool
 }
 
 // Runner executes scenarios in throwaway k6 containers on the Docker daemon
@@ -251,6 +261,13 @@ func (r *Runner) Run(ctx context.Context, job Job, logs chan<- domain.LogLine) (
 		return Result{}, err
 	}
 
+	// Now that the generator is gone, the proxy has nothing left in flight:
+	// its totals are final, and reading them is also what stops it.
+	// Not fatal when it fails: a run that measured a target is still a run, and
+	// what is lost is knowing what it cost. The caller is told, and says so in
+	// its own log rather than this package inventing one.
+	traffic, trafficErr := r.trafficOf(ctx, proxyID)
+
 	// The path is built from the directory this runner created itself, not
 	// from anything the job carried.
 	summary, err := os.ReadFile(filepath.Join(dir, "out", "summary.json")) //nolint:gosec // path is ours
@@ -259,8 +276,11 @@ func (r *Runner) Run(ctx context.Context, job Job, logs chan<- domain.LogLine) (
 	}
 
 	return Result{
-		Summary:  summary,
-		ExitCode: exitCode,
+		Summary:        summary,
+		EgressBytes:    traffic.Sent,
+		IngressBytes:   traffic.Received,
+		EgressMeasured: trafficErr == nil,
+		ExitCode:       exitCode,
 		// The shell reports a process killed by a signal as 128 plus the
 		// signal number; SIGKILL is 9.
 		TimedOut: exitCode == 137,

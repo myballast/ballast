@@ -247,3 +247,46 @@ SELECT * FROM run_log
 WHERE org_id = $1 AND run_id = $2 AND seq > $3
 ORDER BY seq
 LIMIT $4;
+
+-- What the run moved, written beside the metrics it came from.
+--
+-- Two measurements: what the proxy counted leaving the machine, and what the
+-- generator reported. Written in the transaction that writes the metrics, from
+-- the same parsed summary, so the copy on the run and the rows in run_metric
+-- cannot drift apart.
+-- name: RecordRunTraffic :exec
+UPDATE run
+SET egress_bytes        = $3,
+    ingress_bytes       = $4,
+    data_sent_bytes     = $5,
+    data_received_bytes = $6,
+    traffic_measured    = $7
+WHERE org_id = $1 AND id = $2;
+
+-- One organization's traffic over a period, from the runs that ended inside it.
+--
+-- The lower bound is included and the upper is not: two consecutive months must
+-- not both count a run that ended at midnight. A run with no end has no volumes
+-- either, and the comparison leaves it out on its own.
+-- name: TrafficInPeriod :one
+SELECT
+    coalesce(sum(egress_bytes), 0)::bigint                AS egress_bytes,
+    coalesce(sum(ingress_bytes), 0)::bigint               AS ingress_bytes,
+    coalesce(sum(data_sent_bytes), 0)::bigint             AS data_sent_bytes,
+    coalesce(sum(data_received_bytes), 0)::bigint         AS data_received_bytes,
+    count(*)::bigint                                      AS runs,
+    count(*) FILTER (WHERE NOT traffic_measured)::bigint  AS unmeasured_runs
+FROM run
+WHERE org_id = $1 AND ended_at >= $2 AND ended_at < $3;
+
+-- The same, for one project of it.
+-- name: ProjectTrafficInPeriod :one
+SELECT
+    coalesce(sum(egress_bytes), 0)::bigint                AS egress_bytes,
+    coalesce(sum(ingress_bytes), 0)::bigint               AS ingress_bytes,
+    coalesce(sum(data_sent_bytes), 0)::bigint             AS data_sent_bytes,
+    coalesce(sum(data_received_bytes), 0)::bigint         AS data_received_bytes,
+    count(*)::bigint                                      AS runs,
+    count(*) FILTER (WHERE NOT traffic_measured)::bigint  AS unmeasured_runs
+FROM run
+WHERE org_id = $1 AND project_id = $2 AND ended_at >= $3 AND ended_at < $4;

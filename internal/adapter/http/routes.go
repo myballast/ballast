@@ -97,6 +97,13 @@ func Routes() []Route {
 		// unless the caller administers every one of them. A literal path
 		// beats the wildcard above for the same method, and these two differ
 		// in method anyway.
+		// What the organization moved in a month. Reserved, like the emergency
+		// stop, to somebody who administers every project of it: a figure about
+		// the whole organization is the whole organization's.
+		{
+			Method: "GET", Path: "/usage",
+			Scope: ScopeAnyProject, Permission: domain.PermManageProject,
+		},
 		{
 			Method: "POST", Path: "/runs/stop-all",
 			Scope: ScopeAnyProject, Permission: domain.PermCancelRun,
@@ -145,6 +152,12 @@ func Routes() []Route {
 		// who ran what against which host, who was refused, and who changed
 		// somebody's rights. Reading that is a different thing from taking
 		// part in the project.
+		// What one project moved. An administrator's figure: running tests in a
+		// project is not the same as answering for what it costs.
+		{
+			Method: "GET", Path: "/projects/{projectId}/usage",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
 		{
 			Method: "GET", Path: "/projects/{projectId}/audit",
 			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",

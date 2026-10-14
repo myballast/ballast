@@ -158,7 +158,7 @@ func TestRunRepositoryRoundTrip(t *testing.T) {
 			{Metric: "http_req_duration", Expression: "p(95)<10", Passed: false},
 		},
 	}
-	if err := runs.SaveResults(ctx, org, created.ID, results); err != nil {
+	if err := runs.SaveResults(ctx, org, created.ID, results, domain.Traffic{}); err != nil {
 		t.Fatalf("SaveResults: %v", err)
 	}
 

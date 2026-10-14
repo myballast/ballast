@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -91,6 +92,7 @@ func (SummaryParser) Parse(raw []byte) (domain.RunResults, error) {
 		Metrics:    metricsOf(doc.Metrics),
 		Thresholds: thresholdsOf(doc.Metrics),
 		Checks:     checksOf(doc.RootGroup, ""),
+		Traffic:    trafficOf(doc.Metrics),
 	}, nil
 }
 
@@ -207,3 +209,61 @@ func splitSubmetric(key string) (metric, tag string) {
 
 	return key[:open], key[open+1 : len(key)-1]
 }
+
+// The two counters k6 keeps of what crossed the wire. Named here rather than
+// in the domain: they are this tool's vocabulary, and the domain speaks of
+// what was sent and received.
+const (
+	sentMetric     = "data_sent"
+	receivedMetric = "data_received"
+	// The statistic a counter reports its total under.
+	totalStat = "count"
+)
+
+// trafficOf reads what the run moved.
+//
+// The summary is written by a container running a script somebody uploaded, so
+// a counter is not trusted input. One that cannot be believed takes both
+// volumes to zero and says so: a run measured by halves is not measured, and a
+// half-total summed into a month would be worse than a missing one.
+func trafficOf(metrics map[string]summaryMetric) domain.Traffic {
+	sent, sentOK := byteCount(metrics, sentMetric)
+	received, receivedOK := byteCount(metrics, receivedMetric)
+
+	if !sentOK || !receivedOK {
+		return domain.Traffic{}
+	}
+
+	return domain.Traffic{SentBytes: sent, ReceivedBytes: received, Measured: true}
+}
+
+// byteCount reads one counter's total, and reports whether it can be believed.
+//
+// An absent metric is zero and believable: a run that made no request moved
+// nothing. A fraction is truncated, because bytes are whole and truncating is
+// the only rounding that cannot invent traffic.
+func byteCount(metrics map[string]summaryMetric, name string) (int64, bool) {
+	metric, ok := metrics[name]
+	if !ok {
+		return 0, true
+	}
+
+	value, ok := metric.Values[totalStat]
+	if !ok {
+		return 0, true
+	}
+
+	// NaN and the infinities cannot arrive through JSON, which has no literal
+	// for them, but a number far outside the range can: converting one to an
+	// int64 is undefined in Go, so the comparison happens in float64 first.
+	if math.IsNaN(value) || value < 0 || value > maxBytes {
+		return 0, false
+	}
+
+	return int64(value), true
+}
+
+// maxBytes is the largest count a bigint column can hold, as a float64 that
+// rounds down rather than up: comparing against math.MaxInt64 converted to
+// float64 would let through a value the column refuses.
+const maxBytes = float64(1 << 62)
