@@ -100,6 +100,24 @@ func (w queueWorld) provenEnvironment(ctx context.Context, t *testing.T) uuid.UU
 	return id
 }
 
+// anotherPerson adds a second member of the organization, so that a limit
+// counted per person can be told apart from one counted per organization.
+func (w queueWorld) anotherPerson(ctx context.Context, t *testing.T) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	if err := w.db.InTenantTx(ctx, w.org, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO app_user (id, org_id, subject, email) VALUES ($1, $2, $3, $4)`,
+			id, w.org, "subject-"+id.String(), id.String()+"@example.test")
+		return err
+	}); err != nil {
+		t.Fatalf("add a person: %v", err)
+	}
+
+	return id
+}
+
 // queue puts a run in the queue, against the given target.
 func (w queueWorld) queue(ctx context.Context, t *testing.T, env domain.Environment) domain.Run {
 	t.Helper()

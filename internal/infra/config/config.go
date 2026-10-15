@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 	"github.com/youssefmahersi/ballast/internal/infra/netguard"
 )
@@ -62,9 +63,28 @@ func Load() (Config, error) {
 		PollInterval: time.Second,
 	}
 
-	ttl, err := duration("BALLAST_RUN_TTL", 15*time.Minute)
+	// The hard ceiling plus five minutes: the container is killed only after
+	// the moment a run that reached the ceiling should have ended. The same
+	// five minutes the environment lock allows for starting a container and
+	// reading a summary.
+	ttl, err := duration("BALLAST_RUN_TTL", domain.MaxDurationAnywhere+5*time.Minute)
 	if err != nil {
 		return Config{}, err
+	}
+	// Three values say how long a run may last: the environment's ceiling, the
+	// one no configuration can raise, and this time limit, which the generator
+	// carries inside its own container. The first two are checked when a run
+	// is accepted; this one kills the container whatever anybody decided.
+	//
+	// A time limit below the hard ceiling would mean a run this installation
+	// accepts is a run the generator is killed in the middle of — reported as
+	// a timeout, with nothing saying why. Refusing to start is the same answer
+	// this file already gives to a missing key: a configuration that cannot
+	// work is said at startup rather than discovered at three in the morning.
+	if ttl < domain.MaxDurationAnywhere {
+		return Config{}, fmt.Errorf(
+			"BALLAST_RUN_TTL is %s, under the %s a run may last; a run would be killed mid-measurement",
+			ttl, domain.MaxDurationAnywhere)
 	}
 	cfg.RunTTL = ttl
 

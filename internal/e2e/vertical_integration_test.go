@@ -30,6 +30,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/infra/crypto"
+	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
@@ -262,7 +263,10 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 	}
 
 	api := httptest.NewServer(httpadapter.NewRouter(
-		service, nil, nil, nil, nil,
+		service, nil, nil, nil,
+		// The journal, which the limits write to and which a test reads back:
+		// a stack with it left out answers a request by dying.
+		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
 		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
 	))
 	t.Cleanup(api.Close)

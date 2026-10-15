@@ -90,3 +90,8 @@ var ErrRunsSuspended = errors.New("this installation is not accepting new runs")
 
 // ErrInvalidMonth reports a period that is not a month written as YYYY-MM.
 var ErrInvalidMonth = errors.New("invalid month")
+
+// ErrTooManyRuns reports a run refused by a limit rather than by a permission:
+// too many triggered in the last hour, or too many already waiting. It says
+// nothing about the request being wrong — the same request later is fine.
+var ErrTooManyRuns = errors.New("too many runs")

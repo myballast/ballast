@@ -208,6 +208,54 @@ func (q *Queries) CancelQueuedRun(ctx context.Context, arg CancelQueuedRunParams
 	return i, err
 }
 
+const countQueuedRuns = `-- name: CountQueuedRuns :one
+SELECT count(*)::bigint FROM run
+WHERE org_id = $1 AND status = 'queued'
+`
+
+// How many runs are waiting, for one organization.
+//
+// Answered from the partial index, which holds the waiting runs and nothing
+// else: an organization with a million finished runs counts its queue by
+// reading a handful of rows.
+func (q *Queries) CountQueuedRuns(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countQueuedRuns, orgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countTriggeredSince = `-- name: CountTriggeredSince :one
+SELECT
+    count(*)::bigint                                    AS by_org,
+    count(*) FILTER (WHERE triggered_by = $2)::bigint   AS by_user
+FROM run
+WHERE org_id = $1 AND created_at >= $3
+`
+
+type CountTriggeredSinceParams struct {
+	OrgID       uuid.UUID
+	TriggeredBy *uuid.UUID
+	CreatedAt   time.Time
+}
+
+type CountTriggeredSinceRow struct {
+	ByOrg  int64
+	ByUser int64
+}
+
+// How many runs were triggered since an instant: by the organization, and by
+// one of its people.
+//
+// One statement for both, because a rate limit asks both at the same moment
+// and two round trips would let the answers disagree about what "now" means.
+func (q *Queries) CountTriggeredSince(ctx context.Context, arg CountTriggeredSinceParams) (CountTriggeredSinceRow, error) {
+	row := q.db.QueryRow(ctx, countTriggeredSince, arg.OrgID, arg.TriggeredBy, arg.CreatedAt)
+	var i CountTriggeredSinceRow
+	err := row.Scan(&i.ByOrg, &i.ByUser)
+	return i, err
+}
+
 const createRun = `-- name: CreateRun :one
 
 INSERT INTO run (
@@ -857,6 +905,58 @@ func (q *Queries) NextClaimableRun(ctx context.Context, arg NextClaimableRunPara
 		&i.TrafficMeasured,
 	)
 	return i, err
+}
+
+const oldestRunByUserSince = `-- name: OldestRunByUserSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND triggered_by = $2 AND created_at >= $3
+ORDER BY created_at
+LIMIT 1
+`
+
+type OldestRunByUserSinceParams struct {
+	OrgID       uuid.UUID
+	TriggeredBy *uuid.UUID
+	CreatedAt   time.Time
+}
+
+func (q *Queries) OldestRunByUserSince(ctx context.Context, arg OldestRunByUserSinceParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, oldestRunByUserSince, arg.OrgID, arg.TriggeredBy, arg.CreatedAt)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
+const oldestRunSince = `-- name: OldestRunSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND created_at >= $2
+ORDER BY created_at
+LIMIT 1
+`
+
+type OldestRunSinceParams struct {
+	OrgID     uuid.UUID
+	CreatedAt time.Time
+}
+
+// When the earliest run of a window was created, which is what says how long
+// until a slot frees up.
+//
+// The oldest row rather than min(created_at): an aggregate over no rows is
+// null, which sqlc types as an interface or, with a cast, as a value that can
+// never be null — and scanning a null into a time fails at the one moment this
+// is asked. The oldest row simply does not exist when the window is empty, and
+// no rows is an answer the caller already knows how to read.
+//
+// Two statements rather than one with a nullable parameter. The trick spelling
+// — $2::uuid IS NULL OR triggered_by = $2 — generates a parameter that cannot
+// be null, so the branch would never fire and the filter would quietly match
+// nobody.
+func (q *Queries) OldestRunSince(ctx context.Context, arg OldestRunSinceParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, oldestRunSince, arg.OrgID, arg.CreatedAt)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
 const orphanStaleRuns = `-- name: OrphanStaleRuns :many
