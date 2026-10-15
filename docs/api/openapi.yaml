@@ -223,6 +223,11 @@ paths:
         is clamped to the environment's `max_vus` and `max_duration_s` before
         it is stored. The run is executed later by the worker.
 
+        The load is clamped to the smaller of two ceilings: the environment's
+        `max_vus` and `max_duration_s`, and the ones no configuration can
+        raise — 200 virtual users and one hour. What the response carries is
+        what will be executed, which may be less than what was asked for.
+
         Refused with `403` when the environment's ownership has not been
         verified, and when the environment declares an allowed window that the
         run does not fit inside — either because it is shut now, or because the
@@ -273,6 +278,35 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+        "429":
+          description: |
+            A limit nobody can raise from the outside was reached: too many runs
+            triggered in the last hour by this person or by this organization,
+            or too many already waiting.
+
+            `Retry-After` carries the number of seconds to wait when that can be
+            known — a rate window empties at a time arithmetic can give. It is
+            absent when it cannot: a full queue empties as runs finish, and a
+            number invented to fill the header would be worse than none.
+
+            The message says which limit was reached and the figure reached. It
+            never says how close anybody else is to theirs.
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again, when it is known.
+              required: false
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                rate:
+                  value:
+                    error: you have triggered 30 runs in the last 1h0m0s, which is the most allowed
+                queue:
+                  value:
+                    error: this organization already has 20 runs waiting, which is the most it may queue
         "503":
           description: |
             This installation is not accepting new runs: somebody has thrown

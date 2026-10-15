@@ -49,6 +49,14 @@ type fakeRuns struct {
 	// live is what LiveRunIDs returns, and since what it was asked.
 	live  []uuid.UUID
 	since time.Time
+	// What the limits read: how many runs are waiting, how many were
+	// triggered in the window, and when the oldest of them was.
+	queued         int
+	triggered      Triggered
+	triggeredSince time.Time
+	oldest         time.Time
+	oldestFound    bool
+	oldestErr      error
 	// What a usage reading asked for, and what it was given.
 	usage        domain.Usage
 	usageAsked   int
@@ -537,14 +545,16 @@ func TestEnqueueAcceptsARunWhenNoWindowWasDeclared(t *testing.T) {
 // alone is not the question.
 func TestEnqueueRefusesARunThatWouldOutlastTheWindow(t *testing.T) {
 	f := newFixture(t, func(_ *domain.Scenario, env *domain.Environment) {
-		env.Window = &domain.AllowedWindow{StartMinute: 0, EndMinute: 60, Zone: "UTC"}
-		// Room for the run below to be refused by the window rather than clamped
-		// by the ceiling.
+		// Half an hour of window, and a run of three quarters: the run has to
+		// be refused by the window rather than cut down to fit by a ceiling,
+		// so it stays under both the environment's and the one no
+		// configuration can raise.
+		env.Window = &domain.AllowedWindow{StartMinute: 0, EndMinute: 30, Zone: "UTC"}
 		env.MaxDurationS = 7200
 	})
 
 	cmd := f.command()
-	cmd.Params = &domain.ProfileParams{TargetVUs: 1, PlateauS: 90 * 60}
+	cmd.Params = &domain.ProfileParams{TargetVUs: 1, PlateauS: 45 * 60}
 
 	_, err := f.service.Enqueue(context.Background(), cmd)
 	if !errors.Is(err, domain.ErrOutsideAllowedWindow) {
@@ -687,4 +697,30 @@ func (f *fakeRuns) ProjectTrafficInPeriod(
 	f.askedFrom, f.askedTo = from, to
 	f.usageAsked++
 	return f.usage, f.err
+}
+
+func (f *fakeRuns) Queued(context.Context, uuid.UUID) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.queued, f.err
+}
+
+func (f *fakeRuns) TriggeredSince(
+	_ context.Context, _, _ uuid.UUID, since time.Time,
+) (Triggered, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.triggeredSince = since
+	return f.triggered, f.err
+}
+
+func (f *fakeRuns) OldestSince(
+	_ context.Context, _, _ uuid.UUID, _ time.Time,
+) (time.Time, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.oldest, f.oldestFound, f.oldestErr
 }

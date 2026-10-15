@@ -84,10 +84,15 @@ func TestAFinishedRunCarriesWhatItMoved(t *testing.T) {
 		t.Fatal("a run both measurements were taken of is marked unmeasured")
 	}
 
-	// What comes back is copied through, so the wire sees it all and the
-	// headers around it: never less than the generator counted.
-	if moved.ingress < moved.received {
-		t.Errorf("the wire counted %d bytes in and the generator claimed %d",
+	// Coming back, the two are no more comparable than going out, and for the
+	// same reason: against a plain-http target the proxy re-issues the request
+	// and re-serializes the answer, so Go's own framing — Date,
+	// Content-Length, the chunking — is added after the bytes were counted.
+	// The generator can therefore receive slightly more than the wire read.
+	// What matters is that the two are of the same order: an order of
+	// magnitude apart would mean one of them is counting something else.
+	if ratio := float64(moved.ingress) / float64(moved.received); ratio < 0.5 || ratio > 2 {
+		t.Errorf("the wire counted %d bytes in and the generator claimed %d, which is not the same traffic",
 			moved.ingress, moved.received)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -242,6 +243,18 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 		// 409 rather than 400: nothing about the request is wrong, the run has
 		// simply already finished. Trying again would not help.
 		writeError(w, http.StatusConflict, "this run has already finished")
+
+	case errors.Is(err, domain.ErrTooManyRuns):
+		// 429, and the reason in words: which limit was reached, never how
+		// close anybody else is to theirs. Retry-After when the wait can be
+		// known — a window empties at a time arithmetic can give, a queue
+		// empties when runs finish and nobody knows when that is.
+		var refusal run.TooManyRuns
+		if errors.As(err, &refusal) && refusal.RetryAfter > 0 {
+			w.Header().Set("Retry-After",
+				strconv.Itoa(int(math.Ceil(refusal.RetryAfter.Seconds()))))
+		}
+		writeError(w, http.StatusTooManyRequests, err.Error())
 
 	case errors.Is(err, domain.ErrRunsSuspended):
 		// 503, because it is the installation that is unavailable for this,

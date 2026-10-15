@@ -28,6 +28,18 @@ type Repository interface {
 	// together: the generator's, from the summary inside results, and the
 	// runner's, counted on the wire.
 	SaveResults(ctx context.Context, orgID, runID uuid.UUID, results domain.RunResults, egress domain.Traffic) error
+	// TriggeredSince counts the runs an organization has started since an
+	// instant, and how many of those one person started. Two numbers from one
+	// question, because a rate limit asks both at the same moment and two
+	// round trips would let the answers disagree.
+	TriggeredSince(ctx context.Context, orgID, userID uuid.UUID, since time.Time) (Triggered, error)
+	// Queued counts the runs waiting, and when the oldest of them was asked
+	// for — which is what tells a refused caller when to come back.
+	Queued(ctx context.Context, orgID uuid.UUID) (int, error)
+	// OldestSince is when the earliest run of the window was created, used to
+	// say how long a caller has to wait for a slot to free up. It reports
+	// false when the window holds nothing.
+	OldestSince(ctx context.Context, orgID, userID uuid.UUID, since time.Time) (time.Time, bool, error)
 	// TrafficInPeriod sums what an organization moved between two instants,
 	// the first included and the second not.
 	TrafficInPeriod(ctx context.Context, orgID uuid.UUID, from, to time.Time) (domain.Usage, error)
@@ -95,6 +107,13 @@ type LogStore interface {
 // with any.
 type ProjectDirectory interface {
 	ProjectIDs(ctx context.Context, orgID uuid.UUID) ([]uuid.UUID, error)
+}
+
+// Triggered is how many runs were started in a window: by the organization,
+// and by one of its people.
+type Triggered struct {
+	ByOrg  int
+	ByUser int
 }
 
 // AuditLog records what happened, for the people who have to answer for it.

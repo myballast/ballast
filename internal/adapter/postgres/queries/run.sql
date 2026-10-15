@@ -290,3 +290,49 @@ SELECT
     count(*) FILTER (WHERE NOT traffic_measured)::bigint  AS unmeasured_runs
 FROM run
 WHERE org_id = $1 AND project_id = $2 AND ended_at >= $3 AND ended_at < $4;
+
+-- How many runs are waiting, for one organization.
+--
+-- Answered from the partial index, which holds the waiting runs and nothing
+-- else: an organization with a million finished runs counts its queue by
+-- reading a handful of rows.
+-- name: CountQueuedRuns :one
+SELECT count(*)::bigint FROM run
+WHERE org_id = $1 AND status = 'queued';
+
+-- How many runs were triggered since an instant: by the organization, and by
+-- one of its people.
+--
+-- One statement for both, because a rate limit asks both at the same moment
+-- and two round trips would let the answers disagree about what "now" means.
+-- name: CountTriggeredSince :one
+SELECT
+    count(*)::bigint                                    AS by_org,
+    count(*) FILTER (WHERE triggered_by = $2)::bigint   AS by_user
+FROM run
+WHERE org_id = $1 AND created_at >= $3;
+
+-- When the earliest run of a window was created, which is what says how long
+-- until a slot frees up.
+--
+-- The oldest row rather than min(created_at): an aggregate over no rows is
+-- null, which sqlc types as an interface or, with a cast, as a value that can
+-- never be null — and scanning a null into a time fails at the one moment this
+-- is asked. The oldest row simply does not exist when the window is empty, and
+-- no rows is an answer the caller already knows how to read.
+--
+-- Two statements rather than one with a nullable parameter. The trick spelling
+-- — $2::uuid IS NULL OR triggered_by = $2 — generates a parameter that cannot
+-- be null, so the branch would never fire and the filter would quietly match
+-- nobody.
+-- name: OldestRunSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND created_at >= $2
+ORDER BY created_at
+LIMIT 1;
+
+-- name: OldestRunByUserSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND triggered_by = $2 AND created_at >= $3
+ORDER BY created_at
+LIMIT 1;

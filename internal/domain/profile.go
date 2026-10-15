@@ -84,8 +84,8 @@ func (p ProfileParams) Validate() error {
 	return nil
 }
 
-// ClampTo lowers these parameters until they fit inside the environment's
-// ceilings. This is what keeps Ballast from generating more load than a target
+// ClampTo lowers these parameters until they fit inside the ceilings that
+// apply: the environment's, and the ones no configuration can raise. This is what keeps Ballast from generating more load than a target
 // was declared able to take, so it runs on every path to a run, without
 // exception.
 //
@@ -103,11 +103,18 @@ func (p ProfileParams) Validate() error {
 // invalid — that is what Validate is for — but it never turns valid ones into
 // invalid ones either, beyond what a degenerate ceiling forces.
 func (p ProfileParams) ClampTo(env Environment) ProfileParams {
-	if p.TargetVUs > env.MaxVUs {
-		p.TargetVUs = env.MaxVUs
+	// The smaller of the two ceilings, always. What an environment declares is
+	// what a target was said to tolerate; what MaxVUsAnywhere declares is what
+	// this installation can generate without measuring itself instead. Either
+	// one being generous is no reason to ignore the other, and an environment
+	// configured with ten thousand virtual users is a mistake rather than a
+	// permission.
+	vus := min(env.MaxVUs, MaxVUsAnywhere)
+	if p.TargetVUs > vus {
+		p.TargetVUs = vus
 	}
 
-	budget := env.MaxDurationS
+	budget := min(env.MaxDurationS, MaxDurationAnywhereS)
 	p.RampUpS = spend(p.RampUpS, &budget)
 	p.PlateauS = spend(p.PlateauS, &budget)
 	p.RampDownS = spend(p.RampDownS, &budget)

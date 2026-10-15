@@ -41,6 +41,13 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		return domain.Run{}, domain.ErrRunsSuspended
 	}
 
+	// Before the scenario is even read. Somebody past their limit is past it
+	// whatever they were about to ask for, and the limits are the last thing
+	// standing between an installation and a loop.
+	if err := s.withinLimits(ctx, cmd.Actor); err != nil {
+		return domain.Run{}, err
+	}
+
 	params, ok := cmd.Profile.Defaults()
 	if !ok {
 		return domain.Run{}, fmt.Errorf("%w: unknown profile %q", domain.ErrInvalidProfileParams, cmd.Profile)
