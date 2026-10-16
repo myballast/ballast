@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiDelete, apiPatch, apiPost, apiPut } from "@/lib/api-client";
@@ -99,6 +99,9 @@ export async function createEnvironment(projectId: string, _previous: FormState,
     return { error: refusal(error, `${page(projectId)}/new`, cannotManage) };
   }
 
+  // The shell around the project names what exists, and it is drawn once per
+  // visit to the project: it has to hear about this before the browser lands.
+  revalidatePath(`/projects/${projectId}`, "layout");
   redirect(page(projectId, id));
 }
 
@@ -121,6 +124,9 @@ export async function updateEnvironment(
     return { error: refusal(error, `${page(projectId, environmentId)}/edit`, cannotManage) };
   }
 
+  // The shell around the project names what exists, and it is drawn once per
+  // visit to the project: it has to hear about this before the browser lands.
+  revalidatePath(`/projects/${projectId}`, "layout");
   redirect(page(projectId, environmentId));
 }
 
@@ -131,6 +137,9 @@ export async function deleteEnvironment(projectId: string, environmentId: string
     return { error: refusal(error, page(projectId, environmentId), cannotManage) };
   }
 
+  // The shell around the project names what exists, and it is drawn once per
+  // visit to the project: it has to hear about this before the browser lands.
+  revalidatePath(`/projects/${projectId}`, "layout");
   redirect(page(projectId));
 }
 

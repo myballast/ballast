@@ -3,7 +3,11 @@ import { LogOut } from "lucide-react";
 import { signOut } from "@/features/auth/actions";
 
 // UserMenu shows who is signed in, and signs them out.
-export function UserMenu({ user }: { user: { name: string; email: string } }) {
+//
+// Inside a project it says the role the person holds there, which is what
+// decides what they see. Elsewhere there is no role to say, and the email
+// takes its place.
+export function UserMenu({ user, role }: { user: { name: string; email: string }; role?: string }) {
   return (
     <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
       <span
@@ -14,7 +18,7 @@ export function UserMenu({ user }: { user: { name: string; email: string } }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">{user.name || user.email}</p>
-        <p className="data truncate text-[11px] text-muted-foreground">{user.email}</p>
+        <p className="data truncate text-[11px] text-muted-foreground">{role ?? user.email}</p>
       </div>
       <form action={signOut}>
         <button

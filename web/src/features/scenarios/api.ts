@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
 
 import { ApiError, apiGet } from "@/lib/api-client";
@@ -9,10 +10,12 @@ function path(projectId: string, scenarioId?: string): string {
   return scenarioId ? `${list}/${encodeURIComponent(scenarioId)}` : list;
 }
 
-export async function getScenarios(projectId: string): Promise<ScenarioListItem[]> {
+// Cached for the request: the shell names every scenario of the project, and
+// the page that lists them asks for the same thing.
+export const getScenarios = cache(async (projectId: string): Promise<ScenarioListItem[]> => {
   const { scenarios } = await apiGet<{ scenarios: ScenarioListItem[] }>(path(projectId));
   return scenarios;
-}
+});
 
 // getScenario reads a scenario as it is now, or null if it is gone.
 export async function getScenario(projectId: string, scenarioId: string): Promise<ScenarioSummary | null> {

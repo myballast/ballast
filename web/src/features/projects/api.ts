@@ -1,5 +1,6 @@
 import { getEnvironments } from "@/features/environments/api";
 import { getLastRun } from "@/features/runs/api";
+import { cache } from "react";
 import { notFound } from "next/navigation";
 
 import { ApiError, apiGet } from "@/lib/api-client";
@@ -36,21 +37,44 @@ async function overview(project: Project): Promise<ProjectOverview> {
   }
 }
 
-// getProject reads one project. Not a member, or no such project, is the
-// same 404 page: the API says the same for both.
-export async function getProject(projectId: string): Promise<Project> {
+// findProject reads one project, or null when there is none for the caller:
+// not a member (403), or no such project, answer the same.
+//
+// Cached for the request: the shell around a page and the page itself both ask,
+// and one answer serves them both.
+export const findProject = cache(async (projectId: string): Promise<Project | null> => {
   try {
     return await apiGet<Project>(`/projects/${encodeURIComponent(projectId)}`);
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) {
-      notFound();
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403 || error.status === 400)) {
+      return null;
     }
     throw error;
   }
+});
+
+// getProject reads one project. Not a member, or no such project, is the
+// same 404 page: the API says the same for both.
+export async function getProject(projectId: string): Promise<Project> {
+  return (await findProject(projectId)) ?? notFound();
 }
 
+// findAccess is what the caller holds in the project, or null when they are not
+// a member of it. The role comes from the membership, resolved by the API on
+// every request.
+export const findAccess = cache(async (projectId: string): Promise<Access | null> => {
+  try {
+    return await apiGet<Access>(`/projects/${encodeURIComponent(projectId)}/permissions`);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403 || error.status === 400)) {
+      return null;
+    }
+    throw error;
+  }
+});
+
 // getAccess is what the caller holds in the project, to hide what they
-// cannot use.
+// cannot use. Not being a member is the same 404 page as no such project.
 export async function getAccess(projectId: string): Promise<Access> {
-  return apiGet<Access>(`/projects/${encodeURIComponent(projectId)}/permissions`);
+  return (await findAccess(projectId)) ?? notFound();
 }

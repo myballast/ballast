@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiDelete, apiPatch, apiPost } from "@/lib/api-client";
@@ -107,6 +107,9 @@ export async function createScenario(
     return refusal(error, `${page(projectId)}/new`);
   }
 
+  // The shell around the project names what exists, and it is drawn once per
+  // visit to the project: it has to hear about this before the browser lands.
+  revalidatePath(`/projects/${projectId}`, "layout");
   redirect(page(projectId, id));
 }
 
