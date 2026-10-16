@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiGet, publicAPIURL } from "@/lib/api-client";
@@ -31,7 +32,10 @@ export type Me = {
 
 // getMe returns who is signed in. Without a session, the browser is sent to
 // sign in, and brought back to returnTo afterwards.
-export async function getMe(returnTo = "/"): Promise<Me> {
+//
+// Cached for the request: every layout that draws the shell asks who is signed
+// in, and a page rendered under two of them should not ask twice.
+export const getMe = cache(async (returnTo = "/"): Promise<Me> => {
   try {
     return await apiGet<Me>("/me");
   } catch (error) {
@@ -40,4 +44,4 @@ export async function getMe(returnTo = "/"): Promise<Me> {
     }
     throw error;
   }
-}
+});

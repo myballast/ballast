@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiGet } from "@/lib/api-client";
@@ -9,7 +10,10 @@ import type { Run, RunSummary } from "./types";
 // A malformed id is answered the same way as an unknown one: from the outside,
 // both mean there is nothing to show at this address. Without a session, the
 // browser is sent to sign in and brought back here afterwards.
-export async function getRun(id: string): Promise<Run | null> {
+//
+// Cached for the request: the shell around the page learns the run's project
+// from it, and the page reads the same run.
+export const getRun = cache(async (id: string): Promise<Run | null> => {
   try {
     return await apiGet<Run>(`/runs/${encodeURIComponent(id)}`);
   } catch (error) {
@@ -24,7 +28,7 @@ export async function getRun(id: string): Promise<Run | null> {
     }
     throw error;
   }
-}
+});
 
 export type RunPage = { runs: RunSummary[]; next?: string };
 

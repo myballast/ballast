@@ -1,6 +1,11 @@
 import { CircleCheck, CircleX, Trash2, TriangleAlert } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
+import { Breadcrumb } from "@/components/layout/breadcrumb";
+import { NavGroup, NavItem } from "@/components/layout/nav-item";
+import { UserMenu } from "@/components/layout/user-menu";
+import { buildTrail } from "@/features/shell/trail";
+import type { ShellScope } from "@/features/shell/types";
 import { MetricCard } from "@/components/metric-card";
 import { EmptyState, LoadingState } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
@@ -61,6 +66,27 @@ const environment = (name: string, verified: boolean) => ({
   max_duration_s: 600,
   created_at: "2026-10-01T09:00:00Z",
 });
+
+const shellScope: ShellScope = {
+  project: { id: "p1", name: "storefront" },
+  role: "maintainer",
+  names: {
+    scenarios: { s1: "checkout-flow" },
+    environments: { e1: "staging" },
+    run: { id: "r1", label: "checkout-flow, 15 Oct 2026, 16:05:24" },
+  },
+};
+
+const shellPaths = [
+  "/projects",
+  "/projects/p1",
+  "/projects/p1/scenarios/s1",
+  "/projects/p1/environments/e1/edit",
+  "/projects/p1/runs/new",
+  "/runs/r1",
+  // A scenario the shell was drawn before: said by its kind, never by its id.
+  "/projects/p1/scenarios/3f1c0a52-7d0e-4c6a-8f55-1b2a4d9e0c11",
+];
 
 const scenario = (name: string, version: number) => ({
   id: name,
@@ -219,6 +245,34 @@ export function ComponentReference() {
           ]}
         />
         <EnvironmentList projectId="checkout" environments={[]} />
+      </Section>
+
+      <Section title="Shell: sidebar, role and breadcrumb">
+        <div className="flex w-60 flex-col gap-6 rounded-xl border bg-sidebar p-4">
+          <NavGroup title="Workspace">
+            <NavItem href="#">Projects</NavItem>
+          </NavGroup>
+          <NavGroup title="storefront">
+            <NavItem href="#" active>
+              Overview
+            </NavItem>
+            <NavItem href="#">Scenarios</NavItem>
+            <NavItem href="#">Environments</NavItem>
+          </NavGroup>
+          <NavGroup title="A project with a very long name that has to be cut">
+            <NavItem href="#">Overview</NavItem>
+          </NavGroup>
+          <div className="border-t pt-3">
+            <UserMenu user={{ name: "youssef", email: "youssef@example.test" }} role="maintainer" />
+            <UserMenu user={{ name: "youssef", email: "youssef@example.test" }} />
+          </div>
+        </div>
+        {shellPaths.map((path) => (
+          <div key={path} className="flex flex-col gap-1">
+            <span className="data text-[11px] text-muted-foreground">{path}</span>
+            <Breadcrumb trail={buildTrail(path, "acme", path === "/projects" ? null : shellScope)} />
+          </div>
+        ))}
       </Section>
 
       <Section title="Scenarios">

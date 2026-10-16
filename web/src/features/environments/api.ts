@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
 
 import { ApiError, apiGet } from "@/lib/api-client";
@@ -9,10 +10,11 @@ function base(projectId: string, environmentId?: string): string {
   return environmentId ? `${project}/${encodeURIComponent(environmentId)}` : project;
 }
 
-export async function getEnvironments(projectId: string): Promise<Environment[]> {
+// Cached for the request, like the scenarios: the shell and the page share it.
+export const getEnvironments = cache(async (projectId: string): Promise<Environment[]> => {
   const { environments } = await apiGet<{ environments: Environment[] }>(base(projectId));
   return environments;
-}
+});
 
 // getEnvironment reads one environment. No such environment, or one of another
 // project, is the same 404 page: the API says the same for both.
