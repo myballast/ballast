@@ -4,10 +4,11 @@ import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 
-import type { FormState } from "../actions";
+// What an action tells back: nothing when it worked, a sentence when not.
+type Outcome = { error?: string };
 
 // ConfirmAction is a button that asks before it acts: approving a target,
-// deleting an environment or a secret. What it does is in its words; nothing
+// deleting an environment, a secret or a threshold. What it does is in its words; nothing
 // here is red, since red says a run failed.
 export function ConfirmAction({
   icon,
@@ -28,10 +29,10 @@ export function ConfirmAction({
   keep?: string;
   busy: string;
   variant?: "default" | "outline" | "destructive" | "ghost";
-  act: () => Promise<FormState>;
+  act: () => Promise<Outcome>;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [state, setState] = useState<FormState>({});
+  const [state, setState] = useState<Outcome>({});
   const [pending, startTransition] = useTransition();
 
   if (!confirming) {

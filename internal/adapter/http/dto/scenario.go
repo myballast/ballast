@@ -14,9 +14,20 @@ type ScenarioSummary struct {
 	UpdatedAt      time.Time     `json:"updated_at"`
 }
 
+// ScenarioListItem is a scenario as the list shows it.
+//
+// The count lives here rather than on ScenarioSummary, which the full scenario
+// embeds: read one at a time, a scenario's rules come from its own endpoint,
+// and a count of zero there would be a claim nobody checked.
+type ScenarioListItem struct {
+	ScenarioSummary
+	// ThresholdCount is how many rules the scenario imposes.
+	ThresholdCount int `json:"threshold_count"`
+}
+
 // ScenarioListResponse is returned by the scenario list.
 type ScenarioListResponse struct {
-	Scenarios []ScenarioSummary `json:"scenarios"`
+	Scenarios []ScenarioListItem `json:"scenarios"`
 }
 
 // Scenario is one scenario, with its script and what inspecting it noticed.
@@ -95,4 +106,11 @@ type ThresholdListResponse struct {
 type CreateThresholdRequest struct {
 	Metric     string `json:"metric"`
 	Expression string `json:"expression"`
+}
+
+// UpdateThresholdRequest changes a rule in place. Anything left out stays as it
+// is. Runs already recorded keep the verdicts they were given.
+type UpdateThresholdRequest struct {
+	Metric     *string `json:"metric,omitempty"`
+	Expression *string `json:"expression,omitempty"`
 }

@@ -19,6 +19,9 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    // The whole failed response, for the few that carry more than a sentence:
+    // a refused script says what was wrong with it, line by line.
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -73,7 +76,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     const failure = (await response.json().catch(() => null)) as {
       error?: string;
     } | null;
-    throw new ApiError(response.status, failure?.error ?? response.statusText);
+    throw new ApiError(response.status, failure?.error ?? response.statusText, failure ?? undefined);
   }
 
   if (response.status === 204) {

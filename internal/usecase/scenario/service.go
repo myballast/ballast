@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"log/slog"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -38,15 +39,34 @@ func NewService(
 	}
 }
 
-// InProject lists a project's scenarios.
+// Listed is a scenario as the list shows it: with how many rules it imposes.
+type Listed struct {
+	domain.Scenario
+	Thresholds int
+}
+
+// InProject lists a project's scenarios, each with its number of thresholds.
 func (s *Service) InProject(
 	ctx context.Context, who domain.Identity, projectID uuid.UUID,
-) ([]domain.Scenario, error) {
+) ([]Listed, error) {
 	if err := s.require(ctx, who, domain.PermViewProject, projectID); err != nil {
 		return nil, err
 	}
 
-	return s.scenarios.InProject(ctx, who.OrgID, projectID)
+	scenarios, err := s.scenarios.InProject(ctx, who.OrgID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := s.thresholds.CountInProject(ctx, who.OrgID, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	listed := make([]Listed, 0, len(scenarios))
+	for _, found := range scenarios {
+		listed = append(listed, Listed{Scenario: found, Thresholds: counts[found.ID]})
+	}
+	return listed, nil
 }
 
 // NewScenario is a scenario to create.
@@ -260,6 +280,47 @@ func (s *Service) AddThreshold(
 		Metric:     metric,
 		Expression: expression,
 	})
+}
+
+// ThresholdChange is what a caller wants changed in a rule. Anything left nil
+// stays as it is.
+type ThresholdChange struct {
+	Metric     *string
+	Expression *string
+}
+
+// UpdateThreshold changes a rule in place.
+//
+// Runs already recorded keep their verdicts, as they do when a rule is removed:
+// those live in run_threshold, and nothing here touches them.
+func (s *Service) UpdateThreshold(
+	ctx context.Context, who domain.Identity, projectID, scenarioID, thresholdID uuid.UUID, change ThresholdChange,
+) (domain.Threshold, error) {
+	if _, err := s.read(ctx, who, domain.PermManageScenarios, projectID, scenarioID); err != nil {
+		return domain.Threshold{}, err
+	}
+
+	current, err := s.thresholds.OfScenario(ctx, who.OrgID, scenarioID)
+	if err != nil {
+		return domain.Threshold{}, err
+	}
+	i := slices.IndexFunc(current, func(t domain.Threshold) bool { return t.ID == thresholdID })
+	if i < 0 {
+		return domain.Threshold{}, domain.ErrNotFound
+	}
+
+	updated := current[i]
+	if change.Metric != nil {
+		updated.Metric = *change.Metric
+	}
+	if change.Expression != nil {
+		updated.Expression = *change.Expression
+	}
+	if err := domain.ValidateThreshold(updated.Metric, updated.Expression); err != nil {
+		return domain.Threshold{}, err
+	}
+
+	return s.thresholds.Update(ctx, who.OrgID, scenarioID, updated)
 }
 
 // RemoveThreshold drops a rule.

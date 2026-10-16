@@ -57,3 +57,19 @@ RETURNING *;
 
 -- name: DeleteThreshold :execrows
 DELETE FROM threshold WHERE org_id = $1 AND scenario_id = $2 AND id = $3;
+
+-- A rule is changed in place: the runs that applied it already hold their
+-- verdicts in run_threshold, which this does not touch.
+-- name: UpdateThreshold :one
+UPDATE threshold SET metric = $4, expression = $5
+WHERE org_id = $1 AND scenario_id = $2 AND id = $3
+RETURNING *;
+
+-- How many rules each scenario of a project imposes, for the list. A scenario
+-- with none has no row here.
+-- name: CountThresholdsInProject :many
+SELECT t.scenario_id, count(*) AS thresholds
+FROM threshold t
+JOIN scenario s ON s.org_id = t.org_id AND s.id = t.scenario_id
+WHERE t.org_id = $1 AND s.project_id = $2
+GROUP BY t.scenario_id;

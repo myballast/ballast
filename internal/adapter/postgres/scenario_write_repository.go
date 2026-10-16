@@ -385,3 +385,57 @@ func (r *ScenarioWriteRepository) Remove(
 		return nil
 	})
 }
+
+// Update changes a rule in place. The verdicts of runs already recorded are
+// untouched: they live in run_threshold, frozen when the run finished.
+func (r *ScenarioWriteRepository) Update(
+	ctx context.Context, orgID, scenarioID uuid.UUID, threshold domain.Threshold,
+) (domain.Threshold, error) {
+	var updated domain.Threshold
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		row, err := sqlc.New(tx).UpdateThreshold(ctx, sqlc.UpdateThresholdParams{
+			OrgID:      orgID,
+			ScenarioID: scenarioID,
+			ID:         threshold.ID,
+			Metric:     threshold.Metric,
+			Expression: threshold.Expression,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("update the threshold: %w", translate(err))
+		}
+
+		updated = domain.Threshold{ID: row.ID, Metric: row.Metric, Expression: row.Expression}
+		return nil
+	})
+
+	return updated, err
+}
+
+// CountInProject is how many rules each scenario of a project imposes, in one
+// query. A scenario that imposes none is absent from the map.
+func (r *ScenarioWriteRepository) CountInProject(
+	ctx context.Context, orgID, projectID uuid.UUID,
+) (map[uuid.UUID]int, error) {
+	counts := map[uuid.UUID]int{}
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		rows, err := sqlc.New(tx).CountThresholdsInProject(ctx, sqlc.CountThresholdsInProjectParams{
+			OrgID:     orgID,
+			ProjectID: projectID,
+		})
+		if err != nil {
+			return fmt.Errorf("count the thresholds: %w", err)
+		}
+
+		for _, row := range rows {
+			counts[row.ScenarioID] = int(row.Thresholds)
+		}
+		return nil
+	})
+
+	return counts, err
+}

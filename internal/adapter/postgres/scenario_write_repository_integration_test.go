@@ -322,3 +322,121 @@ func TestDroppingAThresholdLeavesRecordedVerdictsAlone(t *testing.T) {
 		t.Errorf("%d rule(s) remain", len(remaining))
 	}
 }
+
+// Changing a rule rewrites the rule, never the verdict a run already recorded
+// against what it used to say.
+func TestChangingAThresholdLeavesRecordedVerdictsAlone(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := openDB(ctx, t)
+	who, project, environment := newScenarioWorld(ctx, t, db)
+
+	scenarios := postgres.NewScenarioWriteRepository(db)
+	created, err := scenarios.Create(ctx, domain.Scenario{
+		ID: uuid.New(), ProjectID: project, Name: "checkout",
+		Script: "one", Version: 1, DefaultProfile: domain.ProfileSmoke,
+		DefaultProfileParams: domain.ProfileParams{TargetVUs: 1, PlateauS: 5},
+	}, who, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	added, err := scenarios.Add(ctx, who.OrgID, created.ID, domain.Threshold{
+		ID: uuid.New(), Metric: "http_req_duration", Expression: "p(95)<300",
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	runs := postgres.NewRunRepository(db)
+	recorded, err := runs.Create(ctx, domain.NewRun(
+		who.OrgID,
+		domain.Scenario{ID: created.ID, ProjectID: project, Version: 1},
+		domain.Environment{ID: environment, ProjectID: project, MaxVUs: 5, MaxDurationS: 60},
+		domain.ProfileSmoke, domain.ProfileParams{TargetVUs: 1, PlateauS: 5}, nil,
+	))
+	if err != nil {
+		t.Fatalf("record a run: %v", err)
+	}
+	if err := runs.SaveResults(ctx, who.OrgID, recorded.ID, domain.RunResults{
+		Thresholds: []domain.ThresholdResult{
+			{Metric: added.Metric, Expression: added.Expression, Passed: true},
+		},
+	}, domain.Traffic{}); err != nil {
+		t.Fatalf("save the results: %v", err)
+	}
+
+	changed := domain.Threshold{ID: added.ID, Metric: "http_req_duration{name:POST /login}", Expression: "p(99)<500"}
+	updated, err := scenarios.Update(ctx, who.OrgID, created.ID, changed)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated != changed {
+		t.Errorf("Update returned %+v, want %+v", updated, changed)
+	}
+
+	results, err := runs.Results(ctx, who.OrgID, recorded.ID)
+	if err != nil {
+		t.Fatalf("read the results back: %v", err)
+	}
+	if len(results.Thresholds) != 1 || results.Thresholds[0].Metric != "http_req_duration" ||
+		results.Thresholds[0].Expression != "p(95)<300" || !results.Thresholds[0].Passed {
+		t.Errorf("the recorded verdict changed: %+v", results.Thresholds)
+	}
+
+	// A rule of another scenario is not reached through this one.
+	other, err := scenarios.Create(ctx, domain.Scenario{
+		ID: uuid.New(), ProjectID: project, Name: "search",
+		Script: "two", Version: 1, DefaultProfile: domain.ProfileSmoke,
+		DefaultProfileParams: domain.ProfileParams{TargetVUs: 1, PlateauS: 5},
+	}, who, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := scenarios.Update(ctx, who.OrgID, other.ID, changed); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("updating a rule through another scenario: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestThresholdsAreCountedPerScenario(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := openDB(ctx, t)
+	who, project, _ := newScenarioWorld(ctx, t, db)
+
+	scenarios := postgres.NewScenarioWriteRepository(db)
+	create := func(name string) domain.Scenario {
+		t.Helper()
+		created, err := scenarios.Create(ctx, domain.Scenario{
+			ID: uuid.New(), ProjectID: project, Name: name,
+			Script: name, Version: 1, DefaultProfile: domain.ProfileSmoke,
+			DefaultProfileParams: domain.ProfileParams{TargetVUs: 1, PlateauS: 5},
+		}, who, time.Now().UTC())
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		return created
+	}
+	two, none := create("checkout"), create("search")
+
+	for _, expression := range []string{"p(95)<300", "p(99)<800"} {
+		if _, err := scenarios.Add(ctx, who.OrgID, two.ID, domain.Threshold{
+			ID: uuid.New(), Metric: "http_req_duration", Expression: expression,
+		}); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+
+	counts, err := scenarios.CountInProject(ctx, who.OrgID, project)
+	if err != nil {
+		t.Fatalf("CountInProject: %v", err)
+	}
+	if counts[two.ID] != 2 {
+		t.Errorf("%s imposes %d rule(s), want 2", two.Name, counts[two.ID])
+	}
+	if n, ok := counts[none.ID]; ok {
+		t.Errorf("%s has an entry (%d) though it imposes nothing", none.Name, n)
+	}
+}

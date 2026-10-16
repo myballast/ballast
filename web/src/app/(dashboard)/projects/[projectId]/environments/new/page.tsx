@@ -1,5 +1,5 @@
 import { EnvironmentFormPage } from "@/features/environments/components/environment-form-page";
-import { NotAllowed } from "@/features/environments/components/not-allowed";
+import { NotAllowed } from "@/components/not-allowed";
 import { getAccess, getProject } from "@/features/projects/api";
 import { can } from "@/lib/permissions";
 

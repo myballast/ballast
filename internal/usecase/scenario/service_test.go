@@ -91,6 +91,19 @@ func (f *fakeScenarios) Delete(_ context.Context, _, id uuid.UUID) error {
 type fakeThresholds struct {
 	added   []domain.Threshold
 	removed []uuid.UUID
+	updated []domain.Threshold
+	counts  map[uuid.UUID]int
+}
+
+func (f *fakeThresholds) Update(
+	_ context.Context, _, _ uuid.UUID, threshold domain.Threshold,
+) (domain.Threshold, error) {
+	f.updated = append(f.updated, threshold)
+	return threshold, nil
+}
+
+func (f *fakeThresholds) CountInProject(context.Context, uuid.UUID, uuid.UUID) (map[uuid.UUID]int, error) {
+	return f.counts, nil
 }
 
 func (f *fakeThresholds) OfScenario(context.Context, uuid.UUID, uuid.UUID) ([]domain.Threshold, error) {
@@ -421,6 +434,12 @@ func TestEveryOperationIsGuarded(t *testing.T) {
 		"remove threshold": func() error {
 			return f.service.RemoveThreshold(context.Background(), f.who, f.projectID, id, uuid.New())
 		},
+		"update threshold": func() error {
+			metric := "http_req_failed"
+			_, err := f.service.UpdateThreshold(
+				context.Background(), f.who, f.projectID, id, uuid.New(), ThresholdChange{Metric: &metric})
+			return err
+		},
 	}
 
 	for name, call := range operations {
@@ -431,7 +450,7 @@ func TestEveryOperationIsGuarded(t *testing.T) {
 		})
 	}
 
-	if f.scenarios.created != nil || len(f.thresholds.added) > 0 {
+	if f.scenarios.created != nil || len(f.thresholds.added) > 0 || len(f.thresholds.updated) > 0 {
 		t.Error("something was written despite the refusals")
 	}
 }
@@ -467,5 +486,105 @@ func TestThresholdsAreValidated(t *testing.T) {
 	}
 	if added.Metric != tagged {
 		t.Errorf("the metric was altered to %q", added.Metric)
+	}
+}
+
+func TestTheListCountsEachScenariosThresholds(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	with, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	other := f.request()
+	other.Name = "search"
+	without, _, err := f.service.Create(context.Background(), f.who, other)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	f.thresholds.counts = map[uuid.UUID]int{with.ID: 3}
+
+	listed, err := f.service.InProject(context.Background(), f.who, f.projectID)
+	if err != nil {
+		t.Fatalf("InProject: %v", err)
+	}
+
+	got := map[uuid.UUID]int{}
+	for _, l := range listed {
+		got[l.ID] = l.Thresholds
+	}
+	if len(got) != 2 || got[with.ID] != 3 || got[without.ID] != 0 {
+		t.Errorf("counts %v, want 3 for %s and 0 for %s", got, with.ID, without.ID)
+	}
+}
+
+func TestUpdatingAThresholdChangesOnlyWhatWasSent(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	rule, err := f.service.AddThreshold(
+		context.Background(), f.who, f.projectID, created.ID, "http_req_duration", "p(95)<300")
+	if err != nil {
+		t.Fatalf("AddThreshold: %v", err)
+	}
+
+	tagged := "http_req_duration{name:POST /login}"
+	updated, err := f.service.UpdateThreshold(
+		context.Background(), f.who, f.projectID, created.ID, rule.ID, ThresholdChange{Metric: &tagged})
+	if err != nil {
+		t.Fatalf("UpdateThreshold: %v", err)
+	}
+
+	want := domain.Threshold{ID: rule.ID, Metric: tagged, Expression: "p(95)<300"}
+	if updated != want || len(f.thresholds.updated) != 1 || f.thresholds.updated[0] != want {
+		t.Errorf("updated %+v (stored %+v), want %+v", updated, f.thresholds.updated, want)
+	}
+}
+
+func TestAnUpdatedThresholdIsValidated(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	rule, err := f.service.AddThreshold(
+		context.Background(), f.who, f.projectID, created.ID, "http_req_failed", "rate<0.01")
+	if err != nil {
+		t.Fatalf("AddThreshold: %v", err)
+	}
+
+	empty := "  "
+	if _, err := f.service.UpdateThreshold(
+		context.Background(), f.who, f.projectID, created.ID, rule.ID, ThresholdChange{Expression: &empty},
+	); !errors.Is(err, domain.ErrInvalidThreshold) {
+		t.Errorf("an empty expression: got %v, want ErrInvalidThreshold", err)
+	}
+	if len(f.thresholds.updated) > 0 {
+		t.Error("an invalid rule was written")
+	}
+}
+
+// A rule is reached through its scenario. One the scenario does not impose is
+// absent, whatever its identifier names elsewhere.
+func TestUpdatingARuleTheScenarioDoesNotImposeIsNotFound(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	metric := "http_req_failed"
+	if _, err := f.service.UpdateThreshold(
+		context.Background(), f.who, f.projectID, created.ID, uuid.New(), ThresholdChange{Metric: &metric},
+	); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("got %v, want ErrNotFound", err)
+	}
+	if len(f.thresholds.updated) > 0 {
+		t.Error("a rule was written anyway")
 	}
 }

@@ -211,6 +211,11 @@ func Routes() []Route {
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
 		{
+			Method: "PATCH",
+			Path:   "/projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}",
+			Scope:  ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
 			Method: "DELETE",
 			Path:   "/projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}",
 			Scope:  ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",

@@ -33,7 +33,13 @@ type Repository interface {
 type Thresholds interface {
 	OfScenario(ctx context.Context, orgID, scenarioID uuid.UUID) ([]domain.Threshold, error)
 	Add(ctx context.Context, orgID, scenarioID uuid.UUID, threshold domain.Threshold) (domain.Threshold, error)
+	// Update changes a rule in place, and reports ErrNotFound for a rule this
+	// scenario does not impose.
+	Update(ctx context.Context, orgID, scenarioID uuid.UUID, threshold domain.Threshold) (domain.Threshold, error)
 	Remove(ctx context.Context, orgID, scenarioID, thresholdID uuid.UUID) error
+	// CountInProject is how many rules each scenario of a project imposes, read
+	// at once for the list. A scenario that imposes none is absent.
+	CountInProject(ctx context.Context, orgID, projectID uuid.UUID) (map[uuid.UUID]int, error)
 }
 
 // ScriptInspector reads a script without running it.

@@ -23,13 +23,14 @@ const sections: Record<string, string> = {
 const creates: Record<string, string> = {
   runs: "New run",
   environments: "New environment",
+  scenarios: "New scenario",
 };
 
 // The paths that are pages of their own. A step of the trail links only to
 // one of these: /runs, for instance, is a step on the way to a run and not a
 // page anyone can open. Screens add their path here when they exist.
 const pages = new Set(["/", "/projects"]);
-const pagePatterns = [/^\/projects\/[^/]+$/, /^\/projects\/[^/]+\/environments(\/[^/]+)?$/];
+const pagePatterns = [/^\/projects\/[^/]+$/, /^\/projects\/[^/]+\/(environments|scenarios)(\/[^/]+)?$/];
 
 const isPage = (href: string) => pages.has(href) || pagePatterns.some((p) => p.test(href));
 
