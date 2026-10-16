@@ -534,6 +534,24 @@ func (q *Queries) GetScenario(ctx context.Context, arg GetScenarioParams) (Scena
 	return i, err
 }
 
+const getUserDisplayName = `-- name: GetUserDisplayName :one
+SELECT COALESCE(NULLIF(name, ''), email)::text AS name FROM app_user WHERE org_id = $1 AND id = $2
+`
+
+type GetUserDisplayNameParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// The name of a person, or their email when they have none. No row when the
+// person has since been removed.
+func (q *Queries) GetUserDisplayName(ctx context.Context, arg GetUserDisplayNameParams) (string, error) {
+	row := q.db.QueryRow(ctx, getUserDisplayName, arg.OrgID, arg.ID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const insertRunMetrics = `-- name: InsertRunMetrics :exec
 INSERT INTO run_metric (org_id, run_id, name, tag_name, stat, value)
 SELECT $1, $2, unnest($3::text[]), unnest($4::text[]), unnest($5::text[]), unnest($6::float8[])

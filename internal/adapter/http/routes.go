@@ -80,6 +80,12 @@ func Routes() []Route {
 			Method: "GET", Path: "/runs/{id}",
 			Scope: ScopeDerived, Permission: domain.PermViewProject,
 		},
+		// A run repeated: the project is on the run being repeated, which is why
+		// there is none in the path.
+		{
+			Method: "POST", Path: "/runs/{id}/rerun",
+			Scope: ScopeDerived, Permission: domain.PermRunTest,
+		},
 		{
 			Method: "DELETE", Path: "/runs/{id}",
 			Scope: ScopeDerived, Permission: domain.PermCancelRun,

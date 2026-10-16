@@ -87,6 +87,31 @@ func (h *Run) Enqueue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Rerun handles POST /runs/{id}/rerun: a new run with what the run froze.
+func (h *Run) Rerun(w http.ResponseWriter, r *http.Request) {
+	who, ok := signedIn(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "the run id is not a uuid")
+		return
+	}
+
+	queued, err := h.runs.Rerun(r.Context(), who, id)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, dto.EnqueueRunResponse{
+		ID:     queued.ID.String(),
+		Status: string(queued.Status),
+	})
+}
+
 // ByID handles GET /runs/{id}.
 func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 	who, ok := signedIn(w, r)
@@ -100,11 +125,12 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	found, results, err := h.runs.ByID(r.Context(), who, id)
+	detail, results, err := h.runs.Detail(r.Context(), who, id)
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
 	}
+	found := detail.Run
 
 	response := dto.RunResponse{
 		ID:              found.ID.String(),
@@ -122,6 +148,7 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 		},
 		Status:            string(found.Status),
 		ErrorMessage:      found.ErrorMessage,
+		TriggeredBy:       detail.TriggeredByName,
 		CancelRequestedAt: found.CancelRequestedAt,
 		CreatedAt:         found.CreatedAt,
 		StartedAt:         found.StartedAt,

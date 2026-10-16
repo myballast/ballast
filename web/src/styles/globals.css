@@ -18,6 +18,12 @@
   --color-status-passed-bg: var(--status-passed-bg);
   --color-status-warning-bg: var(--status-warning-bg);
   --color-status-failed-bg: var(--status-failed-bg);
+  --color-log-error: var(--log-error);
+  --color-log-error-text: var(--log-error-text);
+  --color-log-error-bg: var(--log-error-bg);
+  --color-log-warn: var(--log-warn);
+  --color-log-warn-text: var(--log-warn-text);
+  --color-log-warn-bg: var(--log-warn-bg);
   --color-series-a: var(--series-a);
   --color-series-b: var(--series-b);
   --spacing-sidebar: var(--sidebar-width);
@@ -118,6 +124,21 @@
   --status-warning-bg: rgb(210 163 43 / 10%);
   --status-failed-bg: rgb(240 85 90 / 10%);
 
+  /*
+   * The level of a line of a run's output: ERROR and WARN. The one place red and
+   * amber appear outside a status (CLAUDE.md, "Charte graphique"), with tokens
+   * of their own so that a failed run and an error line are not the same
+   * colour by accident. Only features/runs/components/log-line.tsx may use
+   * them; `npm run lint` fails anywhere else. The level is always written out
+   * and given an icon: the colour never says it alone.
+   */
+  --log-error: #f0555a;
+  --log-error-text: #b42318;
+  --log-error-bg: rgb(240 85 90 / 9%);
+  --log-warn: #d2a32b;
+  --log-warn-text: #8a6a00;
+  --log-warn-bg: rgb(210 163 43 / 8%);
+
   /* Layout. */
   --sidebar-width: 15rem;
   --page-padding-x: 2rem;
@@ -154,6 +175,8 @@
   /* Series comparisons use blue and orange, never the status colours. */
   --series-a: #5b9cf8;
   --series-b: #e8843c;
+  --log-error-text: #ff9aa0;
+  --log-warn-text: #e8c86a;
   --chart-1: var(--series-a);
   --chart-2: var(--series-b);
   --chart-3: #8b5cf6;

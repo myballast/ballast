@@ -61,11 +61,12 @@ func NewRouter(
 		"POST /auth/logout":             authHandler.Logout,
 		"GET /me":                       authHandler.Me,
 
-		"POST /runs":          runHandler.Enqueue,
-		"GET /runs/{id}":      runHandler.ByID,
-		"DELETE /runs/{id}":   runHandler.Cancel,
-		"GET /runs/{id}/logs": runHandler.Logs,
-		"POST /runs/stop-all": runHandler.StopAll,
+		"POST /runs":            runHandler.Enqueue,
+		"GET /runs/{id}":        runHandler.ByID,
+		"DELETE /runs/{id}":     runHandler.Cancel,
+		"POST /runs/{id}/rerun": runHandler.Rerun,
+		"GET /runs/{id}/logs":   runHandler.Logs,
+		"POST /runs/stop-all":   runHandler.StopAll,
 
 		"GET /projects":                                 projectHandler.List,
 		"POST /projects":                                projectHandler.Create,

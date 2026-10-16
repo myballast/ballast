@@ -296,3 +296,25 @@ func TestTheGeneratorIsAllowedOneHostAndOnePort(t *testing.T) {
 		t.Fatalf("the generator may reach %v", job.AllowedHosts)
 	}
 }
+
+// What a run executes is the script of the version it froze, whatever the
+// scenario says by the time a worker picks it up. A run queued as version 1 and
+// executed after the scenario became version 2 must still run version 1: the
+// number on the run is a promise about what ran.
+func TestTheGeneratorRunsTheVersionTheRunFroze(t *testing.T) {
+	f := newJobFixture(verifiedTarget(), nil, time.Unix(0, 0).UTC())
+	f.service.scenarios = fakeScenarios{
+		scenario: domain.Scenario{Script: "// version 2, written after the run was queued", Version: 2},
+		versions: map[int]string{1: "// version 1, what the run froze", 2: "// version 2, written after the run was queued"},
+	}
+	f.run.ScenarioVersion = 1
+
+	job, err := f.service.buildJob(context.Background(), f.orgID, f.run)
+	if err != nil {
+		t.Fatalf("build the job: %v", err)
+	}
+
+	if got := string(job.Script); got != "// version 1, what the run froze" {
+		t.Errorf("the job carries %q, want the script of version 1", got)
+	}
+}

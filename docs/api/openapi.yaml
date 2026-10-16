@@ -507,6 +507,85 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /runs/{id}/rerun:
+    post:
+      tags: [runs]
+      summary: Repeat a run
+      description: |
+        Queues a new run with what the run being repeated froze: the same
+        scenario **at the same version**, the same profile and parameters, and the
+        same environment. They are read from that run, and never from what the
+        scenario or its defaults are today — editing a scenario after a run does
+        not change what repeating the run repeats.
+
+        The new run is a new run in every other respect, and goes through
+        everything `POST /runs` goes through: the platform's switch, the limits,
+        the permission to run tests, the verification of the target, the hours it
+        accepts load, and the ceilings it was declared with. An environment that
+        has been lowered or revoked since is a reason to lower the load or to
+        refuse; repeating a run is no way round it. What the response carries is
+        what will be executed, which may be less than the earlier run asked for.
+
+        Two things are not frozen and are therefore today's: the thresholds, which
+        belong to the scenario and not to a version of it, and the environment's
+        secrets.
+
+        The journal's `run.queued` entry carries `rerun_of`, the run repeated.
+      operationId: rerunRun
+      x-ballast-permission: run_test
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnqueueRunResponse"
+        "400":
+          description: |
+            The id is not a UUID, or the earlier run's load no longer describes a
+            runnable test.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: |
+            The caller may read the run and may not run tests in its project, the
+            environment is no longer verified, or its allowed window does not have
+            room for the run. The attempt is logged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          description: A limit was reached, as for `POST /runs`.
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again, when it is known.
+              required: false
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: This installation is not accepting new runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /runs/{id}/logs:
     get:
       tags: [runs]
@@ -2750,6 +2829,9 @@ components:
           minimum: 1
           description: How the run is spoken of within its project, #1482. Never reused.
         project_id: { type: string, format: uuid }
+        triggered_by:
+          type: string
+          description: The name of who started the run. Absent when nobody did, or when the person has since been removed.
         scenario_id: { type: string, format: uuid }
         environment_id: { type: string, format: uuid }
         scenario_version:

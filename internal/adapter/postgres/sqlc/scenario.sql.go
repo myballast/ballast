@@ -103,6 +103,34 @@ func (q *Queries) DeleteThreshold(ctx context.Context, arg DeleteThresholdParams
 	return result.RowsAffected(), nil
 }
 
+const getScenarioVersion = `-- name: GetScenarioVersion :one
+SELECT org_id, scenario_id, version, script, default_profile, default_profile_params, created_by, created_at FROM scenario_version
+WHERE org_id = $1 AND scenario_id = $2 AND version = $3
+`
+
+type GetScenarioVersionParams struct {
+	OrgID      uuid.UUID
+	ScenarioID uuid.UUID
+	Version    int32
+}
+
+// One version, as it was written. What a run executes: the version it froze.
+func (q *Queries) GetScenarioVersion(ctx context.Context, arg GetScenarioVersionParams) (ScenarioVersion, error) {
+	row := q.db.QueryRow(ctx, getScenarioVersion, arg.OrgID, arg.ScenarioID, arg.Version)
+	var i ScenarioVersion
+	err := row.Scan(
+		&i.OrgID,
+		&i.ScenarioID,
+		&i.Version,
+		&i.Script,
+		&i.DefaultProfile,
+		&i.DefaultProfileParams,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertScenario = `-- name: InsertScenario :one
 
 INSERT INTO scenario

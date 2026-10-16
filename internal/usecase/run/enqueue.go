@@ -25,26 +25,32 @@ type EnqueueCommand struct {
 	Params *domain.ProfileParams
 }
 
-// Enqueue accepts a run and leaves it waiting for a worker.
-func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, error) {
+// admit is what stands before every way of asking for a run, and reads nothing
+// of what is asked: the platform's switch, and the caller's limits.
+func (s *Service) admit(ctx context.Context, actor domain.Identity) error {
 	// The platform's switch, before anything is read. During an incident the
 	// answer does not depend on the request, so nothing about the request is
 	// looked at — and nothing is written.
 	if !s.accepting {
 		s.log.WarnContext(ctx, "run refused: this installation is not accepting new runs",
-			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID)
+			"org_id", actor.OrgID, "user_id", actor.UserID)
 		// No project: nothing about the request was read, because during an
 		// incident the answer does not depend on it. The entry belongs to the
 		// organization, and every project's journal shows it.
-		s.record(ctx, refused(cmd.Actor,
+		s.record(ctx, refused(actor,
 			"this installation is not accepting new runs", s.clock.Now()))
-		return domain.Run{}, domain.ErrRunsSuspended
+		return domain.ErrRunsSuspended
 	}
 
 	// Before the scenario is even read. Somebody past their limit is past it
 	// whatever they were about to ask for, and the limits are the last thing
 	// standing between an installation and a loop.
-	if err := s.withinLimits(ctx, cmd.Actor); err != nil {
+	return s.withinLimits(ctx, actor)
+}
+
+// Enqueue accepts a run and leaves it waiting for a worker.
+func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, error) {
+	if err := s.admit(ctx, cmd.Actor); err != nil {
 		return domain.Run{}, err
 	}
 
@@ -78,7 +84,28 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		return domain.Run{}, domain.ErrForbidden
 	}
 
-	environment, err := s.envs.EnvironmentByID(ctx, cmd.Actor.OrgID, cmd.EnvironmentID)
+	return s.queue(ctx, cmd.Actor, scenario, cmd.EnvironmentID, cmd.Profile, params, nil)
+}
+
+// queue is what every way of asking for a run has in common once the scenario
+// is known and the caller may run tests in its project: the environment is
+// read, has to belong to the same project, has to be verified, the load is
+// clamped to its ceilings, the hours it accepts load are checked, and the run is
+// written.
+//
+// scenario carries the version the run is to freeze: the one it is, for a run
+// asked for today, and the one an earlier run froze, for a run that repeats it.
+// rerunOf is that earlier run, or nil.
+func (s *Service) queue(
+	ctx context.Context,
+	actor domain.Identity,
+	scenario domain.Scenario,
+	environmentID uuid.UUID,
+	profile domain.ProfileKind,
+	params domain.ProfileParams,
+	rerunOf *uuid.UUID,
+) (domain.Run, error) {
+	environment, err := s.envs.EnvironmentByID(ctx, actor.OrgID, environmentID)
 	if err != nil {
 		return domain.Run{}, err
 	}
@@ -88,7 +115,7 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	// and a run that mixes two is a run against a target the scenario's project
 	// was never allowed to reach.
 	if err := domain.RequireSameProject(scenario.ProjectID, environment.ProjectID); err != nil {
-		s.record(ctx, refused(cmd.Actor,
+		s.record(ctx, refused(actor,
 			"the scenario and the environment belong to different projects", s.clock.Now()).
 			InProject(scenario.ProjectID))
 		return domain.Run{}, err
@@ -99,14 +126,14 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	// that leads to a run.
 	if !environment.IsVerified() {
 		s.log.WarnContext(ctx, "run refused against an unverified target",
-			"org_id", cmd.Actor.OrgID,
+			"org_id", actor.OrgID,
 			"environment_id", environment.ID,
 			"verification_status", environment.VerificationStatus,
 		)
 		// The refusal the whole product rests on, and the entry a pilot is
 		// measured by: somebody tried to send load at a host nobody proved
 		// they own.
-		s.record(ctx, refused(cmd.Actor,
+		s.record(ctx, refused(actor,
 			"the target environment has not been verified", s.clock.Now()).
 			InProject(scenario.ProjectID).
 			With("environment_id", environment.ID.String()))
@@ -129,13 +156,13 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	runFor := time.Duration(params.TotalDuration()) * time.Second
 	if err := environment.RequireWindowAllows(now, runFor); err != nil {
 		s.log.InfoContext(ctx, "run refused by the target's window",
-			"org_id", cmd.Actor.OrgID,
+			"org_id", actor.OrgID,
 			"environment_id", environment.ID,
 			"at", now,
 			"duration_s", params.TotalDuration(),
 			"reason", err.Error(),
 		)
-		s.record(ctx, refused(cmd.Actor,
+		s.record(ctx, refused(actor,
 			"the target accepts no load at this hour", now).
 			InProject(scenario.ProjectID).
 			With("environment_id", environment.ID.String()).
@@ -144,30 +171,106 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	}
 
 	created, err := s.runs.Create(ctx, domain.NewRun(
-		cmd.Actor.OrgID, scenario, environment, cmd.Profile, params, &cmd.Actor.UserID,
+		actor.OrgID, scenario, environment, profile, params, &actor.UserID,
 	))
 	if err != nil {
 		return domain.Run{}, err
 	}
 
-	s.record(ctx, domain.Allow(
-		cmd.Actor.OrgID, &cmd.Actor.UserID, domain.ActionRunQueued, domain.TargetRun, now,
+	queued := domain.Allow(
+		actor.OrgID, &actor.UserID, domain.ActionRunQueued, domain.TargetRun, now,
 	).InProject(scenario.ProjectID).On(created.ID).
 		With("environment_id", environment.ID.String()).
-		With("profile", string(cmd.Profile)).
+		With("profile", string(profile)).
 		With("target_vus", strconv.Itoa(params.TargetVUs)).
-		With("duration_s", strconv.Itoa(params.TotalDuration())))
+		With("duration_s", strconv.Itoa(params.TotalDuration()))
+	if rerunOf != nil {
+		// Which run this one repeats: an identifier, chosen by this code.
+		queued = queued.With("rerun_of", rerunOf.String())
+	}
+	s.record(ctx, queued)
 
 	s.log.InfoContext(ctx, "run queued",
 		"run_id", created.ID,
 		"scenario_id", scenario.ID,
 		"environment_id", environment.ID,
-		"profile", cmd.Profile,
+		"profile", profile,
 		"target_vus", params.TargetVUs,
 		"duration_s", params.TotalDuration(),
 	)
 
 	return created, nil
+}
+
+// Rerun queues a run again: the same scenario at the same version, the same
+// profile and parameters, against the same environment — all read from the run
+// being repeated, and none from what the scenario or its defaults are today.
+//
+// It is a new run in every other respect, and goes through everything a new run
+// goes through. The platform's switch, the limits, the permission to run tests,
+// the verification of the target, the hours it accepts load and the ceilings it
+// was declared with all apply: an environment that has been lowered or revoked
+// since is a reason to refuse or to lower the load, and repeating a run is no
+// way round that.
+//
+// Somebody who may not see the run is told it is not there, as for reading it.
+// Somebody who may see it and not run tests in its project is refused, and the
+// attempt is recorded.
+func (s *Service) Rerun(ctx context.Context, actor domain.Identity, runID uuid.UUID) (domain.Run, error) {
+	if err := s.admit(ctx, actor); err != nil {
+		return domain.Run{}, err
+	}
+
+	source, err := s.runs.ByID(ctx, actor.OrgID, runID)
+	if err != nil {
+		return domain.Run{}, err
+	}
+
+	visible, err := s.authz.Can(ctx, actor, domain.PermViewProject, source.ProjectID)
+	if err != nil {
+		return domain.Run{}, err
+	}
+	if !visible {
+		s.log.InfoContext(ctx, "run hidden for want of permission",
+			"org_id", actor.OrgID, "user_id", actor.UserID, "project_id", source.ProjectID, "run_id", runID)
+		return domain.Run{}, domain.ErrNotFound
+	}
+
+	allowed, err := s.authz.Can(ctx, actor, domain.PermRunTest, source.ProjectID)
+	if err != nil {
+		return domain.Run{}, err
+	}
+	if !allowed {
+		s.log.InfoContext(ctx, "run refused for want of permission",
+			"org_id", actor.OrgID, "user_id", actor.UserID,
+			"project_id", source.ProjectID, "run_id", runID)
+		s.record(ctx, refused(actor,
+			"the caller may not run tests in this project", s.clock.Now()).
+			InProject(source.ProjectID))
+		return domain.Run{}, domain.ErrForbidden
+	}
+
+	scenario := domain.Scenario{ID: source.ScenarioID, ProjectID: source.ProjectID, Version: source.ScenarioVersion}
+	return s.queue(ctx, actor, scenario, source.EnvironmentID, source.Profile, source.ProfileParams, &source.ID)
+}
+
+// Detail is a run, what it measured, and who started it: what the page of a run
+// is made of. The same rules as ByID apply, since it is ByID.
+func (s *Service) Detail(
+	ctx context.Context, who domain.Identity, id uuid.UUID,
+) (Listed, domain.RunResults, error) {
+	found, results, err := s.ByID(ctx, who, id)
+	if err != nil {
+		return Listed{}, domain.RunResults{}, err
+	}
+
+	detail := Listed{Run: found}
+	if found.TriggeredBy != nil {
+		if detail.TriggeredByName, err = s.runs.UserName(ctx, who.OrgID, *found.TriggeredBy); err != nil {
+			return Listed{}, domain.RunResults{}, err
+		}
+	}
+	return detail, results, nil
 }
 
 // ByID returns a run and what it measured.

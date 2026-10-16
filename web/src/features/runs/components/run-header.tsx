@@ -1,100 +1,94 @@
 import { Hourglass } from "lucide-react";
-import Link from "next/link";
 
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { formatClock, formatDuration } from "@/lib/format";
 import { can } from "@/lib/permissions";
 
 import type { RunContext } from "../detail";
 import { stoppable, type Run } from "../types";
 import { CancelRun } from "./cancel-run";
-import { RunStatusBadge } from "./run-status-badge";
+import { RerunRun } from "./rerun-run";
+import { RunStatusBadge, RunStatusIcon } from "./run-status-badge";
 
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <dt className="text-[11px] tracking-wider text-muted-foreground uppercase">{label}</dt>
-      <dd className="text-sm">{children}</dd>
-    </div>
-  );
+// The facts of the run in the monospace face the design uses for them, in the
+// order a person reading a failed run asks them: which run, who, when, how long.
+function facts(run: Run, now: Date): string[] {
+  const parts = [`run #${run.number}`];
+
+  if (run.triggered_by) parts.push(`triggered by ${run.triggered_by}`);
+  if (run.started_at) {
+    parts.push(`started ${formatClock(run.started_at, now)}`);
+  } else {
+    parts.push(`queued ${formatClock(run.created_at, now)}`);
+  }
+  if (run.ended_at) {
+    parts.push(`finished ${formatClock(run.ended_at, now)}`);
+    parts.push(formatDuration(run.started_at, run.ended_at));
+  }
+  return parts;
 }
 
-// RunHeader says what was run: the scenario version it executed, against
-// which environment, with which load. Everything here that describes the
-// execution is read from the run or from that version, both frozen.
-export function RunHeader({ run, context }: { run: Run; context: RunContext }) {
+// RunHeader says which run this is: the scenario it ran and how it ended, who
+// started it and when, what it was run against, and what can be done with it —
+// repeat it, or stop it while it is under way. Everything that describes the
+// execution is read from the run or from the scenario version it names, both
+// frozen.
+export function RunHeader({ run, context, now }: { run: Run; context: RunContext; now: Date }) {
   const { project, scenario, environment, access } = context;
   const p = run.params;
-  const total = p.ramp_up_s + p.plateau_s + p.ramp_down_s;
-  const newer = scenario && scenario.version !== run.scenario_version;
+  const stoppableNow = stoppable.includes(run.status);
+
+  const pills = [
+    { k: "application", v: project.name },
+    { k: "tool", v: "k6" },
+    { k: "profile", v: run.profile },
+    { k: "target", v: environment?.name ?? "Deleted environment" },
+    { k: "vus", v: String(p.target_vus) },
+  ];
 
   return (
-    <header className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-normal tracking-tight">Run <span className="num">#{run.number}</span></h1>
-            <RunStatusBadge status={run.status} />
-          </div>
-          <span className="data text-xs break-all text-muted-foreground">{run.id}</span>
-        </div>
+    <header className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+        <RunStatusIcon status={run.status} />
+        <h1 className="text-3xl font-normal tracking-tight">{scenario?.name ?? "Deleted scenario"}</h1>
+        <RunStatusBadge status={run.status} />
 
-        {/* Hidden from whoever cannot stop it; the API refuses them anyway. */}
-        {stoppable.includes(run.status) && !run.cancel_requested_at && can(access, "cancel_run") && (
-          <CancelRun runId={run.id} running={run.status === "running"} />
-        )}
+        {/* Hidden from whoever cannot use them; the API refuses them anyway. */}
+        <div className="ml-auto flex flex-wrap items-start gap-2">
+          {!stoppableNow && can(access, "run_test") && (
+            <RerunRun
+              runId={run.id}
+              scenario={scenario?.name ?? "this scenario"}
+              version={run.scenario_version}
+              profile={run.profile}
+              load={`${p.target_vus} VUs · ${p.ramp_up_s}s / ${p.plateau_s}s / ${p.ramp_down_s}s`}
+            />
+          )}
+          {stoppableNow && !run.cancel_requested_at && can(access, "cancel_run") && (
+            <CancelRun runId={run.id} running={run.status === "running"} />
+          )}
+        </div>
       </div>
 
-      {run.cancel_requested_at && stoppable.includes(run.status) && (
+      <p className="data text-[11.5px] leading-relaxed text-muted-foreground">{facts(run, now).join(" · ")}</p>
+
+      <ul className="flex flex-wrap gap-1.5">
+        {pills.map((pill) => (
+          <li key={pill.k} className="data flex gap-1.5 rounded-md border px-2 py-0.5 text-[11px]">
+            <span className="text-muted-foreground">{pill.k}:</span>
+            <span>{pill.v}</span>
+          </li>
+        ))}
+      </ul>
+
+      {run.cancel_requested_at && stoppableNow && (
         <p className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">
           <Hourglass aria-hidden className="size-4 shrink-0" />
           <span>
-            Stop requested at <span className="num">{formatDateTime(run.cancel_requested_at)}</span>. The worker
-            is stopping the load; the run ends as cancelled in a few seconds.
+            Stop requested at <span className="num">{formatClock(run.cancel_requested_at, now)}</span>. The worker is
+            stopping the load; the run ends as cancelled in a few seconds.
           </span>
         </p>
       )}
-
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
-        <Fact label="Project">
-          <Link href={`/projects/${project.id}`} className="hover:underline">
-            {project.name}
-          </Link>
-        </Fact>
-        <Fact label="Scenario">
-          <span>{scenario?.name ?? <span className="data text-xs">{run.scenario_id.slice(0, 8)}</span>}</span>{" "}
-          <span className="data text-xs text-muted-foreground">
-            v{run.scenario_version} executed
-            {newer && ` · now v${scenario.version}`}
-            {!scenario && " · deleted since"}
-          </span>
-        </Fact>
-        <Fact label="Environment">
-          {environment?.name ?? <span className="data text-xs">{run.environment_id.slice(0, 8)}</span>}
-        </Fact>
-        <Fact label="Profile">{run.profile}</Fact>
-        <Fact label="Load">
-          <span className="num">
-            {p.target_vus} VUs · {p.ramp_up_s}s / {p.plateau_s}s / {p.ramp_down_s}s
-          </span>
-          <span className="block text-xs text-muted-foreground">
-            ramp-up / plateau / ramp-down, <span className="num">{total}</span> s in all
-          </span>
-        </Fact>
-        <Fact label="Created">
-          <span className="num">{formatDateTime(run.created_at)}</span>
-        </Fact>
-        <Fact label="Started">
-          <span className="num">{formatDateTime(run.started_at)}</span>
-        </Fact>
-        <Fact label="Finished">
-          <span className="num">{formatDateTime(run.ended_at)}</span>
-          {run.started_at && run.ended_at && (
-            <span className="num block text-xs text-muted-foreground">
-              {formatDuration(run.started_at, run.ended_at)}
-            </span>
-          )}
-        </Fact>
-      </dl>
 
       {run.error_message && (
         <p className="data rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">{run.error_message}</p>

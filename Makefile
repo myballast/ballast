@@ -208,3 +208,7 @@ web/node_modules: web/package-lock.json
 web-lint: web/node_modules ## Lint and type-check the front-end
 	npm --prefix web run lint
 	npm --prefix web run typecheck
+
+.PHONY: web-test
+web-test: web/node_modules ## Run the front-end's unit tests (Node's built-in runner)
+	npm --prefix web run test

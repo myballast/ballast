@@ -51,6 +51,33 @@ func (r *ScenarioRepository) ScenarioByID(
 	return found, err
 }
 
+// ScenarioVersionOf reads one version of a scenario, as it was written. Nothing
+// ever rewrites a version, so this is what the run that froze it executed.
+func (r *ScenarioRepository) ScenarioVersionOf(
+	ctx context.Context, orgID, scenarioID uuid.UUID, version int,
+) (domain.ScenarioVersion, error) {
+	var found domain.ScenarioVersion
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		row, err := sqlc.New(tx).GetScenarioVersion(ctx, sqlc.GetScenarioVersionParams{
+			OrgID:      orgID,
+			ScenarioID: scenarioID,
+			Version:    int32(version), //nolint:gosec // bounded by the schema
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("read the scenario version: %w", err)
+		}
+
+		found, err = toDomainVersion(row)
+		return err
+	})
+
+	return found, err
+}
+
 // ScenarioThresholds reads the rules a scenario imposes on its metrics.
 func (r *ScenarioRepository) ScenarioThresholds(
 	ctx context.Context, orgID, scenarioID uuid.UUID,

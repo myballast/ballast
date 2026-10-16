@@ -44,6 +44,20 @@ export function formatPercent(ratio: number | null): string {
   return `${twoDecimals.format(ratio * 100)} %`;
 }
 
+const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const day = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short" });
+
+// formatClock prints a moment as the time of day, "14:02:11", and puts the day
+// in front of it when it is not today: a bare time of day on a run from last
+// week would read as this morning's. now is passed in, like formatRelative's.
+export function formatClock(iso: string | undefined, now: Date): string {
+  if (!iso) return missing;
+
+  const at = new Date(iso);
+  const sameDay = day.format(at) === day.format(now) && at.getFullYear() === now.getFullYear();
+  return sameDay ? clock.format(at) : `${day.format(at)}, ${clock.format(at)}`;
+}
+
 export function formatDateTime(iso: string | undefined): string {
   if (!iso) return missing;
   return time.format(new Date(iso));
