@@ -99,7 +99,14 @@ export function ProjectOverview({
         </Section>
       </div>
 
-      <Section title="Runs">
+      <Section
+        title="Runs"
+        link={
+          <Link href={`/projects/${project.id}/runs`} className="text-xs text-muted-foreground hover:underline">
+            View all
+          </Link>
+        }
+      >
         <RunHistory projectId={project.id} names={names} first={history} />
       </Section>
     </div>

@@ -30,17 +30,30 @@ export const getRun = cache(async (id: string): Promise<Run | null> => {
   }
 });
 
-export type RunPage = { runs: RunSummary[]; next?: string };
+// next is where the older runs begin and prev where the newer ones do. Both are
+// opaque: the API alone knows what is in them.
+export type RunPage = { runs: RunSummary[]; next?: string; prev?: string };
 
-// getProjectRuns is one page of a project's runs, newest first. before is the
-// next of the previous page; the API alone knows what is in it.
-export async function getProjectRuns(
-  projectId: string,
-  options: { before?: string; limit?: number } = {},
-): Promise<RunPage> {
+export type RunQuery = {
+  limit?: number;
+  // The page of older runs after this cursor (a page's next), or the page of
+  // newer runs before it (a page's prev). At most one.
+  before?: string;
+  after?: string;
+  status?: string;
+  scenarioId?: string;
+  environmentId?: string;
+};
+
+// getProjectRuns is one page of a project's runs, newest first.
+export async function getProjectRuns(projectId: string, options: RunQuery = {}): Promise<RunPage> {
   const query = new URLSearchParams();
   if (options.limit) query.set("limit", String(options.limit));
   if (options.before) query.set("before", options.before);
+  if (options.after) query.set("after", options.after);
+  if (options.status) query.set("status", options.status);
+  if (options.scenarioId) query.set("scenario_id", options.scenarioId);
+  if (options.environmentId) query.set("environment_id", options.environmentId);
   return apiGet<RunPage>(`/projects/${encodeURIComponent(projectId)}/runs?${query}`);
 }
 

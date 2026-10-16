@@ -1373,11 +1373,19 @@ paths:
       summary: List a project's runs
       description: |
         Newest first, a page at a time. Each run says what was executed,
-        against which environment, and how it ended; its metrics and threshold
-        verdicts are read one run at a time, from `GET /runs/{id}`.
+        against which environment, who started it and how it ended, with the
+        two headline numbers of a finished run (`p95_ms`, `error_rate`); its
+        other metrics and its threshold verdicts are read one run at a time,
+        from `GET /runs/{id}`.
 
-        A response with `next` has a following page: pass `next` back as
-        `before`. `limit=1` is how a caller reads a project's last run.
+        The list can be narrowed by `status`, `scenario_id` and
+        `environment_id`, alone or together. A scenario or an environment of
+        another project matches nothing: the list is always of this project.
+
+        Both ways are paged by cursor, never by offset, so a page does not shift
+        when runs arrive: a response with `next` has an older page, pass `next`
+        back as `before`; a response with `prev` has a newer one, pass `prev`
+        back as `after`. `limit=1` is how a caller reads a project's last run.
       operationId: listProjectRuns
       x-ballast-permission: view_project
       parameters:
@@ -1391,12 +1399,36 @@ paths:
             type: integer
             minimum: 1
             default: 20
+        - name: status
+          in: query
+          required: false
+          description: Only the runs in this status.
+          schema:
+            $ref: "#/components/schemas/RunStatus"
+        - name: scenario_id
+          in: query
+          required: false
+          description: Only the runs of this scenario.
+          schema: { type: string, format: uuid }
+        - name: environment_id
+          in: query
+          required: false
+          description: Only the runs against this environment.
+          schema: { type: string, format: uuid }
         - name: before
           in: query
           required: false
           description: |
-            The `next` of the previous page. Opaque: only a value this API
-            handed out is accepted.
+            The `next` of a page: the runs strictly older than it. Opaque: only
+            a value this API handed out is accepted. Not with `after`.
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          description: |
+            The `prev` of a page: the runs strictly newer than it, the page
+            that comes before. Opaque, like `before`. Not with `before`.
           schema:
             type: string
       responses:
@@ -1409,7 +1441,9 @@ paths:
         "400":
           description: |
             The project id is not a UUID, the limit is not a positive whole
-            number, or `before` is not a cursor this API handed out.
+            number, `status` is not a status, `scenario_id` or `environment_id`
+            is not a UUID, `before` or `after` is not a cursor this API handed
+            out, or both of them are given.
           content:
             application/json:
               schema:
@@ -2525,13 +2559,17 @@ components:
             $ref: "#/components/schemas/RunSummary"
         next:
           type: string
-          description: Present when another page follows. Pass it back as `before`.
+          description: Present when an older page follows. Pass it back as `before`.
+        prev:
+          type: string
+          description: Present when a newer page exists. Pass it back as `after`.
 
     RunSummary:
       type: object
       description: A run as a list shows it. No metrics and no verdicts; see `GET /runs/{id}`.
       required:
         - id
+        - number
         - project_id
         - scenario_id
         - environment_id
@@ -2542,6 +2580,10 @@ components:
         - created_at
       properties:
         id: { type: string, format: uuid }
+        number:
+          type: integer
+          minimum: 1
+          description: How the run is spoken of within its project, #1482. Never reused.
         project_id: { type: string, format: uuid }
         scenario_id: { type: string, format: uuid }
         environment_id: { type: string, format: uuid }
@@ -2555,11 +2597,23 @@ components:
         created_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time }
         ended_at: { type: string, format: date-time }
+        triggered_by:
+          type: string
+          description: The name of who started the run. Absent when nobody did, or when the person has since been removed.
+        p95_ms:
+          type: number
+          description: The 95th percentile of the request duration, in milliseconds, as k6 reported it. Absent while the run has no results.
+        error_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: The share of requests that failed, as a ratio. Absent while the run has no results.
 
     RunResponse:
       type: object
       required:
         - id
+        - number
         - project_id
         - scenario_id
         - environment_id
@@ -2572,6 +2626,10 @@ components:
         - thresholds
       properties:
         id: { type: string, format: uuid }
+        number:
+          type: integer
+          minimum: 1
+          description: How the run is spoken of within its project, #1482. Never reused.
         project_id: { type: string, format: uuid }
         scenario_id: { type: string, format: uuid }
         environment_id: { type: string, format: uuid }

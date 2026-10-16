@@ -2,7 +2,6 @@ import { findAccess, findProject } from "@/features/projects/api";
 import { getEnvironments } from "@/features/environments/api";
 import { getRun } from "@/features/runs/api";
 import { getScenarios } from "@/features/scenarios/api";
-import { formatDateTime } from "@/lib/format";
 import { can } from "@/lib/permissions";
 
 import type { ShellScope } from "./types";
@@ -35,8 +34,7 @@ export async function loadProjectScope(projectId: string): Promise<ShellScope | 
 // loadRunScope is the shell of a run's page. The address of a run carries no
 // project, so the run is read to find it: a run knows its project.
 //
-// A run has no number of its own, so it is named by its scenario and the
-// moment it was queued.
+// A run is named by its number within the project: Run #1482.
 export async function loadRunScope(runId: string): Promise<ShellScope | null> {
   const run = await getRun(runId);
   if (!run) return null;
@@ -44,9 +42,8 @@ export async function loadRunScope(runId: string): Promise<ShellScope | null> {
   const scope = await loadProjectScope(run.project_id);
   if (!scope) return null;
 
-  const scenario = scope.names.scenarios[run.scenario_id] ?? "Run";
   return {
     ...scope,
-    names: { ...scope.names, run: { id: run.id, label: `${scenario}, ${formatDateTime(run.created_at)}` } },
+    names: { ...scope.names, run: { id: run.id, label: `Run #${run.number}` } },
   };
 }

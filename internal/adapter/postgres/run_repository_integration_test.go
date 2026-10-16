@@ -253,7 +253,7 @@ func TestRunRepositoryListsAProjectsRuns(t *testing.T) {
 		created = append(created, run)
 	}
 
-	got, err := runs.InProject(ctx, org, scenario.ProjectID, nil, 2)
+	got, err := runs.InProject(ctx, org, scenario.ProjectID, run.Filter{}, run.Window{}, 2)
 	if err != nil {
 		t.Fatalf("InProject: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestRunRepositoryListsAProjectsRuns(t *testing.T) {
 		t.Fatalf("InProject(limit 2) returned %v, want the two newest, newest first", ids(got))
 	}
 
-	other, err := runs.InProject(ctx, org, uuid.New(), nil, 10)
+	other, err := runs.InProject(ctx, org, uuid.New(), run.Filter{}, run.Window{}, 10)
 	if err != nil {
 		t.Fatalf("InProject on another project: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestRunRepositoryListsAProjectsRuns(t *testing.T) {
 	// organization, and row-level security hides the rest.
 	stranger := uuid.New()
 	seedProject(ctx, t, db, stranger)
-	leaked, err := runs.InProject(ctx, stranger, scenario.ProjectID, nil, 10)
+	leaked, err := runs.InProject(ctx, stranger, scenario.ProjectID, run.Filter{}, run.Window{}, 10)
 	if err != nil {
 		t.Fatalf("InProject from another organization: %v", err)
 	}
@@ -318,11 +318,11 @@ func TestRunRepositoryPagesThroughEveryRunOnce(t *testing.T) {
 	}
 
 	var (
-		seen   []domain.Run
+		seen   []run.Listed
 		before *run.Cursor
 	)
 	for page := 0; page < 10; page++ {
-		got, err := runs.InProject(ctx, org, scenario.ProjectID, before, 2)
+		got, err := runs.InProject(ctx, org, scenario.ProjectID, run.Filter{}, run.Window{Before: before}, 2)
 		if err != nil {
 			t.Fatalf("InProject: %v", err)
 		}
@@ -351,7 +351,7 @@ func TestRunRepositoryPagesThroughEveryRunOnce(t *testing.T) {
 	}
 }
 
-func ids(runs []domain.Run) []uuid.UUID {
+func ids(runs []run.Listed) []uuid.UUID {
 	out := make([]uuid.UUID, 0, len(runs))
 	for _, r := range runs {
 		out = append(out, r.ID)

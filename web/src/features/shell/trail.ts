@@ -1,7 +1,7 @@
 import type { ShellScope } from "./types";
 
 // One step of the breadcrumb. A step without an href is not a page of its own
-// — the organization, or Runs until its screen exists — and is only said.
+// — the organization — and is only said.
 export type Crumb = { label: string; href?: string };
 
 // buildTrail reads the breadcrumb from the address: the organization, the
@@ -28,7 +28,7 @@ export function buildTrail(pathname: string, organization: string, scope: ShellS
   trail.push({ label: scope.project.name, href: base });
 
   if (onRun) {
-    return [...trail, { label: "Runs" }, { label: scope.names.run?.label ?? "Run", href: pathname }];
+    return [...trail, { label: "Runs", href: `${base}/runs` }, { label: scope.names.run?.label ?? "Run", href: pathname }];
   }
 
   const [section, item, action] = segments.slice(2);
@@ -47,8 +47,7 @@ export function buildTrail(pathname: string, organization: string, scope: ShellS
       break;
     }
     case "runs":
-      // The list of runs is T35: until then this is a step, not a page.
-      trail.push({ label: "Runs" });
+      trail.push({ label: "Runs", href: `${base}/runs` });
       if (item === "new") trail.push({ label: "New run" });
       break;
   }

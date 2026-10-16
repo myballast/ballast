@@ -13,8 +13,12 @@ import (
 // were clamped to the environment's ceilings. Editing a scenario afterwards
 // must never change what a past run says it did.
 type Run struct {
-	ID              uuid.UUID
-	OrgID           uuid.UUID
+	ID    uuid.UUID
+	OrgID uuid.UUID
+	// Number is how the run is spoken of within its project: #1482. Given by the
+	// project's counter in the transaction that writes the run, never reused,
+	// and zero only on a run not yet written.
+	Number          int
 	ProjectID       uuid.UUID
 	ScenarioID      uuid.UUID
 	EnvironmentID   uuid.UUID

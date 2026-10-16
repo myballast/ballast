@@ -13,6 +13,20 @@ export type RunStatus =
   | "skipped"
   | "orphaned";
 
+// Every status, in the order the lifecycle reads: the options of a filter.
+export const runStatuses: RunStatus[] = [
+  "queued",
+  "running",
+  "passed",
+  "failed",
+  "errored",
+  "timeout",
+  "cancelled",
+  "rejected",
+  "skipped",
+  "orphaned",
+];
+
 export type ProfileKind = "smoke" | "load" | "stress" | "spike" | "soak";
 
 export const profileKinds: ProfileKind[] = ["smoke", "load", "stress", "spike", "soak"];
@@ -42,6 +56,8 @@ export type Threshold = {
 
 export type Run = {
   id: string;
+  // How the run is spoken of within its project: #1482. Never reused.
+  number: number;
   project_id: string;
   scenario_id: string;
   environment_id: string;
@@ -73,6 +89,7 @@ export type LogLine = {
 // A run as GET /projects/{projectId}/runs lists it: no metrics, no verdicts.
 export type RunSummary = {
   id: string;
+  number: number;
   project_id: string;
   scenario_id: string;
   environment_id: string;
@@ -83,4 +100,11 @@ export type RunSummary = {
   created_at: string;
   started_at?: string;
   ended_at?: string;
+  // Who started it, by name. Absent when nobody did.
+  triggered_by?: string;
+  // The headline numbers of a finished run, as k6 reported them: the 95th
+  // percentile of the request duration in ms, and the share of failed
+  // requests as a ratio. Absent while the run has no results.
+  p95_ms?: number;
+  error_rate?: number;
 };

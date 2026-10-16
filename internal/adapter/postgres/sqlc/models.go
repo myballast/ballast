@@ -76,11 +76,12 @@ type Organization struct {
 }
 
 type Project struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Name      string
-	Slug      string
-	CreatedAt time.Time
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	Name       string
+	Slug       string
+	CreatedAt  time.Time
+	RunCounter int32
 }
 
 type ProjectAllowedHost struct {
@@ -114,6 +115,7 @@ type Run struct {
 	DataSentBytes     int64
 	DataReceivedBytes int64
 	TrafficMeasured   bool
+	Number            int32
 }
 
 type RunArtifact struct {

@@ -37,6 +37,12 @@ const statuses: Record<
   orphaned: { label: "Orphaned", icon: TriangleAlert, tone: "warning" },
 };
 
+// The word a status is said with, for a place that has no room for the badge:
+// the options of a filter.
+export function runStatusLabel(status: RunStatus): string {
+  return statuses[status].label;
+}
+
 export function RunStatusBadge({ status }: { status: RunStatus }) {
   const { label, icon, tone, spin } = statuses[status];
   return <StatusBadge tone={tone} icon={icon} label={label} spin={spin} />;

@@ -54,3 +54,50 @@ func TestCursorRefusesWhatItDidNotWrite(t *testing.T) {
 		}
 	}
 }
+
+func TestListQueryReadsTheFiltersAndTheWindow(t *testing.T) {
+	scenario, environment := uuid.New(), uuid.New()
+	cursor := run.Cursor{CreatedAt: time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC), ID: uuid.New()}
+
+	query, err := listQuery(httptest.NewRequest("GET",
+		"/projects/x/runs?status=failed&scenario_id="+scenario.String()+"&environment_id="+environment.String()+
+			"&limit=25&after="+encodeCursor(cursor), nil))
+	if err != nil {
+		t.Fatalf("listQuery: %v", err)
+	}
+
+	if query.Filter.Status != "failed" || query.Limit != 25 {
+		t.Errorf("status %q limit %d", query.Filter.Status, query.Limit)
+	}
+	if query.Filter.ScenarioID == nil || *query.Filter.ScenarioID != scenario ||
+		query.Filter.EnvironmentID == nil || *query.Filter.EnvironmentID != environment {
+		t.Errorf("filter %+v", query.Filter)
+	}
+	if query.Window.Before != nil || query.Window.After == nil || query.Window.After.ID != cursor.ID {
+		t.Errorf("window %+v, want only after", query.Window)
+	}
+}
+
+func TestListQueryWithNothingAsksForEverything(t *testing.T) {
+	query, err := listQuery(httptest.NewRequest("GET", "/projects/x/runs", nil))
+	if err != nil {
+		t.Fatalf("listQuery: %v", err)
+	}
+	if query.Filter.Status != "" || query.Filter.ScenarioID != nil || query.Filter.EnvironmentID != nil ||
+		query.Window.Before != nil || query.Window.After != nil {
+		t.Errorf("an empty query asked for %+v", query)
+	}
+}
+
+func TestListQueryRefusesWhatIsNotAnIdOrACursor(t *testing.T) {
+	for _, q := range []string{
+		"?scenario_id=checkout",
+		"?environment_id=1234",
+		"?before=not-a-cursor",
+		"?after=not-a-cursor",
+	} {
+		if _, err := listQuery(httptest.NewRequest("GET", "/projects/x/runs"+q, nil)); err == nil {
+			t.Errorf("%q was accepted", q)
+		}
+	}
+}
