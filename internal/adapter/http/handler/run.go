@@ -397,6 +397,45 @@ func listQuery(r *http.Request) (run.ListQuery, error) {
 	return query, nil
 }
 
+// Stats handles the figures of a project over its last days.
+func (h *Run) Stats(w http.ResponseWriter, r *http.Request) {
+	who, projectID, ok := projectRequest(w, r)
+	if !ok {
+		return
+	}
+
+	days := 0
+	if raw := r.URL.Query().Get("days"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			writeError(w, http.StatusBadRequest, "days must be a positive whole number")
+			return
+		}
+		days = parsed
+	}
+
+	stats, err := h.runs.ProjectStats(r.Context(), who, projectID, days)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.ProjectStatsResponse{
+		Days:         stats.Days,
+		From:         stats.Current.From,
+		To:           stats.Current.To,
+		PassRate:     measureOf(stats.PassRate),
+		FailedRuns:   measureOf(stats.FailedRuns),
+		TotalRuns:    measureOf(stats.TotalRuns),
+		AvgDurationS: measureOf(stats.AvgDurationS),
+		P95Ms:        measureOf(stats.P95Ms),
+	})
+}
+
+func measureOf(m domain.Measure) dto.StatsMeasure {
+	return dto.StatsMeasure{Value: m.Value, Previous: m.Previous, Change: m.Change, Series: m.Series}
+}
+
 // listLimit reads ?limit=. Absent means the default; the service bounds what
 // is given, so only something that is not a number is refused here.
 func listLimit(r *http.Request) (int, error) {

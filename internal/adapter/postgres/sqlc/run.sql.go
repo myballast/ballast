@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const acquireEnvironmentLock = `-- name: AcquireEnvironmentLock :one
@@ -1186,6 +1187,87 @@ func (q *Queries) OrphanStaleRuns(ctx context.Context, arg OrphanStaleRunsParams
 			&i.DataReceivedBytes,
 			&i.TrafficMeasured,
 			&i.Number,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectDailyStats = `-- name: ProjectDailyStats :many
+SELECT (r.created_at AT TIME ZONE 'UTC')::date AS day,
+       count(*)::int AS total,
+       count(*) FILTER (WHERE r.status = 'passed')::int AS passed,
+       count(*) FILTER (WHERE r.status IN ('failed', 'errored', 'timeout'))::int AS failed,
+       COALESCE(sum(EXTRACT(EPOCH FROM (r.ended_at - r.started_at)))
+           FILTER (WHERE r.status IN ('passed', 'failed', 'errored', 'timeout')
+                     AND r.started_at IS NOT NULL AND r.ended_at IS NOT NULL), 0)::float8 AS duration_sum_s,
+       count(*) FILTER (WHERE r.status IN ('passed', 'failed', 'errored', 'timeout')
+                          AND r.started_at IS NOT NULL AND r.ended_at IS NOT NULL)::int AS duration_runs,
+       COALESCE(sum(m.value), 0)::float8 AS p95_sum,
+       count(m.value)::int AS p95_runs
+FROM run r
+LEFT JOIN run_metric m ON m.org_id = r.org_id AND m.run_id = r.id
+    AND m.name = 'http_req_duration' AND m.stat = 'p(95)' AND m.tag_name = ''
+WHERE r.org_id = $1 AND r.project_id = $2
+  AND r.created_at >= $3 AND r.created_at < $4
+GROUP BY 1
+ORDER BY 1
+`
+
+type ProjectDailyStatsParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	FromAt    time.Time
+	ToAt      time.Time
+}
+
+type ProjectDailyStatsRow struct {
+	Day          pgtype.Date
+	Total        int32
+	Passed       int32
+	Failed       int32
+	DurationSumS float64
+	DurationRuns int32
+	P95Sum       float64
+	P95Runs      int32
+}
+
+// What a project's runs add up to, a row per UTC day, for the page's figures.
+//
+// The sums and the counts, not the averages: a window is the sum of its days,
+// and an average of averages is not the average. A day with no run has no row.
+//
+// Only a run that ended with a verdict has a duration worth averaging, and only
+// a run that finished measuring has a p95; the whole run's, not a tagged one's.
+// The join to run_metric is on its unique key, so it adds no run twice.
+func (q *Queries) ProjectDailyStats(ctx context.Context, arg ProjectDailyStatsParams) ([]ProjectDailyStatsRow, error) {
+	rows, err := q.db.Query(ctx, projectDailyStats,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.FromAt,
+		arg.ToAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectDailyStatsRow{}
+	for rows.Next() {
+		var i ProjectDailyStatsRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.Total,
+			&i.Passed,
+			&i.Failed,
+			&i.DurationSumS,
+			&i.DurationRuns,
+			&i.P95Sum,
+			&i.P95Runs,
 		); err != nil {
 			return nil, err
 		}

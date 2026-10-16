@@ -1,10 +1,18 @@
 import { ApiError } from "@/lib/api-client";
-import { formatCount, formatDateTime, formatDuration, formatMs, formatPercent, missing } from "@/lib/format";
+import {
+  formatCount,
+  formatDateTime,
+  formatDuration,
+  formatMs,
+  formatPercent,
+  formatRelative,
+  missing,
+} from "@/lib/format";
 import { getEnvironments } from "@/features/environments/api";
 import { getScenarios } from "@/features/scenarios/api";
 
 import { getProjectRuns } from "./api";
-import { runStatuses, type RunStatus } from "./types";
+import { runStatuses, type RunStatus, type RunSummary } from "./types";
 
 // How many runs a page of the list holds.
 export const pageSize = 25;
@@ -19,6 +27,8 @@ export type RunRow = {
   number: number;
   status: RunStatus;
   createdAt: string;
+  // How long ago it was queued, for a place with room for one phrase.
+  ago: string;
   scenario: string;
   environment: string;
   triggeredBy: string;
@@ -91,9 +101,6 @@ export async function loadRunsPage(projectId: string, params: SearchParams): Pro
     inHistory = false;
   }
 
-  const scenarioNames = new Map(scenarios.map((s) => [s.id, s.name]));
-  const environmentNames = new Map(environments.map((e) => [e.id, e.name]));
-
   return {
     filters,
     inHistory,
@@ -101,22 +108,37 @@ export async function loadRunsPage(projectId: string, params: SearchParams): Pro
     prev: page.prev,
     scenarios: scenarios.map((s) => ({ id: s.id, name: s.name })),
     environments: environments.map((e) => ({ id: e.id, name: e.name })),
-    rows: page.runs.map((run) => ({
-      id: run.id,
-      number: run.number,
-      status: run.status,
-      createdAt: formatDateTime(run.created_at),
-      // A scenario or an environment deleted since keeps its run in the
-      // history; its name is gone, and an identifier would say nothing.
-      scenario: scenarioNames.get(run.scenario_id) ?? "Deleted scenario",
-      environment: environmentNames.get(run.environment_id) ?? "Deleted environment",
-      triggeredBy: run.triggered_by ?? missing,
-      p95: formatMs(run.p95_ms ?? null),
-      errors: formatPercent(run.error_rate ?? null),
-      vus: formatCount(run.params.target_vus),
-      duration: formatDuration(run.started_at, run.ended_at),
-    })),
+    rows: runRows(page.runs, scenarios, environments, new Date()),
   };
+}
+
+// runRows puts runs into the words a table or a banner shows them in. The names
+// are looked up in what the page already read: a scenario or an environment
+// deleted since keeps its run in the history, and its name is gone — an
+// identifier would say nothing, so the row says what happened to it.
+export function runRows(
+  runs: RunSummary[],
+  scenarios: Option[],
+  environments: Option[],
+  now: Date,
+): RunRow[] {
+  const scenarioNames = new Map(scenarios.map((s) => [s.id, s.name]));
+  const environmentNames = new Map(environments.map((e) => [e.id, e.name]));
+
+  return runs.map((run) => ({
+    id: run.id,
+    number: run.number,
+    status: run.status,
+    createdAt: formatDateTime(run.created_at),
+    ago: formatRelative(run.created_at, now),
+    scenario: scenarioNames.get(run.scenario_id) ?? "Deleted scenario",
+    environment: environmentNames.get(run.environment_id) ?? "Deleted environment",
+    triggeredBy: run.triggered_by ?? missing,
+    p95: formatMs(run.p95_ms ?? null),
+    errors: formatPercent(run.error_rate ?? null),
+    vus: formatCount(run.params.target_vus),
+    duration: formatDuration(run.started_at, run.ended_at),
+  }));
 }
 
 // runsHref is the address of the list with these filters and, if given, a

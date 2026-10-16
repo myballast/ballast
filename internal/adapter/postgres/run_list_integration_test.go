@@ -4,6 +4,7 @@ package postgres_test
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -560,4 +561,135 @@ func TestARunInsertedByHandIsNumberedAllTheSame(t *testing.T) {
 	if len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Errorf("runs inserted by hand were numbered %v, want 1 then 2", got)
 	}
+}
+
+// The figures of the project's page are the runs of its list, added up: written
+// down from a project whose runs are known, worked out by hand, and checked
+// against the list as well as against the arithmetic.
+func TestTheStatsAreTheListedRunsAddedUp(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := openDB(ctx, t)
+	runs := postgres.NewRunRepository(db)
+	org := uuid.New()
+	scenario, environment := seedProject(ctx, t, db, org)
+
+	now := time.Date(2026, 10, 16, 15, 30, 0, 0, time.UTC)
+	at := func(daysAgo int, hour, minute int) time.Time {
+		return time.Date(2026, 10, 16, hour, minute, 0, 0, time.UTC).AddDate(0, 0, -daysAgo)
+	}
+
+	type known struct {
+		daysAgo    int
+		status     string
+		startedMin int // minutes after creation the run started, -1 if it never did
+		lastedS    int // seconds it ran
+		p95        float64
+	}
+	// Today: 1 passed, 1 failed, 1 queued. Yesterday: 1 errored, 1 cancelled.
+	// 31 days ago, so in the window before: 3 passed and 1 timed out. A run 100
+	// days ago, in neither.
+	data := []known{
+		{0, "passed", 0, 60, 400}, {0, "failed", 5, 120, 600}, {0, "queued", -1, 0, 0},
+		{1, "errored", 0, 30, 0}, {1, "cancelled", 0, 10, 0},
+		{31, "passed", 0, 90, 300}, {31, "passed", 0, 90, 300}, {31, "passed", 0, 90, 300}, {31, "timeout", 0, 150, 0},
+		{100, "passed", 0, 60, 100},
+	}
+
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		for i, d := range data {
+			created := at(d.daysAgo, 10, i)
+			id := uuid.New()
+			var started, ended *time.Time
+			if d.startedMin >= 0 {
+				s := created.Add(time.Duration(d.startedMin) * time.Minute)
+				e := s.Add(time.Duration(d.lastedS) * time.Second)
+				started, ended = &s, &e
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO run
+				(id, org_id, project_id, scenario_id, environment_id, scenario_version, profile, status, created_at, started_at, ended_at)
+				VALUES ($1, $2, $3, $4, $5, 1, 'smoke', $6, $7, $8, $9)`,
+				id, org, scenario.ProjectID, scenario.ID, environment.ID, d.status, created, started, ended); err != nil {
+				return err
+			}
+			if d.p95 > 0 {
+				if _, err := tx.Exec(ctx, `INSERT INTO run_metric (org_id, run_id, name, tag_name, stat, value)
+					VALUES ($1, $2, 'http_req_duration', '', 'p(95)', $3)`, org, id, d.p95); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("write the known runs: %v", err)
+	}
+
+	periods := domain.PeriodsOf(now, 30)
+	rows, err := runs.DailyStats(ctx, org, scenario.ProjectID, periods.Previous.From, periods.Current.To)
+	if err != nil {
+		t.Fatalf("DailyStats: %v", err)
+	}
+	stats := domain.SummarizeStats(periods, rows)
+
+	want := func(name string, got *float64, value float64) {
+		t.Helper()
+		if got == nil || math.Abs(*got-value) > 1e-9 {
+			t.Errorf("%s = %v, want %v", name, deref(got), value)
+		}
+	}
+	want("total runs", stats.TotalRuns.Value, 5)
+	want("failed runs", stats.FailedRuns.Value, 2)
+	// One passed of the three that ended with a verdict: the queued and the
+	// cancelled run are not among them.
+	want("pass rate", stats.PassRate.Value, 1.0/3.0)
+	want("average duration", stats.AvgDurationS.Value, 70)
+	want("p95", stats.P95Ms.Value, 500)
+	want("previous total", stats.TotalRuns.Previous, 4)
+	want("total change", stats.TotalRuns.Change, 25)
+	// 3 of 4 passed in the window before: down from 75% to a third.
+	want("pass rate change", stats.PassRate.Change, (1.0/3.0-0.75)*100)
+	want("p95 change", stats.P95Ms.Change, 200)
+
+	// The same figures, rebuilt from the list the page shows next to them.
+	listed, err := runs.InProject(ctx, org, scenario.ProjectID, run.Filter{}, run.Window{}, 50)
+	if err != nil {
+		t.Fatalf("InProject: %v", err)
+	}
+	var total, passed, failed int
+	for _, l := range listed {
+		if l.CreatedAt.Before(periods.Current.From) || !l.CreatedAt.Before(periods.Current.To) {
+			continue
+		}
+		total++
+		switch l.Status {
+		case domain.StatusPassed:
+			passed++
+		case domain.StatusFailed, domain.StatusErrored, domain.StatusTimeout:
+			failed++
+		}
+	}
+	if float64(total) != *stats.TotalRuns.Value || float64(failed) != *stats.FailedRuns.Value ||
+		float64(passed)/float64(passed+failed) != *stats.PassRate.Value {
+		t.Errorf("the list holds %d runs, %d passed, %d failed; the stats say %v, %v, %v",
+			total, passed, failed, deref(stats.TotalRuns.Value), deref(stats.FailedRuns.Value), deref(stats.PassRate.Value))
+	}
+
+	// Another organization, asking for this project's figures, adds up nothing.
+	stranger := uuid.New()
+	seedProject(ctx, t, db, stranger)
+	leaked, err := runs.DailyStats(ctx, stranger, scenario.ProjectID, periods.Previous.From, periods.Current.To)
+	if err != nil {
+		t.Fatalf("DailyStats from another organization: %v", err)
+	}
+	if len(leaked) != 0 {
+		t.Errorf("another organization added up %d days of this project's runs", len(leaked))
+	}
+}
+
+func deref(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

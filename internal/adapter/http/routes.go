@@ -230,6 +230,10 @@ func Routes() []Route {
 			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
 		},
 		{
+			Method: "GET", Path: "/projects/{projectId}/stats",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
 			Method: "GET", Path: "/projects/{projectId}/environments",
 			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
 		},

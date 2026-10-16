@@ -19,10 +19,14 @@ import { ThresholdRules } from "@/features/scenarios/components/threshold-rules"
 import { starterScript } from "@/features/scenarios/template";
 import { VerificationPanel } from "@/features/environments/components/verification-panel";
 import { ProjectCard } from "@/features/projects/components/project-card";
+import { ProjectOverview as ProjectPage } from "@/features/projects/components/project-overview";
+import { ProjectTabs } from "@/features/projects/components/project-tabs";
+import { RecentRun } from "@/features/projects/components/recent-run";
+import { StatTiles } from "@/features/projects/components/stat-tiles";
+import { tilesOf, type ProjectStats, type StatsMeasure } from "@/features/projects/stats";
 import { EndpointMetrics } from "@/features/runs/components/endpoint-metrics";
 import { HttpPhases } from "@/features/runs/components/http-phases";
 import { RunFilterBar } from "@/features/runs/components/run-filters";
-import { RunHistory } from "@/features/runs/components/run-history";
 import { RunsPage } from "@/features/runs/components/runs-page";
 import { RunsTable } from "@/features/runs/components/runs-table";
 import type { RunRow, RunsPage as RunsPageData } from "@/features/runs/list";
@@ -120,6 +124,7 @@ const runRows: RunRow[] = (
   number,
   status,
   createdAt: "16 Oct 2026, 12:51:19",
+  ago: "12 minutes ago",
   scenario,
   environment,
   triggeredBy,
@@ -128,6 +133,47 @@ const runRows: RunRow[] = (
   vus,
   duration,
 }));
+
+const wave = (base: number, amplitude: number, phase: number) =>
+  Array.from({ length: 30 }, (_, i) => base + amplitude * Math.sin(i / 3 + phase));
+
+const measure = (value: number | null, previous: number | null, change: number | null, series: (number | null)[]): StatsMeasure => ({
+  value,
+  previous,
+  change,
+  series,
+});
+
+const sampleStats: ProjectStats = {
+  days: 30,
+  from: "2026-09-17T00:00:00Z",
+  to: "2026-10-17T00:00:00Z",
+  pass_rate: measure(0.864, 0.896, -3.2, wave(0.86, 0.06, 1)),
+  failed_runs: measure(17, 13, 4, wave(0.6, 0.6, 4).map((v) => Math.max(0, Math.round(v)))),
+  total_runs: measure(125, 112.6, 11, wave(4, 2, 9).map((v) => Math.round(v))),
+  avg_duration_s: measure(401, 383, 18, wave(400, 60, 13)),
+  p95_ms: measure(812, 716, 96, [...wave(780, 90, 21).slice(0, 12), null, null, ...wave(820, 50, 3).slice(14)]),
+};
+
+// No run at all in the window: every tile says so with a dash.
+const emptyStats: ProjectStats = {
+  ...sampleStats,
+  pass_rate: measure(null, null, null, Array(30).fill(null)),
+  failed_runs: measure(0, 0, null, Array(30).fill(0)),
+  total_runs: measure(0, 0, null, Array(30).fill(0)),
+  avg_duration_s: measure(null, null, null, Array(30).fill(null)),
+  p95_ms: measure(null, null, null, Array(30).fill(null)),
+};
+
+// A project that started last week: figures, and nothing before to compare with.
+const newStats: ProjectStats = {
+  ...sampleStats,
+  pass_rate: measure(1, null, null, [...Array(23).fill(null), ...Array(7).fill(1)]),
+  failed_runs: measure(0, 0, null, Array(30).fill(0)),
+  total_runs: measure(9, 0, null, [...Array(23).fill(0), 1, 2, 1, 0, 3, 1, 1]),
+  avg_duration_s: measure(120, null, null, [...Array(23).fill(null), 110, 130, 120, null, 125, 115, 120]),
+  p95_ms: measure(430, null, null, [...Array(23).fill(null), 400, 450, 420, null, 440, 430, 440]),
+};
 
 const runsPage = (overrides: Partial<RunsPageData>): RunsPageData => ({
   rows: [],
@@ -381,6 +427,23 @@ export function ComponentReference() {
         <SecretList projectId="checkout" environmentId="staging" secrets={[]} />
       </Section>
 
+      <Section title="Project page: tiles, banner and tabs">
+        <ProjectTabs projectId="checkout" />
+        <StatTiles tiles={tilesOf(sampleStats)} days={30} />
+        <p className="text-xs text-muted-foreground">A window with no run, then one with nothing before it to compare with:</p>
+        <StatTiles tiles={tilesOf(emptyStats)} days={30} />
+        <StatTiles tiles={tilesOf(newStats)} days={30} />
+        <RecentRun run={runRows[0]} />
+        <ProjectPage
+          project={project("checkout", "checkout")}
+          access={{ role: "maintainer", permissions: ["view_project", "run_test", "manage_scenarios"], custom: false }}
+          scenarios={[]}
+          environments={[]}
+          stats={emptyStats}
+          rows={[]}
+        />
+      </Section>
+
       <Section title="Runs table, filters and pages">
         <RunFilterBar
           projectId="checkout"
@@ -404,24 +467,6 @@ export function ComponentReference() {
           access={{ role: "runner", permissions: ["view_project", "run_test"], custom: false }}
           page={runsPage({ rows: [] })}
         />
-      </Section>
-
-      <Section title="Run history">
-        <RunHistory
-          projectId="checkout"
-          names={{ scenarios: {}, environments: {} }}
-          first={{
-            rows: (["passed", "failed", "running"] as const).map((status, i) => ({
-              id: `run-${i}`,
-              status,
-              scenario: "checkout",
-              environment: "staging",
-              profile: "load",
-              createdAt: `12 Oct 2026, 1${i}:00:00`,
-            })),
-          }}
-        />
-        <RunHistory projectId="checkout" names={{ scenarios: {}, environments: {} }} first={{ rows: [] }} />
       </Section>
 
       <Section title="HTTP phases and endpoints">

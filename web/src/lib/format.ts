@@ -56,17 +56,21 @@ export function formatDuration(
 ): string {
   if (!from || !to) return missing;
 
-  const total = Math.max(
-    0,
-    Math.round((new Date(to).getTime() - new Date(from).getTime()) / 1000),
-  );
+  return formatSeconds((new Date(to).getTime() - new Date(from).getTime()) / 1000);
+}
+
+// formatSeconds prints a length of time given in seconds as "8m 14s".
+export function formatSeconds(seconds: number | null): string {
+  if (seconds === null) return missing;
+
+  const total = Math.max(0, Math.round(seconds));
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
+  const rest = total % 60;
 
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
+  if (hours > 0) return `${hours}h ${minutes}m ${rest}s`;
+  if (minutes > 0) return `${minutes}m ${rest}s`;
+  return `${rest}s`;
 }
 
 const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });

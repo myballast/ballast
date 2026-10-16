@@ -379,3 +379,31 @@ SELECT created_at FROM run
 WHERE org_id = $1 AND triggered_by = $2 AND created_at >= $3
 ORDER BY created_at
 LIMIT 1;
+
+-- What a project's runs add up to, a row per UTC day, for the page's figures.
+--
+-- The sums and the counts, not the averages: a window is the sum of its days,
+-- and an average of averages is not the average. A day with no run has no row.
+--
+-- Only a run that ended with a verdict has a duration worth averaging, and only
+-- a run that finished measuring has a p95; the whole run's, not a tagged one's.
+-- The join to run_metric is on its unique key, so it adds no run twice.
+-- name: ProjectDailyStats :many
+SELECT (r.created_at AT TIME ZONE 'UTC')::date AS day,
+       count(*)::int AS total,
+       count(*) FILTER (WHERE r.status = 'passed')::int AS passed,
+       count(*) FILTER (WHERE r.status IN ('failed', 'errored', 'timeout'))::int AS failed,
+       COALESCE(sum(EXTRACT(EPOCH FROM (r.ended_at - r.started_at)))
+           FILTER (WHERE r.status IN ('passed', 'failed', 'errored', 'timeout')
+                     AND r.started_at IS NOT NULL AND r.ended_at IS NOT NULL), 0)::float8 AS duration_sum_s,
+       count(*) FILTER (WHERE r.status IN ('passed', 'failed', 'errored', 'timeout')
+                          AND r.started_at IS NOT NULL AND r.ended_at IS NOT NULL)::int AS duration_runs,
+       COALESCE(sum(m.value), 0)::float8 AS p95_sum,
+       count(m.value)::int AS p95_runs
+FROM run r
+LEFT JOIN run_metric m ON m.org_id = r.org_id AND m.run_id = r.id
+    AND m.name = 'http_req_duration' AND m.stat = 'p(95)' AND m.tag_name = ''
+WHERE r.org_id = @org_id AND r.project_id = @project_id
+  AND r.created_at >= @from_at AND r.created_at < @to_at
+GROUP BY 1
+ORDER BY 1;

@@ -755,6 +755,43 @@ func addHeadlines(ctx context.Context, q *sqlc.Queries, orgID uuid.UUID, listed 
 	return nil
 }
 
+// DailyStats is what a project's runs add up to, a row per UTC day that has
+// any: the sums and the counts, which the domain adds up into the page's
+// figures. One aggregate query, whatever the number of runs.
+func (r *RunRepository) DailyStats(
+	ctx context.Context, orgID, projectID uuid.UUID, from, to time.Time,
+) ([]domain.DayStats, error) {
+	var days []domain.DayStats
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		rows, err := sqlc.New(tx).ProjectDailyStats(ctx, sqlc.ProjectDailyStatsParams{
+			OrgID: orgID, ProjectID: projectID, FromAt: from, ToAt: to,
+		})
+		if err != nil {
+			return fmt.Errorf("add up the project's runs: %w", err)
+		}
+
+		days = make([]domain.DayStats, 0, len(rows))
+		for _, row := range rows {
+			days = append(days, domain.DayStats{
+				Day: row.Day.Time.UTC(),
+				StatsBucket: domain.StatsBucket{
+					Total:        int(row.Total),
+					Passed:       int(row.Passed),
+					Failed:       int(row.Failed),
+					DurationSumS: row.DurationSumS,
+					DurationRuns: int(row.DurationRuns),
+					P95Sum:       row.P95Sum,
+					P95Runs:      int(row.P95Runs),
+				},
+			})
+		}
+		return nil
+	})
+
+	return days, err
+}
+
 // TrafficInPeriod sums what an organization moved between two instants.
 func (r *RunRepository) TrafficInPeriod(
 	ctx context.Context, orgID uuid.UUID, from, to time.Time,

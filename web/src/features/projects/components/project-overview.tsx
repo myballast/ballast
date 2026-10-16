@@ -1,16 +1,19 @@
-import { Lock, Play } from "lucide-react";
+import { FilePlus, Lock, Play } from "lucide-react";
 import Link from "next/link";
 
+import { EmptyState } from "@/components/states";
 import { buttonVariants } from "@/components/ui/button";
-import { EnvironmentList } from "@/features/environments/components/environment-list";
 import type { Environment } from "@/features/environments/types";
-import { RunHistory } from "@/features/runs/components/run-history";
-import type { HistoryPage, Names } from "@/features/runs/history";
-import { ScenarioList } from "@/features/scenarios/components/scenario-list";
+import { RunsTable } from "@/features/runs/components/runs-table";
+import type { RunRow } from "@/features/runs/list";
 import type { ScenarioListItem } from "@/features/scenarios/types";
 import { can, type Access } from "@/lib/permissions";
 
+import { tilesOf, type ProjectStats } from "../stats";
 import type { Project } from "../types";
+import { ProjectTabs } from "./project-tabs";
+import { RecentRun } from "./recent-run";
+import { StatTiles } from "./stat-tiles";
 
 function Section({ title, link, children }: { title: string; link?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -54,61 +57,113 @@ export function RestrictedProject() {
   );
 }
 
+// What the project is made of, said in the shape of the design's tags. They are
+// counted from what the project holds, not typed in: a tag that nobody can edit
+// would say what somebody once guessed.
+function Facts({ scenarios, environments }: { scenarios: ScenarioListItem[]; environments: Environment[] }) {
+  const verified = environments.filter((e) => e.verification_status === "verified").length;
+  const facts = [
+    { k: "tool", v: "k6" },
+    { k: "scenarios", v: String(scenarios.length) },
+    { k: "environments", v: `${environments.length} (${verified} verified)` },
+  ];
+
+  return (
+    <ul className="flex flex-wrap gap-1.5">
+      {facts.map((fact) => (
+        <li key={fact.k} className="data flex gap-1.5 rounded-md border px-2 py-0.5 text-[11px]">
+          <span className="text-muted-foreground">{fact.k}:</span>
+          <span>{fact.v}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ProjectOverview({
   project,
   access,
   scenarios,
   environments,
-  history,
+  stats,
+  rows,
 }: {
   project: Project;
   access: Access;
   scenarios: ScenarioListItem[];
   environments: Environment[];
-  history: HistoryPage;
+  stats: ProjectStats;
+  // The latest runs, newest first.
+  rows: RunRow[];
 }) {
-  const names: Names = {
-    scenarios: Object.fromEntries(scenarios.map((s) => [s.id, s.name])),
-    environments: Object.fromEntries(environments.map((e) => [e.id, e.name])),
-  };
+  const launch = can(access, "run_test");
+  const noRunInWindow = stats.total_runs.value === 0;
 
   return (
-    <div className="flex flex-col gap-10">
-      <ProjectHeader project={project} access={access} />
+    <div className="flex flex-col gap-8">
+      <header className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <h1 className="text-3xl font-normal tracking-tight">{project.name}</h1>
+          {/* Hidden from whoever cannot use them; the API refuses them anyway. */}
+          <div className="flex flex-wrap gap-2">
+            {can(access, "manage_scenarios") && (
+              <Link href={`/projects/${project.id}/scenarios/new`} className={buttonVariants({ variant: "outline" })}>
+                <FilePlus aria-hidden />
+                New scenario
+              </Link>
+            )}
+            {launch && (
+              <Link href={`/projects/${project.id}/runs/new`} className={buttonVariants()}>
+                <Play aria-hidden />
+                Run a test
+              </Link>
+            )}
+          </div>
+        </div>
+        <Facts scenarios={scenarios} environments={environments} />
+        <ProjectTabs projectId={project.id} />
+      </header>
 
-      <div className="grid gap-8 lg:grid-cols-2">
-        <Section
-          title="Scenarios"
-          link={
-            <Link href={`/projects/${project.id}/scenarios`} className="text-xs text-muted-foreground hover:underline">
-              Manage
-            </Link>
-          }
-        >
-          <ScenarioList projectId={project.id} scenarios={scenarios} />
-        </Section>
-        <Section
-          title="Environments"
-          link={
-            <Link href={`/projects/${project.id}/environments`} className="text-xs text-muted-foreground hover:underline">
-              Manage
-            </Link>
-          }
-        >
-          <EnvironmentList projectId={project.id} environments={environments} />
-        </Section>
-      </div>
-
-      <Section
-        title="Runs"
-        link={
-          <Link href={`/projects/${project.id}/runs`} className="text-xs text-muted-foreground hover:underline">
-            View all
-          </Link>
-        }
-      >
-        <RunHistory projectId={project.id} names={names} first={history} />
+      <Section title={`Last ${stats.days} days`}>
+        <StatTiles tiles={tilesOf(stats)} days={stats.days} />
+        {noRunInWindow && (
+          <p className="text-sm text-muted-foreground">
+            {rows.length === 0
+              ? "No run yet. Launch a first test to see how this project is doing."
+              : `No run in the last ${stats.days} days. Launch a test to see how this project is doing.`}
+          </p>
+        )}
       </Section>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Play}
+          title="No run yet"
+          description="Runs appear here once a scenario has been launched against a verified environment."
+          action={
+            launch ? (
+              <Link href={`/projects/${project.id}/runs/new`} className={buttonVariants()}>
+                <Play aria-hidden />
+                Run a test
+              </Link>
+            ) : undefined
+          }
+        />
+      ) : (
+        <>
+          <RecentRun run={rows[0]} />
+          <Section
+            title="Latest runs"
+            link={
+              <Link href={`/projects/${project.id}/runs`} className="text-xs text-muted-foreground hover:underline">
+                View all
+              </Link>
+            }
+          >
+            <RunsTable rows={rows} />
+          </Section>
+        </>
+      )}
     </div>
   );
 }

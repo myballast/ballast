@@ -54,6 +54,11 @@ type Repository interface {
 		ctx context.Context, orgID, projectID uuid.UUID, filter Filter, window Window, limit int,
 	) ([]Listed, error)
 
+	// DailyStats is what a project's runs add up to, a row per UTC day that has
+	// any, for runs created from from (included) to to (excluded). The rest of
+	// the arithmetic is domain.SummarizeStats's.
+	DailyStats(ctx context.Context, orgID, projectID uuid.UUID, from, to time.Time) ([]domain.DayStats, error)
+
 	// The rest is what keeps a run from being abandoned without anyone
 	// noticing. A worker is killed mid-run — the process, the machine, the
 	// container host — and nothing above this line would ever move that run
