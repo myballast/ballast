@@ -5,7 +5,7 @@ import { formatDateTime } from "@/lib/format";
 
 import { approveEnvironment } from "../actions";
 import type { Environment, VerificationChallenge } from "../types";
-import { ConfirmAction } from "./confirm-action";
+import { ConfirmAction } from "@/components/confirm-action";
 import { CopyButton } from "./copy-button";
 import { VerifyButton } from "./verify-button";
 

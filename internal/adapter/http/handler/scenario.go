@@ -37,9 +37,12 @@ func (h *Scenario) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := dto.ScenarioListResponse{Scenarios: make([]dto.ScenarioSummary, 0, len(found))}
+	response := dto.ScenarioListResponse{Scenarios: make([]dto.ScenarioListItem, 0, len(found))}
 	for _, s := range found {
-		response.Scenarios = append(response.Scenarios, summaryOf(s))
+		response.Scenarios = append(response.Scenarios, dto.ScenarioListItem{
+			ScenarioSummary: summaryOf(s.Scenario),
+			ThresholdCount:  s.Thresholds,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -218,6 +221,41 @@ func (h *Scenario) AddThreshold(w http.ResponseWriter, r *http.Request) {
 		ID:         added.ID.String(),
 		Metric:     added.Metric,
 		Expression: added.Expression,
+	})
+}
+
+// UpdateThreshold handles changing a rule in place.
+func (h *Scenario) UpdateThreshold(w http.ResponseWriter, r *http.Request) {
+	who, projectID, id, ok := scenarioRequest(w, r)
+	if !ok {
+		return
+	}
+
+	thresholdID, err := uuid.Parse(r.PathValue("thresholdId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "the threshold id is not a uuid")
+		return
+	}
+
+	var body dto.UpdateThresholdRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+
+	updated, err := h.scenarios.UpdateThreshold(r.Context(), who, projectID, id, thresholdID, scenario.ThresholdChange{
+		Metric:     body.Metric,
+		Expression: body.Expression,
+	})
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.ThresholdRule{
+		ID:         updated.ID.String(),
+		Metric:     updated.Metric,
+		Expression: updated.Expression,
 	})
 }
 

@@ -9,7 +9,7 @@ import { formatDateTime } from "@/lib/format";
 
 import { deleteSecret, setSecret, type SecretState } from "../actions";
 import type { Secret } from "../types";
-import { ConfirmAction } from "./confirm-action";
+import { ConfirmAction } from "@/components/confirm-action";
 
 const field =
   "h-9 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";

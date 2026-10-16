@@ -88,6 +88,7 @@ func NewRouter(
 		"GET /projects/{projectId}/scenarios/{scenarioId}/versions":                    scenarioHandler.Versions,
 		"GET /projects/{projectId}/scenarios/{scenarioId}/thresholds":                  scenarioHandler.Thresholds,
 		"POST /projects/{projectId}/scenarios/{scenarioId}/thresholds":                 scenarioHandler.AddThreshold,
+		"PATCH /projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}":  scenarioHandler.UpdateThreshold,
 		"DELETE /projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}": scenarioHandler.RemoveThreshold,
 
 		"GET /projects/{projectId}/runs":                                          runHandler.List,

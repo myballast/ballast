@@ -8,7 +8,7 @@ import { can } from "@/lib/permissions";
 
 import { deleteEnvironment } from "../actions";
 import type { EnvironmentPage } from "../detail";
-import { ConfirmAction } from "./confirm-action";
+import { ConfirmAction } from "@/components/confirm-action";
 import { Ceilings } from "./ceilings";
 import { SecretList } from "./secret-list";
 import { VerificationPanel } from "./verification-panel";

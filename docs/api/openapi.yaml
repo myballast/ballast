@@ -1297,6 +1297,51 @@ paths:
         required: true
         schema: { type: string, format: uuid }
 
+    patch:
+      tags: [scenarios]
+      summary: Change a threshold
+      description: |
+        Changes the rule in place; anything left out stays as it is. The metric
+        accepts k6's tagged syntax, as on creation.
+
+        Runs already recorded keep their verdicts: those were frozen onto the run
+        when it finished, and nothing here touches them.
+      operationId: updateThreshold
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateThresholdRequest"
+      responses:
+        "200":
+          description: Changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThresholdRule"
+        "400":
+          description: The body is not valid JSON, an id is not a UUID, or the rule is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: This scenario already imposes the rule this one would become.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
     delete:
       tags: [scenarios]
       summary: Drop a threshold
@@ -2106,7 +2151,16 @@ components:
         scenarios:
           type: array
           items:
-            $ref: "#/components/schemas/ScenarioSummary"
+            $ref: "#/components/schemas/ScenarioListItem"
+
+    ScenarioListItem:
+      description: A scenario as the list shows it, with how many thresholds it imposes.
+      allOf:
+        - $ref: "#/components/schemas/ScenarioSummary"
+        - type: object
+          required: [threshold_count]
+          properties:
+            threshold_count: { type: integer, minimum: 0 }
 
     Scenario:
       allOf:
@@ -2199,6 +2253,13 @@ components:
     CreateThresholdRequest:
       type: object
       required: [metric, expression]
+      properties:
+        metric: { type: string, maxLength: 200 }
+        expression: { type: string, maxLength: 120 }
+
+    UpdateThresholdRequest:
+      type: object
+      description: Anything left out stays as it is.
       properties:
         metric: { type: string, maxLength: 200 }
         expression: { type: string, maxLength: 120 }

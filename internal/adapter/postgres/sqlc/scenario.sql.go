@@ -28,6 +28,46 @@ func (q *Queries) CountScenarioRuns(ctx context.Context, arg CountScenarioRunsPa
 	return count, err
 }
 
+const countThresholdsInProject = `-- name: CountThresholdsInProject :many
+SELECT t.scenario_id, count(*) AS thresholds
+FROM threshold t
+JOIN scenario s ON s.org_id = t.org_id AND s.id = t.scenario_id
+WHERE t.org_id = $1 AND s.project_id = $2
+GROUP BY t.scenario_id
+`
+
+type CountThresholdsInProjectParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+type CountThresholdsInProjectRow struct {
+	ScenarioID uuid.UUID
+	Thresholds int64
+}
+
+// How many rules each scenario of a project imposes, for the list. A scenario
+// with none has no row here.
+func (q *Queries) CountThresholdsInProject(ctx context.Context, arg CountThresholdsInProjectParams) ([]CountThresholdsInProjectRow, error) {
+	rows, err := q.db.Query(ctx, countThresholdsInProject, arg.OrgID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountThresholdsInProjectRow{}
+	for rows.Next() {
+		var i CountThresholdsInProjectRow
+		if err := rows.Scan(&i.ScenarioID, &i.Thresholds); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteScenario = `-- name: DeleteScenario :execrows
 DELETE FROM scenario WHERE org_id = $1 AND id = $2
 `
@@ -356,6 +396,41 @@ func (q *Queries) RenameScenario(ctx context.Context, arg RenameScenarioParams) 
 		&i.DefaultProfileParams,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateThreshold = `-- name: UpdateThreshold :one
+UPDATE threshold SET metric = $4, expression = $5
+WHERE org_id = $1 AND scenario_id = $2 AND id = $3
+RETURNING id, org_id, scenario_id, metric, expression
+`
+
+type UpdateThresholdParams struct {
+	OrgID      uuid.UUID
+	ScenarioID uuid.UUID
+	ID         uuid.UUID
+	Metric     string
+	Expression string
+}
+
+// A rule is changed in place: the runs that applied it already hold their
+// verdicts in run_threshold, which this does not touch.
+func (q *Queries) UpdateThreshold(ctx context.Context, arg UpdateThresholdParams) (Threshold, error) {
+	row := q.db.QueryRow(ctx, updateThreshold,
+		arg.OrgID,
+		arg.ScenarioID,
+		arg.ID,
+		arg.Metric,
+		arg.Expression,
+	)
+	var i Threshold
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ScenarioID,
+		&i.Metric,
+		&i.Expression,
 	)
 	return i, err
 }

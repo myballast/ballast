@@ -7,7 +7,7 @@ import type { Environment } from "@/features/environments/types";
 import { RunHistory } from "@/features/runs/components/run-history";
 import type { HistoryPage, Names } from "@/features/runs/history";
 import { ScenarioList } from "@/features/scenarios/components/scenario-list";
-import type { ScenarioSummary } from "@/features/scenarios/types";
+import type { ScenarioListItem } from "@/features/scenarios/types";
 import { can, type Access } from "@/lib/permissions";
 
 import type { Project } from "../types";
@@ -63,7 +63,7 @@ export function ProjectOverview({
 }: {
   project: Project;
   access: Access;
-  scenarios: ScenarioSummary[];
+  scenarios: ScenarioListItem[];
   environments: Environment[];
   history: HistoryPage;
 }) {
@@ -77,8 +77,15 @@ export function ProjectOverview({
       <ProjectHeader project={project} access={access} />
 
       <div className="grid gap-8 lg:grid-cols-2">
-        <Section title="Scenarios">
-          <ScenarioList scenarios={scenarios} />
+        <Section
+          title="Scenarios"
+          link={
+            <Link href={`/projects/${project.id}/scenarios`} className="text-xs text-muted-foreground hover:underline">
+              Manage
+            </Link>
+          }
+        >
+          <ScenarioList projectId={project.id} scenarios={scenarios} />
         </Section>
         <Section
           title="Environments"

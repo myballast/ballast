@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderKanban, Globe, type LucideIcon } from "lucide-react";
+import { FileCode, FolderKanban, Globe, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -16,7 +16,10 @@ const items: Item[] = [{ href: "/projects", label: "Projects", icon: FolderKanba
 function projectItems(pathname: string): Item[] {
   const project = /^\/projects\/([^/]+)/.exec(pathname)?.[1];
   if (!project) return [];
-  return [{ href: `/projects/${project}/environments`, label: "Environments", icon: Globe, nested: true }];
+  return [
+    { href: `/projects/${project}/scenarios`, label: "Scenarios", icon: FileCode, nested: true },
+    { href: `/projects/${project}/environments`, label: "Environments", icon: Globe, nested: true },
+  ];
 }
 
 export function Nav() {
@@ -24,7 +27,7 @@ export function Nav() {
   const all = [...items, ...projectItems(pathname)];
 
   // The current entry is the most specific one the address falls under: on a
-  // project's environments, Environments rather than Projects.
+  // project's scenarios, Scenarios rather than Projects.
   const current = all
     .filter(({ href }) => pathname === href || pathname.startsWith(`${href}/`))
     .reduce<string | undefined>((best, { href }) => (!best || href.length > best.length ? href : best), undefined);

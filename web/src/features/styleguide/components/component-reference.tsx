@@ -7,6 +7,11 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
 import { SecretList } from "@/features/environments/components/secret-list";
+import { ScenarioList } from "@/features/scenarios/components/scenario-list";
+import { ScriptEditor } from "@/features/scenarios/components/script-editor";
+import { ScriptFindings } from "@/features/scenarios/components/script-findings";
+import { ThresholdRules } from "@/features/scenarios/components/threshold-rules";
+import { starterScript } from "@/features/scenarios/template";
 import { VerificationPanel } from "@/features/environments/components/verification-panel";
 import { ProjectCard } from "@/features/projects/components/project-card";
 import { EndpointMetrics } from "@/features/runs/components/endpoint-metrics";
@@ -56,6 +61,21 @@ const environment = (name: string, verified: boolean) => ({
   max_duration_s: 600,
   created_at: "2026-10-01T09:00:00Z",
 });
+
+const scenario = (name: string, version: number) => ({
+  id: name,
+  name,
+  version,
+  default_profile: "load" as const,
+  default_params: { target_vus: 20, ramp_up_s: 30, plateau_s: 120, ramp_down_s: 30 },
+  created_at: "2026-10-01T09:00:00Z",
+  updated_at: "2026-10-12T16:20:00Z",
+});
+
+const thresholds = [
+  { id: "t1", metric: "http_req_duration{name:POST /login}", expression: "p(95)<300" },
+  { id: "t2", metric: "http_req_failed", expression: "rate<0.01" },
+];
 
 const challenge = {
   verification_status: "pending" as const,
@@ -199,6 +219,44 @@ export function ComponentReference() {
           ]}
         />
         <EnvironmentList projectId="checkout" environments={[]} />
+      </Section>
+
+      <Section title="Scenarios">
+        <ScenarioList
+          projectId="checkout"
+          scenarios={[
+            { ...scenario("checkout", 3), threshold_count: 2 },
+            { ...scenario("search", 1), threshold_count: 1 },
+          ]}
+        />
+        <ScenarioList projectId="checkout" scenarios={[]} />
+      </Section>
+
+      <Section title="Script editor and findings">
+        <ScriptEditor value={starterScript} marked={new Set([10])} invalid />
+        <ScriptFindings
+          kind="error"
+          findings={[
+            {
+              code: "hardcoded_url",
+              message: "the script addresses a host of its own instead of reading __ENV.BASE_URL",
+              detail: "https://shop.example.test/login",
+              line: 10,
+            },
+            { code: "declares_options", message: "the script exports its own options", line: 4 },
+          ]}
+        />
+        <ScriptFindings
+          kind="warning"
+          findings={[{ code: "no_request_name_tags", message: "the script makes 2 requests and tags none of them with a name" }]}
+        />
+        <ScriptEditor value={starterScript} readOnly />
+      </Section>
+
+      <Section title="Thresholds">
+        <ThresholdRules projectId="checkout" scenarioId="checkout" thresholds={thresholds} editable />
+        <ThresholdRules projectId="checkout" scenarioId="checkout" thresholds={thresholds} editable={false} />
+        <ThresholdRules projectId="checkout" scenarioId="checkout" thresholds={[]} editable={false} />
       </Section>
 
       <Section title="Environment verification">
