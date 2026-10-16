@@ -3,6 +3,9 @@
 -- the first column of every index, and a policy is a safety net rather than a
 -- query plan.
 
+-- The run is numbered by the table, not here: a trigger takes the next number
+-- of the project's counter as the row is inserted (migration 012), so that no
+-- way of inserting a run can leave it without one.
 -- name: CreateRun :one
 INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
@@ -18,15 +21,55 @@ SELECT * FROM run WHERE org_id = $1 AND id = $2;
 -- page boundary between them loses or repeats neither. With a cursor, only the
 -- runs strictly older than it: (created_at, id) compared as a pair, which is
 -- the order the list is in.
+--
+-- Each filter is optional and narrows the same ordered scan: the index finds a
+-- project's runs newest first and the rest is read off the rows it meets, which
+-- for a page of a few dozen costs next to nothing.
+--
+-- Who started the run is joined in rather than asked for afterwards, since one
+-- run has at most one: the name, or the email of someone who has none.
 -- name: ListProjectRuns :many
-SELECT * FROM run
-WHERE org_id = @org_id AND project_id = @project_id
+SELECT sqlc.embed(run),
+       COALESCE(NULLIF(u.name, ''), u.email, '')::text AS triggered_by_name
+FROM run
+LEFT JOIN app_user u ON u.org_id = run.org_id AND u.id = run.triggered_by
+WHERE run.org_id = @org_id AND run.project_id = @project_id
+  AND (sqlc.narg(status)::text IS NULL OR run.status = sqlc.narg(status)::text)
+  AND (sqlc.narg(scenario_id)::uuid IS NULL OR run.scenario_id = sqlc.narg(scenario_id)::uuid)
+  AND (sqlc.narg(environment_id)::uuid IS NULL OR run.environment_id = sqlc.narg(environment_id)::uuid)
   AND (
     sqlc.narg(before_created_at)::timestamptz IS NULL
-    OR (created_at, id) < (sqlc.narg(before_created_at)::timestamptz, sqlc.narg(before_id)::uuid)
+    OR (run.created_at, run.id) < (sqlc.narg(before_created_at)::timestamptz, sqlc.narg(before_id)::uuid)
   )
-ORDER BY created_at DESC, id DESC
+ORDER BY run.created_at DESC, run.id DESC
 LIMIT @row_limit;
+
+-- The page before one that was reached: the runs strictly newer than a cursor,
+-- the closest first. Oldest first on purpose, so that LIMIT keeps the runs
+-- next to the cursor and not the newest of all; the repository turns them
+-- round to the order everything else is in.
+-- name: ListProjectRunsAfter :many
+SELECT sqlc.embed(run),
+       COALESCE(NULLIF(u.name, ''), u.email, '')::text AS triggered_by_name
+FROM run
+LEFT JOIN app_user u ON u.org_id = run.org_id AND u.id = run.triggered_by
+WHERE run.org_id = @org_id AND run.project_id = @project_id
+  AND (sqlc.narg(status)::text IS NULL OR run.status = sqlc.narg(status)::text)
+  AND (sqlc.narg(scenario_id)::uuid IS NULL OR run.scenario_id = sqlc.narg(scenario_id)::uuid)
+  AND (sqlc.narg(environment_id)::uuid IS NULL OR run.environment_id = sqlc.narg(environment_id)::uuid)
+  AND (run.created_at, run.id) > (@after_created_at::timestamptz, @after_id::uuid)
+ORDER BY run.created_at ASC, run.id ASC
+LIMIT @row_limit;
+
+-- The two numbers a row of the list shows besides the run itself: the 95th
+-- percentile of the request duration and the share of requests that failed.
+-- Read for the runs of one page at once, by their ids, from the metrics of the
+-- whole run (no tag). A run without results has no row.
+-- name: ListRunHeadlines :many
+SELECT run_id, name, value FROM run_metric
+WHERE org_id = $1 AND run_id = ANY($2::uuid[]) AND tag_name = ''
+  AND ((name = 'http_req_duration' AND stat = 'p(95)')
+    OR (name = 'http_req_failed' AND stat = 'rate'));
 
 -- The status in the WHERE clause is the guard: a run somebody else already
 -- finished is not finished twice.

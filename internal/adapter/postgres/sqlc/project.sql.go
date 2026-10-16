@@ -90,7 +90,7 @@ func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (M
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, org_id, name, slug, created_at FROM project WHERE org_id = $1 AND id = $2
+SELECT id, org_id, name, slug, created_at, run_counter FROM project WHERE org_id = $1 AND id = $2
 `
 
 type GetProjectParams struct {
@@ -107,6 +107,7 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Project
 		&i.Name,
 		&i.Slug,
 		&i.CreatedAt,
+		&i.RunCounter,
 	)
 	return i, err
 }
@@ -138,7 +139,7 @@ const insertProject = `-- name: InsertProject :one
 
 INSERT INTO project (id, org_id, name, slug, created_at)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, org_id, name, slug, created_at
+RETURNING id, org_id, name, slug, created_at, run_counter
 `
 
 type InsertProjectParams struct {
@@ -170,6 +171,7 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) (P
 		&i.Name,
 		&i.Slug,
 		&i.CreatedAt,
+		&i.RunCounter,
 	)
 	return i, err
 }
@@ -296,7 +298,7 @@ func (q *Queries) ListProjectMembers(ctx context.Context, arg ListProjectMembers
 }
 
 const listProjectsOfMember = `-- name: ListProjectsOfMember :many
-SELECT p.id, p.org_id, p.name, p.slug, p.created_at
+SELECT p.id, p.org_id, p.name, p.slug, p.created_at, p.run_counter
 FROM project p
 JOIN membership m ON m.org_id = p.org_id AND m.project_id = p.id
 WHERE m.org_id = $1 AND m.user_id = $2
@@ -326,6 +328,7 @@ func (q *Queries) ListProjectsOfMember(ctx context.Context, arg ListProjectsOfMe
 			&i.Name,
 			&i.Slug,
 			&i.CreatedAt,
+			&i.RunCounter,
 		); err != nil {
 			return nil, err
 		}
@@ -340,7 +343,7 @@ func (q *Queries) ListProjectsOfMember(ctx context.Context, arg ListProjectsOfMe
 const renameProject = `-- name: RenameProject :one
 UPDATE project SET name = $3
 WHERE org_id = $1 AND id = $2
-RETURNING id, org_id, name, slug, created_at
+RETURNING id, org_id, name, slug, created_at, run_counter
 `
 
 type RenameProjectParams struct {
@@ -358,6 +361,7 @@ func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (P
 		&i.Name,
 		&i.Slug,
 		&i.CreatedAt,
+		&i.RunCounter,
 	)
 	return i, err
 }

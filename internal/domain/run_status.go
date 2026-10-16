@@ -24,6 +24,18 @@ const (
 	StatusOrphaned  RunStatus = "orphaned"
 )
 
+// Known reports whether s is one of the ten statuses. A filter is read from a
+// request, and a status nobody defined is a mistake to refuse rather than a
+// query that matches nothing.
+func (s RunStatus) Known() bool {
+	switch s {
+	case StatusQueued, StatusRunning, StatusPassed, StatusFailed, StatusErrored,
+		StatusTimeout, StatusCancelled, StatusRejected, StatusSkipped, StatusOrphaned:
+		return true
+	}
+	return false
+}
+
 // transitions maps a status to every status a run may move to from it.
 //
 // orphaned is the one that is easy to get wrong: it is not terminal. It means

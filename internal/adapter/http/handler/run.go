@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -107,6 +108,7 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 
 	response := dto.RunResponse{
 		ID:              found.ID.String(),
+		Number:          found.Number,
 		ProjectID:       found.ProjectID.String(),
 		ScenarioID:      found.ScenarioID.String(),
 		EnvironmentID:   found.EnvironmentID.String(),
@@ -222,6 +224,9 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such run")
 
+	case errors.Is(err, domain.ErrInvalidRunFilter):
+		writeError(w, http.StatusBadRequest, err.Error())
+
 	case errors.Is(err, domain.ErrForbidden):
 		// The caller holds no right to run in this project. A run they may not
 		// read answers 404 instead, from ByID; queueing one is a request they
@@ -301,23 +306,13 @@ func (h *Run) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, err := listLimit(r)
+	query, err := listQuery(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	var before *run.Cursor
-	if raw := r.URL.Query().Get("before"); raw != "" {
-		cursor, err := decodeCursor(raw)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "before is not a cursor this API gave out")
-			return
-		}
-		before = &cursor
-	}
-
-	page, err := h.runs.InProject(r.Context(), who, projectID, before, limit)
+	page, err := h.runs.InProject(r.Context(), who, projectID, query)
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
@@ -327,9 +322,13 @@ func (h *Run) List(w http.ResponseWriter, r *http.Request) {
 	if page.Next != nil {
 		response.Next = encodeCursor(*page.Next)
 	}
+	if page.Prev != nil {
+		response.Prev = encodeCursor(*page.Prev)
+	}
 	for _, listed := range page.Runs {
 		response.Runs = append(response.Runs, dto.RunSummary{
 			ID:              listed.ID.String(),
+			Number:          listed.Number,
 			ProjectID:       listed.ProjectID.String(),
 			ScenarioID:      listed.ScenarioID.String(),
 			EnvironmentID:   listed.EnvironmentID.String(),
@@ -341,14 +340,61 @@ func (h *Run) List(w http.ResponseWriter, r *http.Request) {
 				PlateauS:  listed.ProfileParams.PlateauS,
 				RampDownS: listed.ProfileParams.RampDownS,
 			},
-			Status:    string(listed.Status),
-			CreatedAt: listed.CreatedAt,
-			StartedAt: listed.StartedAt,
-			EndedAt:   listed.EndedAt,
+			Status:      string(listed.Status),
+			CreatedAt:   listed.CreatedAt,
+			StartedAt:   listed.StartedAt,
+			EndedAt:     listed.EndedAt,
+			TriggeredBy: listed.TriggeredByName,
+			P95Ms:       listed.P95Ms,
+			ErrorRate:   listed.ErrorRate,
 		})
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+// listQuery reads what a list of runs is asked for from the query string. What
+// is wrong with it is said in words, since whoever sent it has to fix it.
+func listQuery(r *http.Request) (run.ListQuery, error) {
+	limit, err := listLimit(r)
+	if err != nil {
+		return run.ListQuery{}, err
+	}
+	query := run.ListQuery{Limit: limit}
+
+	values := r.URL.Query()
+	query.Filter.Status = domain.RunStatus(values.Get("status"))
+	for name, into := range map[string]**uuid.UUID{
+		"scenario_id":    &query.Filter.ScenarioID,
+		"environment_id": &query.Filter.EnvironmentID,
+	} {
+		raw := values.Get(name)
+		if raw == "" {
+			continue
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return run.ListQuery{}, fmt.Errorf("%s is not a uuid", name)
+		}
+		*into = &id
+	}
+
+	for name, into := range map[string]**run.Cursor{
+		"before": &query.Window.Before,
+		"after":  &query.Window.After,
+	} {
+		raw := values.Get(name)
+		if raw == "" {
+			continue
+		}
+		cursor, err := decodeCursor(raw)
+		if err != nil {
+			return run.ListQuery{}, fmt.Errorf("%s is not a cursor this API gave out", name)
+		}
+		*into = &cursor
+	}
+
+	return query, nil
 }
 
 // listLimit reads ?limit=. Absent means the default; the service bounds what

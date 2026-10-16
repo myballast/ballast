@@ -19,11 +19,12 @@ import (
 // interaction says so itself.
 
 type fakeRuns struct {
-	// listed is what InProject hands back; listedFor, listedBefore and
-	// listedLimit record what it was asked.
-	listed       []domain.Run
+	// listed is what InProject hands back; listedFor, listedFilter,
+	// listedWindow and listedLimit record what it was asked.
+	listed       []Listed
 	listedFor    uuid.UUID
-	listedBefore *Cursor
+	listedFilter Filter
+	listedWindow Window
 	listedLimit  int
 
 	created domain.Run
@@ -654,9 +655,9 @@ func (f *fakeRuns) Cancel(
 }
 
 func (f *fakeRuns) InProject(
-	_ context.Context, _ uuid.UUID, projectID uuid.UUID, before *Cursor, limit int,
-) ([]domain.Run, error) {
-	f.listedFor, f.listedBefore, f.listedLimit = projectID, before, limit
+	_ context.Context, _ uuid.UUID, projectID uuid.UUID, filter Filter, window Window, limit int,
+) ([]Listed, error) {
+	f.listedFor, f.listedFilter, f.listedWindow, f.listedLimit = projectID, filter, window, limit
 	if f.err != nil {
 		return nil, f.err
 	}

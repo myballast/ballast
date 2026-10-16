@@ -95,3 +95,9 @@ var ErrInvalidMonth = errors.New("invalid month")
 // too many triggered in the last hour, or too many already waiting. It says
 // nothing about the request being wrong — the same request later is fine.
 var ErrTooManyRuns = errors.New("too many runs")
+
+// ErrInvalidRunFilter reports a filter on the list of runs that names something
+// that does not exist: a status nobody defined, or both directions of paging at
+// once. It is a mistake in the request, refused rather than answered with an
+// empty list that would look like a project with nothing in it.
+var ErrInvalidRunFilter = errors.New("invalid run filter")

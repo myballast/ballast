@@ -57,7 +57,9 @@ type StopAllResponse struct {
 
 // RunResponse is returned by GET /runs/{id}.
 type RunResponse struct {
-	ID              string        `json:"id"`
+	ID string `json:"id"`
+	// Number is how the run is spoken of within its project: #1482.
+	Number          int           `json:"number"`
 	ProjectID       string        `json:"project_id"`
 	ScenarioID      string        `json:"scenario_id"`
 	EnvironmentID   string        `json:"environment_id"`
@@ -79,9 +81,12 @@ type RunResponse struct {
 // RunListResponse is returned by GET /projects/{projectId}/runs.
 type RunListResponse struct {
 	Runs []RunSummary `json:"runs"`
-	// Next is passed back as ?before= to read the following page. Absent on
-	// the last page. Opaque: its content is not part of the contract.
+	// Next is passed back as ?before= to read the following, older page.
+	// Absent on the last page. Opaque: its content is not part of the contract.
 	Next string `json:"next,omitempty"`
+	// Prev is passed back as ?after= to read the page of newer runs. Absent
+	// on the first page. Opaque, like Next.
+	Prev string `json:"prev,omitempty"`
 }
 
 // RunSummary is a run as a list shows it: what was run, against what, and how
@@ -89,6 +94,7 @@ type RunListResponse struct {
 // GET /runs/{id}.
 type RunSummary struct {
 	ID              string        `json:"id"`
+	Number          int           `json:"number"`
 	ProjectID       string        `json:"project_id"`
 	ScenarioID      string        `json:"scenario_id"`
 	EnvironmentID   string        `json:"environment_id"`
@@ -99,6 +105,15 @@ type RunSummary struct {
 	CreatedAt       time.Time     `json:"created_at"`
 	StartedAt       *time.Time    `json:"started_at,omitempty"`
 	EndedAt         *time.Time    `json:"ended_at,omitempty"`
+	// TriggeredBy is the name of who started the run, absent when nobody did or
+	// the person has since been removed.
+	TriggeredBy string `json:"triggered_by,omitempty"`
+	// P95Ms and ErrorRate are the run's headline numbers as k6 reported them:
+	// the 95th percentile of the request duration in milliseconds, and the share
+	// of requests that failed as a ratio between 0 and 1. Absent for a run that
+	// has no results yet.
+	P95Ms     *float64 `json:"p95_ms,omitempty"`
+	ErrorRate *float64 `json:"error_rate,omitempty"`
 }
 
 // LogLine is one line of GET /runs/{id}/logs, carried as an event's data.

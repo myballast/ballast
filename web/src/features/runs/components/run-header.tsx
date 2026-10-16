@@ -32,7 +32,7 @@ export function RunHeader({ run, context }: { run: Run; context: RunContext }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-normal tracking-tight">Run</h1>
+            <h1 className="text-3xl font-normal tracking-tight">Run <span className="num">#{run.number}</span></h1>
             <RunStatusBadge status={run.status} />
           </div>
           <span className="data text-xs break-all text-muted-foreground">{run.id}</span>

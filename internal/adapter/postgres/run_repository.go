@@ -72,6 +72,7 @@ func toDomainRun(row sqlc.Run) (domain.Run, error) {
 	return domain.Run{
 		ID:              row.ID,
 		OrgID:           row.OrgID,
+		Number:          int(row.Number),
 		ProjectID:       row.ProjectID,
 		ScenarioID:      row.ScenarioID,
 		EnvironmentID:   row.EnvironmentID,
@@ -641,34 +642,117 @@ func (r *RunRepository) CancelEverything(
 	return cancelled, asked, err
 }
 
-// InProject reads a project's runs, newest first, at most limit of them, and
-// with before set only those strictly older than it.
+// InProject is a project's runs that match filter, newest first, with who
+// started each and the two numbers a list shows.
+//
+// Whichever way the window faces the answer is in the same order: reading
+// toward newer runs asks the database for the nearest ones oldest-first, so that
+// the limit keeps the right ones, and turns them round here.
 func (r *RunRepository) InProject(
-	ctx context.Context, orgID, projectID uuid.UUID, before *run.Cursor, limit int,
-) ([]domain.Run, error) {
-	params := sqlc.ListProjectRunsParams{
-		OrgID:     orgID,
-		ProjectID: projectID,
-		RowLimit:  int32(limit), //nolint:gosec // bounded to run.MaxListLimit + 1 by the service
+	ctx context.Context, orgID, projectID uuid.UUID, filter run.Filter, window run.Window, limit int,
+) ([]run.Listed, error) {
+	var status *string
+	if filter.Status != "" {
+		s := string(filter.Status)
+		status = &s
 	}
-	if before != nil {
-		params.BeforeCreatedAt = &before.CreatedAt
-		params.BeforeID = &before.ID
-	}
+	rowLimit := int32(limit) //nolint:gosec // bounded to run.MaxListLimit + 1 by the service
 
-	var found []domain.Run
+	var listed []run.Listed
 
 	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
-		rows, err := sqlc.New(tx).ListProjectRuns(ctx, params)
-		if err != nil {
-			return fmt.Errorf("list the project's runs: %w", err)
+		q := sqlc.New(tx)
+
+		if window.After != nil {
+			rows, err := q.ListProjectRunsAfter(ctx, sqlc.ListProjectRunsAfterParams{
+				OrgID:          orgID,
+				ProjectID:      projectID,
+				Status:         status,
+				ScenarioID:     filter.ScenarioID,
+				EnvironmentID:  filter.EnvironmentID,
+				AfterCreatedAt: window.After.CreatedAt,
+				AfterID:        window.After.ID,
+				RowLimit:       rowLimit,
+			})
+			if err != nil {
+				return fmt.Errorf("list the project's newer runs: %w", err)
+			}
+			for i := len(rows) - 1; i >= 0; i-- {
+				row, err := toListed(rows[i].Run, rows[i].TriggeredByName)
+				if err != nil {
+					return err
+				}
+				listed = append(listed, row)
+			}
+		} else {
+			params := sqlc.ListProjectRunsParams{
+				OrgID:         orgID,
+				ProjectID:     projectID,
+				Status:        status,
+				ScenarioID:    filter.ScenarioID,
+				EnvironmentID: filter.EnvironmentID,
+				RowLimit:      rowLimit,
+			}
+			if window.Before != nil {
+				params.BeforeCreatedAt = &window.Before.CreatedAt
+				params.BeforeID = &window.Before.ID
+			}
+			rows, err := q.ListProjectRuns(ctx, params)
+			if err != nil {
+				return fmt.Errorf("list the project's runs: %w", err)
+			}
+			for _, r := range rows {
+				row, err := toListed(r.Run, r.TriggeredByName)
+				if err != nil {
+					return err
+				}
+				listed = append(listed, row)
+			}
 		}
 
-		found, err = toDomainRuns(rows)
-		return err
+		return addHeadlines(ctx, q, orgID, listed)
 	})
 
-	return found, err
+	return listed, err
+}
+
+func toListed(row sqlc.Run, triggeredBy string) (run.Listed, error) {
+	converted, err := toDomainRun(row)
+	if err != nil {
+		return run.Listed{}, err
+	}
+	return run.Listed{Run: converted, TriggeredByName: triggeredBy}, nil
+}
+
+// addHeadlines reads the p95 and the error rate of every run of the page in one
+// query, and sets them on the rows that have them. A run with no metrics keeps
+// nil: there is nothing to say about it, which is not the same as zero.
+func addHeadlines(ctx context.Context, q *sqlc.Queries, orgID uuid.UUID, listed []run.Listed) error {
+	if len(listed) == 0 {
+		return nil
+	}
+
+	ids := make([]uuid.UUID, len(listed))
+	at := make(map[uuid.UUID]int, len(listed))
+	for i, l := range listed {
+		ids[i] = l.ID
+		at[l.ID] = i
+	}
+
+	rows, err := q.ListRunHeadlines(ctx, sqlc.ListRunHeadlinesParams{OrgID: orgID, Column2: ids})
+	if err != nil {
+		return fmt.Errorf("read the runs' headline numbers: %w", err)
+	}
+	for _, row := range rows {
+		value := row.Value
+		switch row.Name {
+		case "http_req_duration":
+			listed[at[row.RunID]].P95Ms = &value
+		case "http_req_failed":
+			listed[at[row.RunID]].ErrorRate = &value
+		}
+	}
+	return nil
 }
 
 // TrafficInPeriod sums what an organization moved between two instants.

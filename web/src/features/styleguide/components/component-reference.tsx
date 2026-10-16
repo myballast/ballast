@@ -21,7 +21,11 @@ import { VerificationPanel } from "@/features/environments/components/verificati
 import { ProjectCard } from "@/features/projects/components/project-card";
 import { EndpointMetrics } from "@/features/runs/components/endpoint-metrics";
 import { HttpPhases } from "@/features/runs/components/http-phases";
+import { RunFilterBar } from "@/features/runs/components/run-filters";
 import { RunHistory } from "@/features/runs/components/run-history";
+import { RunsPage } from "@/features/runs/components/runs-page";
+import { RunsTable } from "@/features/runs/components/runs-table";
+import type { RunRow, RunsPage as RunsPageData } from "@/features/runs/list";
 import type { Metric } from "@/features/runs/types";
 import type { ProjectOverview } from "@/features/projects/types";
 import { RunStatusBadge } from "@/features/runs/components/run-status-badge";
@@ -103,6 +107,37 @@ const thresholds = [
   { id: "t2", metric: "http_req_failed", expression: "rate<0.01" },
 ];
 
+const runRows: RunRow[] = (
+  [
+    [1482, "failed", "checkout-flow", "staging", "push main", "1 284 ms", "4.80 %", "400", "8m 14s"],
+    [1481, "passed", "checkout-flow", "staging", "Ada Lovelace", "842 ms", "0.90 %", "400", "8m 02s"],
+    [1480, "running", "browse-and-search", "staging", "Ada Lovelace", "—", "—", "200", "—"],
+    [1479, "queued", "auth-soak", "preview", "—", "—", "—", "150", "—"],
+    [1478, "cancelled", "cart-stress", "staging", "Rui Runner", "—", "—", "900", "1m 03s"],
+  ] as const
+).map(([number, status, scenario, environment, triggeredBy, p95, errors, vus, duration]) => ({
+  id: `run-${number}`,
+  number,
+  status,
+  createdAt: "16 Oct 2026, 12:51:19",
+  scenario,
+  environment,
+  triggeredBy,
+  p95,
+  errors,
+  vus,
+  duration,
+}));
+
+const runsPage = (overrides: Partial<RunsPageData>): RunsPageData => ({
+  rows: [],
+  filters: {},
+  scenarios: [{ id: "s1", name: "checkout-flow" }],
+  environments: [{ id: "e1", name: "staging" }],
+  inHistory: false,
+  ...overrides,
+});
+
 const challenge = {
   verification_status: "pending" as const,
   token: "c2b1a9e4f07d4b7f9a1e6d3c5b8a7f20",
@@ -113,6 +148,7 @@ const challenge = {
 
 const lastRun = (status: "passed" | "failed" | "running", endedAt?: string) => ({
   id: "54ce733c-2ecc-46b4-adbf-5aaed9a8e391",
+  number: 1482,
   project_id: "checkout",
   scenario_id: "s",
   environment_id: "staging",
@@ -343,6 +379,31 @@ export function ComponentReference() {
           ]}
         />
         <SecretList projectId="checkout" environmentId="staging" secrets={[]} />
+      </Section>
+
+      <Section title="Runs table, filters and pages">
+        <RunFilterBar
+          projectId="checkout"
+          filters={{ status: "failed" }}
+          scenarios={[{ id: "s1", name: "checkout-flow" }]}
+          environments={[{ id: "e1", name: "staging" }]}
+        />
+        <RunsTable rows={runRows} />
+        <RunsPage
+          project={project("checkout", "checkout")}
+          access={{ role: "runner", permissions: ["view_project", "run_test"], custom: false }}
+          page={runsPage({ rows: runRows, next: "n", prev: "p", inHistory: true })}
+        />
+        <RunsPage
+          project={project("checkout", "checkout")}
+          access={{ role: "runner", permissions: ["view_project", "run_test"], custom: false }}
+          page={runsPage({ rows: [], filters: { status: "failed" } })}
+        />
+        <RunsPage
+          project={project("checkout", "checkout")}
+          access={{ role: "runner", permissions: ["view_project", "run_test"], custom: false }}
+          page={runsPage({ rows: [] })}
+        />
       </Section>
 
       <Section title="Run history">

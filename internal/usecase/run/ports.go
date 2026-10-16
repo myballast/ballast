@@ -46,9 +46,13 @@ type Repository interface {
 	// ProjectTrafficInPeriod is the same for one of its projects.
 	ProjectTrafficInPeriod(ctx context.Context, orgID, projectID uuid.UUID, from, to time.Time) (domain.Usage, error)
 	Results(ctx context.Context, orgID, runID uuid.UUID) (domain.RunResults, error)
-	// InProject is a project's runs, newest first, at most limit of them.
-	// With before set, only runs strictly older than it.
-	InProject(ctx context.Context, orgID, projectID uuid.UUID, before *Cursor, limit int) ([]domain.Run, error)
+	// InProject is a project's runs that match filter, at most limit of them.
+	// Always newest first, whichever way the window faces: with Before set,
+	// the runs strictly older than it; with After set, the runs strictly newer,
+	// the ones nearest the cursor.
+	InProject(
+		ctx context.Context, orgID, projectID uuid.UUID, filter Filter, window Window, limit int,
+	) ([]Listed, error)
 
 	// The rest is what keeps a run from being abandoned without anyone
 	// noticing. A worker is killed mid-run — the process, the machine, the

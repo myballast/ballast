@@ -7,8 +7,8 @@ import { NavGroup, NavItem } from "./nav-item";
 // A client component for one reason: knowing which page is current.
 //
 // The sidebar has a section for the project the page belongs to, on every page
-// of that project — a run's included. Runs and Members have no screen yet (T35
-// and T38) and are not listed until they do.
+// of that project — a run's included. Members has no screen yet (T38) and is
+// not listed until it does.
 export function Nav({ project }: { project?: { id: string; name: string } }) {
   const pathname = usePathname();
   const base = project ? `/projects/${project.id}` : null;
@@ -34,6 +34,11 @@ export function Nav({ project }: { project?: { id: string; name: string } }) {
           </NavItem>
           <NavItem href={`${base}/scenarios`} active={active(`${base}/scenarios`, false)}>
             Scenarios
+          </NavItem>
+          {/* A run's own page is /runs/<id>, outside the project's address, and
+              is still a run of the project: the entry stays lit on it. */}
+          <NavItem href={`${base}/runs`} active={active(`${base}/runs`, false) || pathname.startsWith("/runs/")}>
+            Runs
           </NavItem>
           <NavItem href={`${base}/environments`} active={active(`${base}/environments`, false)}>
             Environments
