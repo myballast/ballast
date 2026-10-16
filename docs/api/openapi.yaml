@@ -1455,6 +1455,72 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/stats:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [runs]
+      summary: The figures of a project over its last days
+      description: |
+        The five figures of the project's page, added up in SQL over the last
+        `days` days and set against the same number of days before. Days are whole
+        UTC days, today included: the same project gives the same figures to
+        whoever reads it, wherever they are.
+
+        What each figure counts:
+
+        - `total_runs`: every run created in the window, whatever became of it.
+        - `failed_runs`: runs that failed, errored or timed out.
+        - `pass_rate`: runs that passed, over runs that ended with a verdict
+          (passed, failed, errored, timed out). A run that was cancelled,
+          rejected or skipped, or is still queued or running, says nothing about
+          the service under test and is in neither side.
+        - `avg_duration_s`: how long a run with a verdict lasted, on average.
+        - `p95_ms`: the mean of the runs' 95th percentile of the request
+          duration. A percentile of a whole period cannot be rebuilt from the
+          percentile of each run, so this is the mean of them, and not a
+          percentile of every request.
+
+        Each figure has `value`, `previous` (the same figure over the window
+        before), `change` and `series` (a point per day of the current window,
+        oldest first). A `null` is "nothing to say" and never zero: a window with
+        no verdict has no pass rate, and a change against a window with no run is
+        not a number. `change` is in the figure's own unit, except for the pass
+        rate, in percentage points, and the number of runs, in percent.
+      operationId: getProjectStats
+      x-ballast-permission: view_project
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: |
+            How many days each window holds. Absent means 30; anything above 90
+            is read as 90. Zero, a negative number or a non-number is refused.
+          schema:
+            type: integer
+            minimum: 1
+            default: 30
+      responses:
+        "200":
+          description: The figures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectStatsResponse"
+        "400":
+          description: The project id is not a UUID, or `days` is not a positive whole number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /projects/{projectId}/environments:
     parameters:
       - $ref: "#/components/parameters/ProjectID"
@@ -2548,6 +2614,59 @@ components:
       type: string
       description: "`orphaned` is not terminal: the worker died mid-run and the run still has to be cleaned up."
       enum: [queued, running, passed, failed, errored, timeout, cancelled, rejected, skipped, orphaned]
+
+    ProjectStatsResponse:
+      type: object
+      required: [days, from, to, pass_rate, failed_runs, total_runs, avg_duration_s, p95_ms]
+      properties:
+        days: { type: integer, minimum: 1, maximum: 90 }
+        from:
+          type: string
+          format: date-time
+          description: The start of the current window, a UTC midnight. Included.
+        to:
+          type: string
+          format: date-time
+          description: The end of the current window, a UTC midnight. Excluded.
+        pass_rate:
+          allOf:
+            - $ref: "#/components/schemas/StatsMeasure"
+          description: A ratio between 0 and 1. `change` is in percentage points.
+        failed_runs:
+          allOf:
+            - $ref: "#/components/schemas/StatsMeasure"
+          description: A count of runs. `change` is the difference in runs.
+        total_runs:
+          allOf:
+            - $ref: "#/components/schemas/StatsMeasure"
+          description: A count of runs. `change` is a percentage.
+        avg_duration_s:
+          allOf:
+            - $ref: "#/components/schemas/StatsMeasure"
+          description: Seconds. `change` is the difference in seconds.
+        p95_ms:
+          allOf:
+            - $ref: "#/components/schemas/StatsMeasure"
+          description: Milliseconds. `change` is the difference in milliseconds.
+
+    StatsMeasure:
+      type: object
+      required: [value, previous, change, series]
+      properties:
+        value:
+          type: [number, "null"]
+          description: Over the current window. Null when there is nothing to say.
+        previous:
+          type: [number, "null"]
+          description: The same figure over the window before.
+        change:
+          type: [number, "null"]
+          description: How `value` moved from `previous`. Null when either is.
+        series:
+          type: array
+          description: A point for each day of the current window, the oldest first.
+          items:
+            type: [number, "null"]
 
     RunListResponse:
       type: object

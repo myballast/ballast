@@ -92,6 +92,7 @@ func NewRouter(
 		"DELETE /projects/{projectId}/scenarios/{scenarioId}/thresholds/{thresholdId}": scenarioHandler.RemoveThreshold,
 
 		"GET /projects/{projectId}/runs":                                          runHandler.List,
+		"GET /projects/{projectId}/stats":                                         runHandler.Stats,
 		"GET /projects/{projectId}/environments":                                  environmentHandler.List,
 		"POST /projects/{projectId}/environments":                                 environmentHandler.Create,
 		"GET /projects/{projectId}/environments/{environmentId}":                  environmentHandler.ByID,

@@ -5,14 +5,7 @@ import { redirect } from "next/navigation";
 
 import { ApiError, apiDelete, apiPost } from "@/lib/api-client";
 
-import { historyPage, type HistoryPage, type Names } from "./history";
 import type { ProfileKind, ProfileParams } from "./types";
-
-// loadOlderRuns is the history's "Load older runs". The API checks the
-// caller's permission on the project for this page as for the first.
-export async function loadOlderRuns(projectId: string, names: Names, before: string): Promise<HistoryPage> {
-  return historyPage(projectId, names, before);
-}
 
 export type LaunchState = { error?: string };
 

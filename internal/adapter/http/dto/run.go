@@ -153,3 +153,39 @@ type Threshold struct {
 type Error struct {
 	Error string `json:"error"`
 }
+
+// ProjectStatsResponse is returned by GET /projects/{projectId}/stats: the five
+// figures of a project over its last days, each set against the same number of
+// days before. The days are whole UTC days, today included.
+type ProjectStatsResponse struct {
+	// Days is how many days each window holds, as asked and bounded.
+	Days int `json:"days"`
+	// From and To bound the current window: From included, To excluded.
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+	// PassRate is the share of runs that ended with a verdict and passed, as a
+	// ratio. Its change is in percentage points.
+	PassRate StatsMeasure `json:"pass_rate"`
+	// FailedRuns counts runs that failed, errored or timed out. Its change is
+	// the difference in runs.
+	FailedRuns StatsMeasure `json:"failed_runs"`
+	// TotalRuns counts every run created. Its change is a percentage.
+	TotalRuns StatsMeasure `json:"total_runs"`
+	// AvgDurationS is how long a run that ended with a verdict lasted, in
+	// seconds. Its change is the difference in seconds.
+	AvgDurationS StatsMeasure `json:"avg_duration_s"`
+	// P95Ms is the mean of the runs' 95th percentile of the request duration,
+	// in milliseconds. Its change is the difference in milliseconds.
+	P95Ms StatsMeasure `json:"p95_ms"`
+}
+
+// StatsMeasure is one figure. A null is "nothing to say" and never zero: a
+// window with no verdict has no pass rate, and a change against an empty window
+// is not a number. The fields are always present, as null when they are.
+type StatsMeasure struct {
+	Value    *float64 `json:"value"`
+	Previous *float64 `json:"previous"`
+	Change   *float64 `json:"change"`
+	// Series has a point for each day of the current window, the oldest first.
+	Series []*float64 `json:"series"`
+}

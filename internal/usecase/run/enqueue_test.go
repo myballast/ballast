@@ -27,6 +27,13 @@ type fakeRuns struct {
 	listedWindow Window
 	listedLimit  int
 
+	// dailyStats is what DailyStats hands back; statsFor, statsFrom and statsTo
+	// record what it was asked.
+	dailyStats []domain.DayStats
+	statsFor   uuid.UUID
+	statsFrom  time.Time
+	statsTo    time.Time
+
 	created domain.Run
 	// byID is what ByID hands back. Empty means every read is a miss.
 	byID map[uuid.UUID]domain.Run
@@ -665,6 +672,13 @@ func (f *fakeRuns) InProject(
 		return f.listed[:limit], nil
 	}
 	return f.listed, nil
+}
+
+func (f *fakeRuns) DailyStats(
+	_ context.Context, _, projectID uuid.UUID, from, to time.Time,
+) ([]domain.DayStats, error) {
+	f.statsFor, f.statsFrom, f.statsTo = projectID, from, to
+	return f.dailyStats, f.err
 }
 
 func (f *fakeRuns) CancelEverything(
