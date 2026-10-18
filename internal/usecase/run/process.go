@@ -171,9 +171,12 @@ func (s *Service) execute(
 }
 
 func (s *Service) buildJob(ctx context.Context, orgID uuid.UUID, current domain.Run) (Job, error) {
-	scenario, err := s.scenarios.ScenarioByID(ctx, orgID, current.ScenarioID)
+	// The script of the version the run froze, not the scenario's own: by the
+	// time a worker picks a run up the scenario may have been edited, and a run
+	// that says "version 1" has to have executed version 1.
+	version, err := s.scenarios.ScenarioVersionOf(ctx, orgID, current.ScenarioID, current.ScenarioVersion)
 	if err != nil {
-		return Job{}, fmt.Errorf("read the scenario: %w", err)
+		return Job{}, fmt.Errorf("read version %d of the scenario: %w", current.ScenarioVersion, err)
 	}
 
 	environment, err := s.envs.EnvironmentByID(ctx, orgID, current.EnvironmentID)
@@ -228,7 +231,7 @@ func (s *Service) buildJob(ctx context.Context, orgID uuid.UUID, current domain.
 
 	return Job{
 		RunID:        current.ID,
-		Script:       []byte(scenario.Script),
+		Script:       []byte(version.Script),
 		Options:      options,
 		Env:          injected(secrets, environment),
 		AllowedHosts: allowed,

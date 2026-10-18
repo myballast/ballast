@@ -78,6 +78,28 @@ export default function () {
 }
 `
 
+// writeScript gives a scenario a new script the way the API does: as the next
+// version, with the scenario's own copy pointed at it. A run executes the version
+// it froze, so a script written only to the scenario's own column would never be
+// the one that runs.
+func writeScript(ctx context.Context, t *testing.T, db *postgres.DB, org, scenario uuid.UUID, script string) {
+	t.Helper()
+
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO scenario_version
+				(org_id, scenario_id, version, script, default_profile)
+			SELECT org_id, id, version + 1, $3, default_profile FROM scenario
+			WHERE org_id = $1 AND id = $2`, org, scenario, script); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `UPDATE scenario SET script = $3, version = version + 1
+			WHERE org_id = $1 AND id = $2`, org, scenario, script)
+		return err
+	}); err != nil {
+		t.Fatalf("write a new version of the scenario: %v", err)
+	}
+}
+
 // cipher is the encryption the worker is wired to. A key of the right length,
 // fixed rather than random, so a failure is reproducible.
 func cipher(t *testing.T) *crypto.Cipher {
@@ -634,13 +656,7 @@ func TestASecretReachesTheGeneratorAndNothingElse(t *testing.T) {
 
 	// The scenario the worker will read. The seed writes the health script, and
 	// this is the one that needs a credential.
-	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `UPDATE scenario SET script = $3 WHERE org_id = $1 AND id = $2`,
-			org, scenario, secretScript)
-		return err
-	}); err != nil {
-		t.Fatalf("point the scenario at the authenticated script: %v", err)
-	}
+	writeScript(ctx, t, db, org, scenario, secretScript)
 
 	// Written the way the API writes one: through the repository, encrypted.
 	if _, err := postgres.NewSecretRepository(db, cipher(t)).

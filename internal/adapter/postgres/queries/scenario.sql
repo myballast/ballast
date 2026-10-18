@@ -44,6 +44,11 @@ SELECT * FROM scenario_version
 WHERE org_id = $1 AND scenario_id = $2
 ORDER BY version DESC;
 
+-- One version, as it was written. What a run executes: the version it froze.
+-- name: GetScenarioVersion :one
+SELECT * FROM scenario_version
+WHERE org_id = $1 AND scenario_id = $2 AND version = $3;
+
 -- name: CountScenarioRuns :one
 SELECT count(*) FROM run WHERE org_id = $1 AND scenario_id = $2;
 

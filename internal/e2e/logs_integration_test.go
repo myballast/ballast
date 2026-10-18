@@ -176,13 +176,7 @@ func runThatLogs(ctx context.Context, t *testing.T, db *postgres.DB, token strin
 
 	org, scenario, environment := seed(ctx, t, db, target, nil)
 
-	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `UPDATE scenario SET script = $3 WHERE org_id = $1 AND id = $2`,
-			org, scenario, loggingScript)
-		return err
-	}); err != nil {
-		t.Fatalf("point the scenario at the printing script: %v", err)
-	}
+	writeScript(ctx, t, db, org, scenario, loggingScript)
 
 	if _, err := postgres.NewSecretRepository(db, cipher(t)).
 		Put(ctx, org, environment, "API_TOKEN", token, time.Now().UTC()); err != nil {

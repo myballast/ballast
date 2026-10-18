@@ -755,6 +755,25 @@ func addHeadlines(ctx context.Context, q *sqlc.Queries, orgID uuid.UUID, listed 
 	return nil
 }
 
+// UserName is how a person is called, or "" when they have since been removed.
+func (r *RunRepository) UserName(ctx context.Context, orgID, userID uuid.UUID) (string, error) {
+	var name string
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		found, err := sqlc.New(tx).GetUserDisplayName(ctx, sqlc.GetUserDisplayNameParams{OrgID: orgID, ID: userID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read the name of a person: %w", err)
+		}
+		name = found
+		return nil
+	})
+
+	return name, err
+}
+
 // DailyStats is what a project's runs add up to, a row per UTC day that has
 // any: the sums and the counts, which the domain adds up into the page's
 // figures. One aggregate query, whatever the number of runs.

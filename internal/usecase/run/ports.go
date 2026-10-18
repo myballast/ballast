@@ -54,6 +54,10 @@ type Repository interface {
 		ctx context.Context, orgID, projectID uuid.UUID, filter Filter, window Window, limit int,
 	) ([]Listed, error)
 
+	// UserName is how a person is called, or "" when there is no such person
+	// any more: a run outlives the member who started it.
+	UserName(ctx context.Context, orgID, userID uuid.UUID) (string, error)
+
 	// DailyStats is what a project's runs add up to, a row per UTC day that has
 	// any, for runs created from from (included) to to (excluded). The rest of
 	// the arithmetic is domain.SummarizeStats's.
@@ -162,6 +166,9 @@ type Containers interface {
 // ScenarioReader reads scenarios and the thresholds they impose.
 type ScenarioReader interface {
 	ScenarioByID(ctx context.Context, orgID, id uuid.UUID) (domain.Scenario, error)
+	// ScenarioVersionOf reads one version of a scenario, as it was written. A
+	// run executes the version it froze, not the one the scenario has become.
+	ScenarioVersionOf(ctx context.Context, orgID, scenarioID uuid.UUID, version int) (domain.ScenarioVersion, error)
 	ScenarioThresholds(ctx context.Context, orgID, scenarioID uuid.UUID) ([]domain.Threshold, error)
 }
 

@@ -27,6 +27,9 @@ type fakeRuns struct {
 	listedWindow Window
 	listedLimit  int
 
+	// userName is who a run was triggered by, as UserName reports it.
+	userName string
+
 	// dailyStats is what DailyStats hands back; statsFor, statsFrom and statsTo
 	// record what it was asked.
 	dailyStats []domain.DayStats
@@ -152,6 +155,23 @@ func (f *fakeRuns) Results(context.Context, uuid.UUID, uuid.UUID) (domain.RunRes
 type fakeScenarios struct {
 	scenario domain.Scenario
 	err      error
+	// versions are the scripts of the versions that were written, by number. A
+	// version not listed reads as the scenario's own script, which is what most
+	// tests mean by "the script".
+	versions map[int]string
+}
+
+func (f fakeScenarios) ScenarioVersionOf(
+	_ context.Context, _, scenarioID uuid.UUID, version int,
+) (domain.ScenarioVersion, error) {
+	if f.err != nil {
+		return domain.ScenarioVersion{}, f.err
+	}
+	script, ok := f.versions[version]
+	if !ok {
+		script = f.scenario.Script
+	}
+	return domain.ScenarioVersion{ScenarioID: scenarioID, Version: version, Script: script}, nil
 }
 
 func (f fakeScenarios) ScenarioByID(context.Context, uuid.UUID, uuid.UUID) (domain.Scenario, error) {
@@ -672,6 +692,10 @@ func (f *fakeRuns) InProject(
 		return f.listed[:limit], nil
 	}
 	return f.listed, nil
+}
+
+func (f *fakeRuns) UserName(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+	return f.userName, nil
 }
 
 func (f *fakeRuns) DailyStats(

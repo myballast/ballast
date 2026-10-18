@@ -66,6 +66,35 @@ export async function launchRun(projectId: string, _previous: LaunchState, form:
   redirect(`/runs/${id}`);
 }
 
+// rerunRun queues a run again with what the run froze — the scenario at the same
+// version, the profile and the load it had — and takes the browser to it. What
+// the scenario is today does not come into it; what the environment accepts
+// today does, and the API says so when it refuses or lowers the load.
+export async function rerunRun(runId: string): Promise<{ error?: string }> {
+  let id: string;
+  try {
+    ({ id } = await apiPost<{ id: string; status: string }>(`/runs/${encodeURIComponent(runId)}/rerun`, undefined));
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    switch (error.status) {
+      case 401:
+        redirect(`/login?next=${encodeURIComponent(`/runs/${runId}`)}`);
+      case 404:
+        return { error: "This run no longer exists. Reload the page." };
+      case 400:
+      case 403:
+      case 429:
+      case 503:
+        // The API's messages for these say exactly why, and are written for
+        // whoever sent the request.
+        return { error: error.message };
+    }
+    throw error;
+  }
+
+  redirect(`/runs/${id}`);
+}
+
 export type CancelState = { error?: string; outcome?: "cancelled" | "stopping" };
 
 // cancelRun stops a queued run, or asks a running one to stop. The API answers

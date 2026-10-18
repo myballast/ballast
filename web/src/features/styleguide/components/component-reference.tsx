@@ -26,7 +26,13 @@ import { StatTiles } from "@/features/projects/components/stat-tiles";
 import { tilesOf, type ProjectStats, type StatsMeasure } from "@/features/projects/stats";
 import { EndpointMetrics } from "@/features/runs/components/endpoint-metrics";
 import { HttpPhases } from "@/features/runs/components/http-phases";
+import { LogLine } from "@/features/runs/components/log-line";
+import { RerunRun } from "@/features/runs/components/rerun-run";
 import { RunFilterBar } from "@/features/runs/components/run-filters";
+import { RunHeader } from "@/features/runs/components/run-header";
+import { RunTabs } from "@/features/runs/components/run-tabs";
+import type { RunContext } from "@/features/runs/detail";
+import type { Run } from "@/features/runs/types";
 import { RunsPage } from "@/features/runs/components/runs-page";
 import { RunsTable } from "@/features/runs/components/runs-table";
 import type { RunRow, RunsPage as RunsPageData } from "@/features/runs/list";
@@ -183,6 +189,34 @@ const runsPage = (overrides: Partial<RunsPageData>): RunsPageData => ({
   inHistory: false,
   ...overrides,
 });
+
+const sampleNow = new Date("2026-10-16T15:00:00Z");
+
+const sampleRun = (status: Run["status"]): Run => ({
+  id: "r1",
+  number: 1482,
+  triggered_by: "Ada Lovelace",
+  project_id: "checkout",
+  scenario_id: "s",
+  environment_id: "staging",
+  scenario_version: 3,
+  profile: "load",
+  params: { target_vus: 400, ramp_up_s: 60, plateau_s: 360, ramp_down_s: 60 },
+  status,
+  created_at: "2026-10-16T14:02:00Z",
+  started_at: "2026-10-16T14:02:11Z",
+  ended_at: status === "running" ? undefined : "2026-10-16T14:10:25Z",
+  metrics: [],
+  thresholds: [],
+});
+
+const runContext: RunContext = {
+  project: project("storefront", "storefront"),
+  access: { role: "maintainer", permissions: ["view_project", "run_test", "cancel_run"], custom: false },
+  scenario: { ...scenario("checkout-flow", 3), id: "s" },
+  executed: null,
+  environment: environment("staging", true),
+};
 
 const challenge = {
   verification_status: "pending" as const,
@@ -441,6 +475,33 @@ export function ComponentReference() {
           environments={[]}
           stats={emptyStats}
           rows={[]}
+        />
+      </Section>
+
+      <Section title="Run page: header, tabs and output">
+        {(["failed", "running", "passed"] as const).map((status) => (
+          <RunHeader key={status} run={sampleRun(status)} context={runContext} now={sampleNow} />
+        ))}
+        <RerunRun runId="r1" scenario="checkout-flow" version={3} profile="load" load="400 VUs · 60s / 360s / 60s" />
+        <RunTabs
+          initial="output"
+          summary={<p className="text-sm text-muted-foreground">The summary: figures, thresholds, phases, endpoints.</p>}
+          output={
+            <div className="data overflow-hidden rounded-xl border bg-background py-2 text-xs leading-5">
+              <LogLine seq={412} time="14:06:02" level={null}>
+                INFO  scenario=checkout-flow stage=add-to-cart vus=400
+              </LogLine>
+              <LogLine seq={415} time="14:06:03" level="warn">
+                threshold http_req_duration p(95)=812ms approaching limit 800ms
+              </LogLine>
+              <LogLine seq={418} time="14:06:06" level="error">
+                POST /api/checkout 503 in 4 021ms body=&quot;upstream connect error&quot;
+              </LogLine>
+              <LogLine seq={419} time="14:06:06" level={null}>
+                INFO  retrying checkout for vu=118 attempt=2
+              </LogLine>
+            </div>
+          }
         />
       </Section>
 

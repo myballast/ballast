@@ -58,6 +58,9 @@ export type Run = {
   id: string;
   // How the run is spoken of within its project: #1482. Never reused.
   number: number;
+  // Who started it, by name. Absent when nobody did, or the person has since
+  // been removed.
+  triggered_by?: string;
   project_id: string;
   scenario_id: string;
   environment_id: string;

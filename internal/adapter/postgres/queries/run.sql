@@ -16,6 +16,11 @@ RETURNING *;
 -- name: GetRun :one
 SELECT * FROM run WHERE org_id = $1 AND id = $2;
 
+-- The name of a person, or their email when they have none. No row when the
+-- person has since been removed.
+-- name: GetUserDisplayName :one
+SELECT COALESCE(NULLIF(name, ''), email)::text AS name FROM app_user WHERE org_id = $1 AND id = $2;
+
 -- Newest first, served by run_org_project_created_idx. id breaks ties, so two
 -- runs created in the same instant always come back in the same order, and a
 -- page boundary between them loses or repeats neither. With a cursor, only the

@@ -3,6 +3,9 @@
 //   - green, amber and red mean the status of a run or a threshold, and
 //     nothing else, so the status tokens may only be used by the component
 //     that shows a status;
+//   - the one exception, the level of a line of a run's output, has tokens of its
+//     own (log-error, log-warn) which only the component that draws a line may
+//     use;
 //   - no raw Tailwind red, green or amber anywhere, which would be a status
 //     colour that escaped the tokens;
 //   - no colour written in hex in a component: colours are tokens, set in
@@ -22,7 +25,16 @@ const src = join(root, "src");
 // defines them.
 const statusOwners = new Set(["src/components/status-badge.tsx", "src/styles/globals.css"]);
 
+// The only file that may use the log-level tokens, besides globals.css.
+const logOwners = new Set(["src/features/runs/components/log-line.tsx", "src/styles/globals.css"]);
+
 const rules = [
+  {
+    name: "log-level colour outside a line of output",
+    pattern: /\blog-(error|warn)\b/,
+    applies: (file) => !logOwners.has(file),
+    fix: "a line of a run's output is drawn by <LogLine> in features/runs/components/log-line.tsx",
+  },
   {
     name: "status colour outside a status",
     pattern: /\bstatus-(passed|warning|failed)\b/,

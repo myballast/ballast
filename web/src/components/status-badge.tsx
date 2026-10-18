@@ -36,8 +36,10 @@ export function StatusBadge({
   icon: LucideIcon;
   label: string;
   spin?: boolean;
-  // A pill stands on its own; inline sits in a row of text, like a list.
-  variant?: "pill" | "inline";
+  // A pill stands on its own; inline sits in a row of text, like a list; an
+  // icon is the icon alone, for a place that already says the word beside it,
+  // and still says it to a screen reader.
+  variant?: "pill" | "inline" | "icon";
   className?: string;
 }) {
   const icon = (
@@ -46,6 +48,14 @@ export function StatusBadge({
       className={cn(variant === "inline" && "size-3.5", spin && "animate-spin")}
     />
   );
+
+  if (variant === "icon") {
+    return (
+      <span role="img" aria-label={label} className={cn("inline-flex", inline[tone], className)}>
+        {icon}
+      </span>
+    );
+  }
 
   if (variant === "inline") {
     return (

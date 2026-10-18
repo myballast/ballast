@@ -68,6 +68,9 @@ type RunResponse struct {
 	Params          ProfileParams `json:"params"`
 	Status          string        `json:"status"`
 	ErrorMessage    string        `json:"error_message,omitempty"`
+	// TriggeredBy is the name of who started the run, absent when nobody did or
+	// the person has since been removed.
+	TriggeredBy string `json:"triggered_by,omitempty"`
 	// CancelRequestedAt is set as soon as somebody asks the run to stop, and
 	// before it has stopped: a client watching a cancellation reads it here.
 	CancelRequestedAt *time.Time  `json:"cancel_requested_at,omitempty"`
