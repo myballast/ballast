@@ -59,6 +59,20 @@ type EnvironmentLock struct {
 	ExpiresAt     time.Time
 }
 
+type Invitation struct {
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	ProjectID  uuid.UUID
+	Email      string
+	Role       string
+	TokenHash  string
+	InvitedBy  *uuid.UUID
+	ExpiresAt  time.Time
+	AcceptedAt *time.Time
+	RevokedAt  *time.Time
+	CreatedAt  time.Time
+}
+
 type Membership struct {
 	OrgID       uuid.UUID
 	UserID      uuid.UUID

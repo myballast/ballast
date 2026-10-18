@@ -4,12 +4,15 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/youssefmahersi/ballast/internal/adapter/http/dto"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
@@ -231,8 +234,65 @@ func (h *Auth) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	organizations, err := h.auth.Organizations(r.Context(), who)
+	if err != nil {
+		h.log.ErrorContext(r.Context(), "list the organizations", "error", err)
+		writeError(w, http.StatusInternalServerError, "something went wrong")
+		return
+	}
+
+	listed := make([]dto.MeOrganization, 0, len(organizations))
+	for _, organization := range organizations {
+		listed = append(listed, dto.MeOrganization{ID: organization.ID.String(), Name: organization.Name})
+	}
+
 	writeJSON(w, http.StatusOK, dto.MeResponse{
-		User:         dto.MeUser{ID: me.UserID.String(), Name: me.Name, Email: me.Email},
-		Organization: dto.MeOrganization{ID: me.OrgID.String(), Name: me.OrgName},
+		User:          dto.MeUser{ID: me.UserID.String(), Name: me.Name, Email: me.Email},
+		Organization:  dto.MeOrganization{ID: me.OrgID.String(), Name: me.OrgName},
+		Organizations: listed,
 	})
+}
+
+// SwitchOrganization handles POST /me/organization: the same person, acting for
+// another organization they belong to. The answer is a new session.
+func (h *Auth) SwitchOrganization(w http.ResponseWriter, r *http.Request) {
+	who, ok := signedIn(w, r)
+	if !ok {
+		return
+	}
+
+	var body dto.SwitchOrganizationRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+	orgID, err := uuid.Parse(body.OrganizationID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "the organization id is not a uuid")
+		return
+	}
+
+	switched, err := h.auth.SwitchOrganization(r.Context(), who, orgID)
+	if errors.Is(err, auth.ErrNotAMember) {
+		writeError(w, http.StatusForbidden, "you do not belong to that organization")
+		return
+	}
+	if errors.Is(err, domain.ErrUnauthenticated) {
+		writeError(w, http.StatusUnauthorized, "sign in to continue")
+		return
+	}
+	if err != nil {
+		h.log.ErrorContext(r.Context(), "switch organization", "error", err)
+		writeError(w, http.StatusInternalServerError, "something went wrong")
+		return
+	}
+
+	if err := h.sessions.Issue(w, switched); err != nil {
+		h.log.ErrorContext(r.Context(), "issue a session", "error", err)
+		writeError(w, http.StatusInternalServerError, "something went wrong")
+		return
+	}
+
+	h.log.InfoContext(r.Context(), "organization switched", "user_id", switched.UserID, "org_id", switched.OrgID)
+	w.WriteHeader(http.StatusNoContent)
 }

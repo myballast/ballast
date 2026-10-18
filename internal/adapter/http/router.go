@@ -12,6 +12,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
+	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
@@ -36,6 +37,7 @@ func NewRouter(
 	projects *project.Service,
 	scenarios *scenario.Service,
 	environments *environment.Service,
+	invitations *invitation.Service,
 	journal *audit.Service,
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
@@ -47,6 +49,7 @@ func NewRouter(
 	projectHandler := handler.NewProject(projects, log)
 	scenarioHandler := handler.NewScenario(scenarios, log)
 	environmentHandler := handler.NewEnvironment(environments, log)
+	invitationHandler := handler.NewInvitation(invitations, sessions, log)
 	auditHandler := handler.NewAudit(journal, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
 
@@ -60,6 +63,11 @@ func NewRouter(
 		"GET /auth/{provider}/callback": authHandler.Callback,
 		"POST /auth/logout":             authHandler.Logout,
 		"GET /me":                       authHandler.Me,
+		"POST /me/organization":         authHandler.SwitchOrganization,
+
+		"GET /roles":                       projectHandler.Roles,
+		"GET /invitations/{token}":         invitationHandler.Describe,
+		"POST /invitations/{token}/accept": invitationHandler.Accept,
 
 		"POST /runs":            runHandler.Enqueue,
 		"GET /runs/{id}":        runHandler.ByID,
@@ -68,18 +76,21 @@ func NewRouter(
 		"GET /runs/{id}/logs":   runHandler.Logs,
 		"POST /runs/stop-all":   runHandler.StopAll,
 
-		"GET /projects":                                 projectHandler.List,
-		"POST /projects":                                projectHandler.Create,
-		"GET /projects/{projectId}":                     projectHandler.ByID,
-		"PATCH /projects/{projectId}":                   projectHandler.Update,
-		"DELETE /projects/{projectId}":                  projectHandler.Delete,
-		"GET /usage":                                    runHandler.Usage,
-		"GET /projects/{projectId}/usage":               runHandler.ProjectUsage,
-		"GET /projects/{projectId}/audit":               auditHandler.InProject,
-		"GET /projects/{projectId}/members":             projectHandler.Members,
-		"GET /projects/{projectId}/permissions":         projectHandler.Permissions,
-		"PUT /projects/{projectId}/members/{userId}":    projectHandler.SetMemberRole,
-		"DELETE /projects/{projectId}/members/{userId}": projectHandler.RemoveMember,
+		"GET /projects":                                           projectHandler.List,
+		"POST /projects":                                          projectHandler.Create,
+		"GET /projects/{projectId}":                               projectHandler.ByID,
+		"PATCH /projects/{projectId}":                             projectHandler.Update,
+		"DELETE /projects/{projectId}":                            projectHandler.Delete,
+		"GET /usage":                                              runHandler.Usage,
+		"GET /projects/{projectId}/usage":                         runHandler.ProjectUsage,
+		"GET /projects/{projectId}/audit":                         auditHandler.InProject,
+		"GET /projects/{projectId}/members":                       projectHandler.Members,
+		"GET /projects/{projectId}/invitations":                   invitationHandler.List,
+		"POST /projects/{projectId}/invitations":                  invitationHandler.Create,
+		"DELETE /projects/{projectId}/invitations/{invitationId}": invitationHandler.Revoke,
+		"GET /projects/{projectId}/permissions":                   projectHandler.Permissions,
+		"PUT /projects/{projectId}/members/{userId}":              projectHandler.SetMemberRole,
+		"DELETE /projects/{projectId}/members/{userId}":           projectHandler.RemoveMember,
 
 		"GET /projects/{projectId}/scenarios":                                          scenarioHandler.List,
 		"POST /projects/{projectId}/scenarios":                                         scenarioHandler.Create,

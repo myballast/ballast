@@ -27,6 +27,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
+	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
@@ -106,6 +107,7 @@ func serve(log *slog.Logger) error {
 		postgres.NewProjectRepository(db),
 		memberships,
 		permissions,
+		journal,
 		infra.SystemClock{},
 		log,
 	)
@@ -134,6 +136,19 @@ func serve(log *slog.Logger) error {
 		log,
 	)
 
+	accounts := postgres.NewAccountRepository(db)
+
+	invitations := invitation.NewService(
+		postgres.NewInvitationRepository(db),
+		accounts,
+		memberships,
+		permissions,
+		journal,
+		crypto.NewRandomTokens(),
+		infra.SystemClock{},
+		log,
+	)
+
 	journalReader := audit.NewService(journal, permissions, log)
 
 	sessions, err := session.NewManager(cfg.SessionSecret, cfg.SessionTTL, infra.SystemClock{})
@@ -142,7 +157,7 @@ func serve(log *slog.Logger) error {
 	}
 
 	signIn := auth.NewService(
-		postgres.NewAccountRepository(db),
+		accounts,
 		providers(cfg),
 		infra.SystemClock{},
 		log,
@@ -154,7 +169,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, journalReader, signIn, permissions, sessions, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, invitations, journalReader, signIn, permissions, sessions, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

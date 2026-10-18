@@ -105,8 +105,24 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 	return err
 }
 
+const findUserByEmail = `-- name: FindUserByEmail :one
+SELECT id FROM app_user WHERE org_id = $1 AND lower(email) = $2
+`
+
+type FindUserByEmailParams struct {
+	OrgID uuid.UUID
+	Email string
+}
+
+func (q *Queries) FindUserByEmail(ctx context.Context, arg FindUserByEmailParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, findUserByEmail, arg.OrgID, arg.Email)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getMe = `-- name: GetMe :one
-SELECT u.id AS user_id, u.name, u.email, o.id AS org_id, o.name AS org_name
+SELECT u.id AS user_id, u.subject, u.name, u.email, o.id AS org_id, o.name AS org_name
 FROM app_user u
 JOIN organization o ON o.org_id = u.org_id
 WHERE u.org_id = $1 AND u.id = $2
@@ -119,6 +135,7 @@ type GetMeParams struct {
 
 type GetMeRow struct {
 	UserID  uuid.UUID
+	Subject string
 	Name    string
 	Email   string
 	OrgID   uuid.UUID
@@ -130,6 +147,7 @@ func (q *Queries) GetMe(ctx context.Context, arg GetMeParams) (GetMeRow, error) 
 	var i GetMeRow
 	err := row.Scan(
 		&i.UserID,
+		&i.Subject,
 		&i.Name,
 		&i.Email,
 		&i.OrgID,

@@ -142,6 +142,7 @@ func (h *Project) Members(w http.ResponseWriter, r *http.Request) {
 			Role:                 string(member.Role),
 			HasCustomPermissions: member.Override != nil,
 			CreatedAt:            member.CreatedAt,
+			LastActivity:         member.LastActivity,
 		})
 	}
 
@@ -259,6 +260,9 @@ func (h *Project) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 		writeError(w, http.StatusConflict,
 			"this project still holds runs; deleting it would take their history with it")
 
+	case errors.Is(err, domain.ErrRoleAboveOwn):
+		writeError(w, http.StatusForbidden, "you cannot grant a role above your own")
+
 	case errors.Is(err, domain.ErrLastAdministrator):
 		writeError(w, http.StatusConflict,
 			"this project would be left with no administrator")
@@ -273,4 +277,29 @@ func (h *Project) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 		h.log.ErrorContext(r.Context(), "request failed", "path", r.URL.Path, "error", err)
 		writeError(w, http.StatusInternalServerError, "something went wrong")
 	}
+}
+
+// Roles handles GET /roles: the permissions matrix. It is the same for every
+// project and every caller, and is derived from the table the checks use.
+func (h *Project) Roles(w http.ResponseWriter, _ *http.Request) {
+	capabilities := domain.Capabilities()
+
+	response := dto.RolesResponse{
+		Capabilities: make([]dto.Capability, 0, len(capabilities)),
+		Roles:        make([]dto.RoleCapabilities, 0, len(domain.Roles())),
+	}
+	for _, capability := range capabilities {
+		response.Capabilities = append(response.Capabilities, dto.Capability{ID: capability.ID, Label: capability.Label})
+	}
+	for _, role := range domain.Roles() {
+		held := make([]string, 0, len(capabilities))
+		for _, capability := range capabilities {
+			if capability.Grants(role) {
+				held = append(held, capability.ID)
+			}
+		}
+		response.Roles = append(response.Roles, dto.RoleCapabilities{Role: string(role), Capabilities: held})
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }

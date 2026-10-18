@@ -56,6 +56,11 @@ tags:
       their role, which is cumulative: `viewer`, then `runner`, then
       `maintainer`, then `admin`.
 
+  - name: invitations
+    description: |
+      Bringing people into a project. No mail is sent: the administrator is shown
+      a link once and passes it on. Only the hash of its token is stored.
+
 security:
   - session: []
 
@@ -210,6 +215,156 @@ paths:
                 $ref: "#/components/schemas/MeResponse"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me/organization:
+    post:
+      tags: [me]
+      summary: Act for another organization
+      description: |
+        The same person, signed in to another organization they belong to. A
+        person is a separate user in each organization; the identity provider's
+        subject is what ties them together. The response sets a new session
+        cookie for that organization.
+
+        Refused with `403` for an organization the caller does not belong to,
+        without saying whether it exists.
+      operationId: switchOrganization
+      x-ballast-permission: none
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SwitchOrganizationRequest"
+      responses:
+        "204":
+          description: Switched. The new session is in `Set-Cookie`.
+        "400":
+          description: The body is not valid JSON, or the id is not a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: The caller does not belong to that organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /roles:
+    get:
+      tags: [projects]
+      summary: What each role may do
+      description: |
+        The permissions matrix: the capabilities, and for each of the four roles,
+        least able first, the ones it holds. It is derived from the table the
+        permission checks themselves use, so it cannot differ from what is
+        enforced.
+      operationId: listRoles
+      x-ballast-permission: none
+      responses:
+        "200":
+          description: The matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RolesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /invitations/{token}:
+    parameters:
+      - $ref: "#/components/parameters/InvitationToken"
+
+    get:
+      tags: [invitations]
+      summary: Read an invitation link
+      description: |
+        What a link offers, read before anybody agrees to it: the organization,
+        the project, the role and the address it was written for. Public, because
+        the page has to say who is asking before the person it asks has signed
+        in; the token is what proves they were given the link.
+
+        A known token is described whatever became of it, with its `state`, so
+        that the page can say what happened rather than that something did.
+      operationId: getInvitation
+      security: []
+      responses:
+        "200":
+          description: The invitation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationPreview"
+        "404":
+          description: No such invitation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /invitations/{token}/accept:
+    parameters:
+      - $ref: "#/components/parameters/InvitationToken"
+
+    post:
+      tags: [invitations]
+      summary: Accept an invitation
+      description: |
+        Makes the signed-in person a member of the project with the role the
+        invitation names, and marks it used. The organization that invited them
+        gets a user for them if it has none, found by the identity provider's
+        subject. The response sets a session for that organization.
+
+        The address on the invitation must be the one the person signed in with:
+        the link is a credential for one address, and forwarded to somebody else
+        it does not make them a member. That refusal is written to the journal.
+
+        A person already in the project keeps the role they have.
+      operationId: acceptInvitation
+      x-ballast-permission: none
+      responses:
+        "200":
+          description: Joined. The new session is in `Set-Cookie`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationAcceptedResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: The invitation was written for another email address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No such invitation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Another user of the organization already holds this address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "410":
+          description: The invitation was used, revoked, or has expired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1081,6 +1236,129 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: The project would be left with no administrator.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/invitations:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [invitations]
+      summary: List the open invitations of a project
+      description: |
+        The invitations that were neither used nor revoked, newest first. Expired
+        ones are listed too, so that they can be revoked or replaced. The token
+        is never returned: it was shown once, when the invitation was created.
+
+        Requires `admin`.
+      operationId: listInvitations
+      x-ballast-permission: manage_members
+      responses:
+        "200":
+          description: The open invitations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [invitations]
+      summary: Invite somebody
+      description: |
+        Writes an invitation for an address and returns the token **once**: only
+        its hash is stored. Nothing is sent; the caller passes the link on. It is
+        good for seven days and for one use.
+
+        An address that already belongs to a user of the organization is added to
+        the project at once, with `200` and no token: an invitation would only
+        ask them to prove what Ballast already knows.
+
+        The caller can give up to their own role and no higher; a refusal is
+        written to the journal.
+
+        Requires `admin`.
+      operationId: createInvitation
+      x-ballast-permission: manage_members
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteRequest"
+      responses:
+        "201":
+          description: Invited. The token is in the body, and only here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationCreatedResponse"
+        "200":
+          description: The address already belonged to a user of the organization; they were added.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberAddedResponse"
+        "400":
+          description: The body is not valid JSON, the id is not a UUID, the address is not one, or the role is unknown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The address already has a pending invitation, or the person already belongs to the project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/invitations/{invitationId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - name: invitationId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    delete:
+      tags: [invitations]
+      summary: Revoke an invitation
+      description: |
+        Withdraws an invitation that has not been used. The link stops working at
+        once. Written to the journal.
+
+        Requires `admin`.
+      operationId: revokeInvitation
+      x-ballast-permission: manage_members
+      responses:
+        "204":
+          description: Revoked.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No such open invitation in this project.
           content:
             application/json:
               schema:
@@ -2053,6 +2331,13 @@ components:
         and carries no permission.
 
   parameters:
+    InvitationToken:
+      name: token
+      in: path
+      required: true
+      description: The secret in an invitation link.
+      schema: { type: string }
+
     Provider:
       name: provider
       in: path
@@ -2218,7 +2503,7 @@ components:
 
     Member:
       type: object
-      required: [user_id, email, role, has_custom_permissions, created_at]
+      required: [user_id, email, role, has_custom_permissions, created_at, last_activity]
       properties:
         user_id: { type: string, format: uuid }
         email: { type: string, format: email }
@@ -2233,6 +2518,12 @@ components:
             it is reported so that the role shown here is never mistaken for the
             whole story.
         created_at: { type: string, format: date-time }
+        last_activity:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            The newest entry of the project's journal this person wrote, and
+            `null` when they have written none.
 
     AccessResponse:
       type: object
@@ -2445,7 +2736,7 @@ components:
 
     MeResponse:
       type: object
-      required: [user, organization]
+      required: [user, organization, organizations]
       properties:
         user:
           type: object
@@ -2462,6 +2753,130 @@ components:
           properties:
             id: { type: string, format: uuid }
             name: { type: string }
+        organizations:
+          type: array
+          description: |
+            Every organization the person belongs to, the current one included,
+            oldest first.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+
+    SwitchOrganizationRequest:
+      type: object
+      required: [organization_id]
+      properties:
+        organization_id: { type: string, format: uuid }
+
+    CapabilityRow:
+      type: object
+      required: [id, label]
+      properties:
+        id: { type: string, example: run_test }
+        label: { type: string, example: Trigger a run }
+
+    RoleCapabilities:
+      type: object
+      required: [role, capabilities]
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        capabilities:
+          type: array
+          description: The ids of the capabilities this role holds.
+          items: { type: string }
+
+    RolesResponse:
+      type: object
+      required: [capabilities, roles]
+      properties:
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapabilityRow"
+        roles:
+          type: array
+          description: Least able first.
+          items:
+            $ref: "#/components/schemas/RoleCapabilities"
+
+    InviteRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, format: email }
+        role:
+          $ref: "#/components/schemas/Role"
+
+    Invitation:
+      type: object
+      required: [id, email, role, state, expires_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role:
+          $ref: "#/components/schemas/Role"
+        invited_by:
+          type: string
+          format: uuid
+          description: Absent when the person who invited has since left.
+        state:
+          type: string
+          description: Used and revoked invitations are not listed.
+          enum: [pending, expired]
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    InvitationListResponse:
+      type: object
+      required: [invitations]
+      properties:
+        invitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invitation"
+
+    InvitationCreatedResponse:
+      type: object
+      required: [invitation, token]
+      properties:
+        invitation:
+          $ref: "#/components/schemas/Invitation"
+        token:
+          type: string
+          description: |
+            The secret in the invitation link, shown this once. Only its hash is
+            stored, so it cannot be read back.
+
+    MemberAddedResponse:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string, format: uuid }
+
+    InvitationPreview:
+      type: object
+      required: [organization_name, project_name, email, role, state, expires_at]
+      properties:
+        organization_name: { type: string }
+        project_name: { type: string }
+        email: { type: string, format: email }
+        role:
+          $ref: "#/components/schemas/Role"
+        state:
+          type: string
+          enum: [pending, accepted, revoked, expired]
+        expires_at: { type: string, format: date-time }
+
+    InvitationAcceptedResponse:
+      type: object
+      required: [organization_id, project_id]
+      properties:
+        organization_id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
 
     ProvidersResponse:
       type: object
@@ -2617,6 +3032,9 @@ components:
             - target.approved
             - member.role_changed
             - member.removed
+            - member.invited
+            - member.joined
+            - invitation.revoked
         outcome:
           type: string
           description: Whether it was allowed.
@@ -2633,7 +3051,7 @@ components:
             The project concerned. Absent for an action on the organization.
         target_type:
           type: string
-          enum: [run, environment, membership, organization]
+          enum: [run, environment, membership, invitation, organization]
         target_id:
           type: string
           format: uuid

@@ -27,7 +27,7 @@ func TestEveryProtectedRouteRequiresASession(t *testing.T) {
 	}
 	web, _ := url.Parse("http://web.test")
 
-	router := httpadapter.NewRouter(nil, nil, nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, web, log)
+	router := httpadapter.NewRouter(nil, nil, nil, nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, web, log)
 
 	const someID = "00000000-0000-4000-8000-000000000001"
 

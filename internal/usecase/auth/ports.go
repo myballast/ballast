@@ -35,11 +35,21 @@ type Accounts interface {
 
 // Me is who is signed in, as the front end shows them.
 type Me struct {
-	UserID  uuid.UUID
+	UserID uuid.UUID
+	// Subject is how the identity provider knows them. It never leaves the
+	// service: it is what finds the other organizations they belong to.
+	Subject string
 	Name    string
 	Email   string
 	OrgID   uuid.UUID
 	OrgName string
+}
+
+// Organization is somewhere a person belongs, as the organization switcher lists
+// it.
+type Organization struct {
+	ID   uuid.UUID
+	Name string
 }
 
 // NewAccount is everything a first sign-in creates.

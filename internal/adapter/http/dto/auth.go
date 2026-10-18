@@ -11,6 +11,9 @@ type ProvidersResponse struct {
 type MeResponse struct {
 	User         MeUser         `json:"user"`
 	Organization MeOrganization `json:"organization"`
+	// Organizations is every organization the person belongs to, the current one
+	// included, oldest first.
+	Organizations []MeOrganization `json:"organizations"`
 }
 
 // MeUser is the signed-in user.

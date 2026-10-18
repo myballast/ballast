@@ -115,7 +115,36 @@ func Routes() []Route {
 			Scope: ScopeAnyProject, Permission: domain.PermCancelRun,
 		},
 
+		// What each role may do. The same for everyone and for every project, so
+		// there is nothing to refuse.
+		{
+			Method: "GET", Path: "/roles",
+			Scope: ScopeNone,
+			Reason: "it describes the four roles as the code defines them, the same " +
+				"for every caller and every project",
+		},
+
+		// Invitations. Following a link crosses organizations, so neither of the
+		// two routes below can name a project: the person does not belong to it
+		// yet. Describing is public because the page has to say who is asking
+		// before the person it asks has signed in, and the token is the proof
+		// they were given the link.
+		{Method: "GET", Path: "/invitations/{token}", Scope: ScopePublic},
+		{
+			Method: "POST", Path: "/invitations/{token}/accept",
+			Scope: ScopeNone,
+			Reason: "the invitation names its own project, and the service checks " +
+				"that the signed-in address is the one it was written for; the " +
+				"caller has no permission in a project they have not joined",
+		},
+
 		// The signed-in user.
+		{
+			Method: "POST", Path: "/me/organization",
+			Scope: ScopeNone,
+			Reason: "it switches between organizations the caller already belongs " +
+				"to, and the service refuses any other",
+		},
 		{
 			Method: "GET", Path: "/me",
 			Scope: ScopeNone,
@@ -178,6 +207,19 @@ func Routes() []Route {
 		},
 		{
 			Method: "DELETE", Path: "/projects/{projectId}/members/{userId}",
+			Scope: ScopePath, Permission: domain.PermManageMembers, ProjectParam: "projectId",
+		},
+
+		{
+			Method: "GET", Path: "/projects/{projectId}/invitations",
+			Scope: ScopePath, Permission: domain.PermManageMembers, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/invitations",
+			Scope: ScopePath, Permission: domain.PermManageMembers, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/invitations/{invitationId}",
 			Scope: ScopePath, Permission: domain.PermManageMembers, ProjectParam: "projectId",
 		},
 

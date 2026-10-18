@@ -15,6 +15,7 @@ type Service struct {
 	projects    Repository
 	memberships Memberships
 	authz       Authorizer
+	journal     AuditLog
 	clock       Clock
 	log         *slog.Logger
 }
@@ -24,6 +25,7 @@ func NewService(
 	projects Repository,
 	memberships Memberships,
 	authz Authorizer,
+	journal AuditLog,
 	clock Clock,
 	log *slog.Logger,
 ) *Service {
@@ -31,6 +33,7 @@ func NewService(
 		projects:    projects,
 		memberships: memberships,
 		authz:       authz,
+		journal:     journal,
 		clock:       clock,
 		log:         log,
 	}
@@ -155,6 +158,9 @@ func (s *Service) SetMemberRole(
 	if !role.IsValid() {
 		return fmt.Errorf("%w: %q is not a role", domain.ErrInvalidProject, role)
 	}
+	if err := s.refuseAboveOwnRank(ctx, who, projectID, userID, role); err != nil {
+		return err
+	}
 
 	if role != domain.RoleAdmin {
 		if err := s.refuseLosingLastAdmin(ctx, who, projectID, userID); err != nil {
@@ -200,6 +206,56 @@ func (s *Service) RemoveMember(
 		"org_id", who.OrgID, "project_id", projectID, "user_id", userID, "by", who.UserID)
 
 	return nil
+}
+
+// refuseAboveOwnRank stops a caller from granting more than they hold, and from
+// changing the role of somebody who holds more than they do.
+//
+// Only administrators manage members today, and nobody outranks an
+// administrator, so the rule cannot fire through a role alone. It is written
+// anyway, because "who may manage members" and "up to which role" are two
+// questions, and the day a lower role is given the first permission the second
+// must already be answered. A mask stored by hand on a membership can do it
+// now.
+func (s *Service) refuseAboveOwnRank(
+	ctx context.Context, who domain.Identity, projectID, userID uuid.UUID, role domain.Role,
+) error {
+	own, found, err := s.authz.MembershipOf(ctx, who, projectID)
+	if err != nil {
+		return fmt.Errorf("read the caller's membership: %w", err)
+	}
+	if !found {
+		return domain.ErrForbidden
+	}
+
+	allowed := domain.CanGrant(own.Role, role)
+	if allowed {
+		members, err := s.memberships.InProject(ctx, who.OrgID, projectID)
+		if err != nil {
+			return err
+		}
+		for _, member := range members {
+			if member.UserID == userID && member.Role.Rank() > own.Role.Rank() {
+				allowed = false
+			}
+		}
+	}
+	if allowed {
+		return nil
+	}
+
+	s.refused(ctx, domain.Refuse(
+		who.OrgID, &who.UserID, domain.ActionRoleChanged, domain.TargetMembership, "role_above_own", s.clock.Now(),
+	).InProject(projectID).On(userID))
+	return domain.ErrRoleAboveOwn
+}
+
+// refused writes the journal entry of a refusal. A failure to write it is
+// logged and does not change the answer: the caller was refused either way.
+func (s *Service) refused(ctx context.Context, entry domain.AuditEntry) {
+	if err := s.journal.Record(ctx, entry); err != nil {
+		s.log.ErrorContext(ctx, "record a refusal", "action", entry.Action, "error", err)
+	}
 }
 
 // refuseLosingLastAdmin stops a change that would leave the project with no

@@ -18,7 +18,10 @@ INSERT INTO membership (org_id, user_id, project_id, role, created_at)
 VALUES ($1, $2, $3, $4, $5);
 
 -- name: GetMe :one
-SELECT u.id AS user_id, u.name, u.email, o.id AS org_id, o.name AS org_name
+SELECT u.id AS user_id, u.subject, u.name, u.email, o.id AS org_id, o.name AS org_name
 FROM app_user u
 JOIN organization o ON o.org_id = u.org_id
 WHERE u.org_id = $1 AND u.id = $2;
+
+-- name: FindUserByEmail :one
+SELECT id FROM app_user WHERE org_id = $1 AND lower(email) = $2;

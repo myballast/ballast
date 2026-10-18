@@ -138,3 +138,58 @@ func (s *Service) Me(ctx context.Context, who domain.Identity) (Me, error) {
 	}
 	return me, nil
 }
+
+// ErrNotAMember reports a switch to an organization the person does not belong
+// to. Reported as such and nothing more: whether that organization exists is
+// not theirs to learn.
+var ErrNotAMember = errors.New("not a member of that organization")
+
+// Organizations lists every organization the signed-in person belongs to, oldest
+// first, the current one included.
+//
+// A person is a different user in each organization (users carry an org_id), and
+// what ties them together is the provider's subject. Each is then read from its
+// own organization, as the person it is there.
+func (s *Service) Organizations(ctx context.Context, who domain.Identity) ([]Organization, error) {
+	me, err := s.Me(ctx, who)
+	if err != nil {
+		return nil, err
+	}
+
+	identities, err := s.accounts.Lookup(ctx, me.Subject)
+	if err != nil {
+		return nil, fmt.Errorf("look the organizations up: %w", err)
+	}
+
+	organizations := make([]Organization, 0, len(identities))
+	for _, identity := range identities {
+		there, err := s.accounts.Me(ctx, identity)
+		if err != nil {
+			return nil, fmt.Errorf("read an organization: %w", err)
+		}
+		organizations = append(organizations, Organization{ID: there.OrgID, Name: there.OrgName})
+	}
+	return organizations, nil
+}
+
+// SwitchOrganization returns who the signed-in person is in another of their
+// organizations, for a session to be issued for.
+func (s *Service) SwitchOrganization(
+	ctx context.Context, who domain.Identity, orgID uuid.UUID,
+) (domain.Identity, error) {
+	me, err := s.Me(ctx, who)
+	if err != nil {
+		return domain.Identity{}, err
+	}
+
+	identities, err := s.accounts.Lookup(ctx, me.Subject)
+	if err != nil {
+		return domain.Identity{}, fmt.Errorf("look the organizations up: %w", err)
+	}
+	for _, identity := range identities {
+		if identity.OrgID == orgID {
+			return identity, nil
+		}
+	}
+	return domain.Identity{}, ErrNotAMember
+}

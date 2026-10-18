@@ -28,6 +28,8 @@ export function safeNext(next: string | string[] | undefined): string {
 export type Me = {
   user: { id: string; name: string; email: string };
   organization: { id: string; name: string };
+  // Every organization the person belongs to, the current one included.
+  organizations: { id: string; name: string }[];
 };
 
 // getMe returns who is signed in. Without a session, the browser is sent to

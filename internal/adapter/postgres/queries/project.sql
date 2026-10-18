@@ -43,10 +43,18 @@ SELECT * FROM membership
 WHERE org_id = $1 AND user_id = $2
 ORDER BY project_id;
 
+-- last_activity is the newest entry of the project's journal written by the
+-- member. A left join, so that someone who never did anything has none.
 -- name: ListProjectMembers :many
-SELECT m.*, u.email, u.name AS display_name
+SELECT m.*, u.email, u.name AS display_name, act.last_at AS last_activity
 FROM membership m
 JOIN app_user u ON u.org_id = m.org_id AND u.id = m.user_id
+LEFT JOIN (
+    SELECT al.actor_id, max(al.created_at) AS last_at
+    FROM audit_log al
+    WHERE al.org_id = $1 AND al.project_id = $2 AND al.actor_id IS NOT NULL
+    GROUP BY al.actor_id
+) act ON act.actor_id = m.user_id
 WHERE m.org_id = $1 AND m.project_id = $2
 ORDER BY u.email;
 
