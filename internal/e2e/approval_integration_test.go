@@ -160,7 +160,7 @@ func newApprovalWorld(ctx context.Context, t *testing.T) approvalWorld {
 	)
 
 	projects := project.NewService(
-		postgres.NewProjectRepository(db), memberships, permissions, infra.SystemClock{}, log)
+		postgres.NewProjectRepository(db), memberships, permissions, postgres.NewAuditRepository(db), infra.SystemClock{}, log)
 
 	// No secret is set in this test, so no cipher is needed to store one.
 	environments := environment.NewService(
@@ -191,7 +191,7 @@ func newApprovalWorld(ctx context.Context, t *testing.T) approvalWorld {
 
 	web, _ := url.Parse("http://web.test")
 	api := httptest.NewServer(httpadapter.NewRouter(
-		runs, projects, nil, environments,
+		runs, projects, nil, environments, nil,
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
 		auth.NewService(nil, nil, infra.SystemClock{}, log),
 		permissions, manager, web, log,

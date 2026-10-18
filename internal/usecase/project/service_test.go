@@ -137,7 +137,7 @@ type fixedClock struct{}
 func (fixedClock) Now() time.Time { return time.Unix(0, 0).UTC() }
 
 func newService(projects *fakeProjects, memberships *fakeMemberships, authz Authorizer) *Service {
-	return NewService(projects, memberships, authz, fixedClock{},
+	return NewService(projects, memberships, authz, discardJournal{}, fixedClock{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
@@ -367,5 +367,85 @@ func TestRenameKeepsTheSlug(t *testing.T) {
 	}
 	if renamed.Slug != "checkout" {
 		t.Errorf("the slug moved to %q; URLs and storage keys are filed under it", renamed.Slug)
+	}
+}
+
+// discardJournal stands in for the journal where a test is not about refusals.
+type discardJournal struct{}
+
+func (discardJournal) Record(context.Context, domain.AuditEntry) error { return nil }
+
+// ownRole is an authorizer whose caller holds one role, as a membership with a
+// mask stored by hand could give a lower role the right to manage members.
+type ownRole struct {
+	allowAll
+	role domain.Role
+}
+
+func (o *ownRole) MembershipOf(_ context.Context, who domain.Identity, projectID uuid.UUID) (domain.Membership, bool, error) {
+	return domain.Membership{OrgID: who.OrgID, UserID: who.UserID, ProjectID: projectID, Role: o.role}, true, nil
+}
+
+type recordingJournal struct{ entries []domain.AuditEntry }
+
+func (j *recordingJournal) Record(_ context.Context, e domain.AuditEntry) error {
+	j.entries = append(j.entries, e)
+	return nil
+}
+
+func TestACallerCannotGrantAboveTheirOwnRole(t *testing.T) {
+	var (
+		who     = someone()
+		project = uuid.New()
+		target  = uuid.New()
+	)
+	memberships := &fakeMemberships{members: map[uuid.UUID][]Member{
+		project: {admin(project, uuid.New()), viewer(project, target)},
+	}}
+	journal := &recordingJournal{}
+	service := NewService(&fakeProjects{byID: map[uuid.UUID]domain.Project{}}, memberships,
+		&ownRole{role: domain.RoleMaintainer}, journal, fixedClock{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	err := service.SetMemberRole(context.Background(), who, project, target, domain.RoleAdmin)
+	if !errors.Is(err, domain.ErrRoleAboveOwn) {
+		t.Fatalf("got %v", err)
+	}
+	if len(memberships.set) != 0 {
+		t.Error("a role was written")
+	}
+
+	if len(journal.entries) != 1 {
+		t.Fatalf("%d entries", len(journal.entries))
+	}
+	e := journal.entries[0]
+	if e.Outcome != domain.Refused || e.Details["reason"] != "role_above_own" || e.TargetID == nil || *e.TargetID != target {
+		t.Errorf("entry: %+v", e)
+	}
+
+	// At their own role, it goes through.
+	if err := service.SetMemberRole(context.Background(), who, project, target, domain.RoleMaintainer); err != nil {
+		t.Errorf("granting their own role: %v", err)
+	}
+}
+
+func TestACallerCannotChangeTheRoleOfSomebodyAboveThem(t *testing.T) {
+	var (
+		who     = someone()
+		project = uuid.New()
+		boss    = uuid.New()
+	)
+	memberships := &fakeMemberships{members: map[uuid.UUID][]Member{
+		project: {admin(project, boss), admin(project, uuid.New())},
+	}}
+	service := NewService(&fakeProjects{byID: map[uuid.UUID]domain.Project{}}, memberships,
+		&ownRole{role: domain.RoleMaintainer}, &recordingJournal{}, fixedClock{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// Lowering an administrator to a role the caller could grant is still
+	// changing somebody who holds more than they do.
+	if err := service.SetMemberRole(context.Background(), who, project, boss, domain.RoleViewer); !errors.Is(err, domain.ErrRoleAboveOwn) {
+		t.Fatalf("got %v", err)
+	}
+	if len(memberships.set) != 0 {
+		t.Error("a role was written")
 	}
 }

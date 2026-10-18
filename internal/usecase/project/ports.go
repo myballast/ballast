@@ -40,6 +40,11 @@ type Member struct {
 	domain.Membership
 	Email string
 	Name  string
+	// LastActivity is the latest entry the project's journal holds with this
+	// person as its author, and nil when there is none. Read from the journal
+	// rather than kept on the membership: there is no second place to write, and
+	// so none to forget.
+	LastActivity *time.Time
 }
 
 // Authorizer answers what the caller may do. Every question it is asked names a
@@ -53,6 +58,13 @@ type Authorizer interface {
 	// MembershipOf is the caller's own membership in a project, and false when
 	// they hold none.
 	MembershipOf(ctx context.Context, who domain.Identity, projectID uuid.UUID) (domain.Membership, bool, error)
+}
+
+// AuditLog records what was refused. What was granted travels with the change
+// itself, in its transaction; a refusal changes nothing and has no transaction
+// to travel in.
+type AuditLog interface {
+	Record(ctx context.Context, entry domain.AuditEntry) error
 }
 
 // Clock exists so that what a project records about when it was created can be

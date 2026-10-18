@@ -43,6 +43,9 @@ export function Nav({ project }: { project?: { id: string; name: string } }) {
           <NavItem href={`${base}/environments`} active={active(`${base}/environments`, false)}>
             Environments
           </NavItem>
+          <NavItem href={`${base}/members`} active={active(`${base}/members`, false)}>
+            Members
+          </NavItem>
         </NavGroup>
       )}
     </nav>

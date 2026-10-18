@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -95,7 +96,7 @@ func (r *MembershipRepository) InProject(
 	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
 		rows, err := sqlc.New(tx).ListProjectMembers(ctx, sqlc.ListProjectMembersParams{
 			OrgID:     orgID,
-			ProjectID: projectID,
+			ProjectID: &projectID,
 		})
 		if err != nil {
 			return fmt.Errorf("list the members: %w", err)
@@ -103,6 +104,13 @@ func (r *MembershipRepository) InProject(
 
 		members = make([]project.Member, 0, len(rows))
 		for _, row := range rows {
+			// sqlc types the aggregate as interface{}; pgx hands back a time or
+			// nil, and nil is "never did anything here".
+			var lastActivity *time.Time
+			if at, ok := row.LastActivity.(time.Time); ok {
+				lastActivity = &at
+			}
+
 			members = append(members, project.Member{
 				Membership: domain.Membership{
 					OrgID:     row.OrgID,
@@ -112,8 +120,9 @@ func (r *MembershipRepository) InProject(
 					Override:  row.Permissions,
 					CreatedAt: row.CreatedAt,
 				},
-				Email: row.Email,
-				Name:  row.DisplayName,
+				Email:        row.Email,
+				Name:         row.DisplayName,
+				LastActivity: lastActivity,
 			})
 		}
 		return nil

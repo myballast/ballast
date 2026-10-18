@@ -50,6 +50,9 @@ export function buildTrail(pathname: string, organization: string, scope: ShellS
       trail.push({ label: "Runs", href: `${base}/runs` });
       if (item === "new") trail.push({ label: "New run" });
       break;
+    case "members":
+      trail.push({ label: "Members", href: `${base}/members` });
+      break;
   }
   return trail;
 }

@@ -134,7 +134,7 @@ func TestMeReadsTheUserAndTheirOrganization(t *testing.T) {
 		t.Fatalf("Me: %v", err)
 	}
 	want := auth.Me{
-		UserID: account.UserID, Name: account.Name, Email: account.Email,
+		UserID: account.UserID, Subject: account.Subject, Name: account.Name, Email: account.Email,
 		OrgID: account.OrgID, OrgName: account.OrgName,
 	}
 	if got != want {

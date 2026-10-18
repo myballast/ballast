@@ -10,6 +10,13 @@ import { MetricCard } from "@/components/metric-card";
 import { EmptyState, LoadingState } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { OrgSelector } from "@/components/layout/org-selector";
+import { InvitationCard } from "@/features/members/components/invitation-card";
+import { InviteMember } from "@/features/members/components/invite-member";
+import { MembersTable } from "@/features/members/components/members-table";
+import { PendingInvitations } from "@/features/members/components/pending-invitations";
+import { PermissionsMatrix } from "@/features/members/components/permissions-matrix";
+import type { Invitation, Member, RolesMatrix } from "@/features/members/types";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
 import { SecretList } from "@/features/environments/components/secret-list";
 import { ScenarioList } from "@/features/scenarios/components/scenario-list";
@@ -276,6 +283,71 @@ const sampleMetrics: Metric[] = [
   ...trendOf("http_req_duration", 35.1, "expected_response:true"),
 ];
 
+const rolesMatrix: RolesMatrix = {
+  capabilities: [
+    { id: "view_runs", label: "View runs and reports" },
+    { id: "run_test", label: "Trigger a run" },
+    { id: "edit_scenarios", label: "Edit scenarios" },
+    { id: "manage_environments", label: "Manage environments" },
+    { id: "verify_domain", label: "Verify a domain" },
+    { id: "manage_members", label: "Manage members and roles" },
+  ],
+  roles: [
+    { role: "viewer", capabilities: ["view_runs"] },
+    { role: "runner", capabilities: ["view_runs", "run_test"] },
+    { role: "maintainer", capabilities: ["view_runs", "run_test", "edit_scenarios", "manage_environments"] },
+    {
+      role: "admin",
+      capabilities: ["view_runs", "run_test", "edit_scenarios", "manage_environments", "verify_domain", "manage_members"],
+    },
+  ],
+};
+
+const sampleMember = (id: string, name: string, role: Member["role"], last: string | null): Member => ({
+  user_id: id,
+  email: `${name.toLowerCase().replace(/ /g, ".")}@acme.dev`,
+  name,
+  role,
+  has_custom_permissions: false,
+  created_at: "2026-09-01T09:00:00Z",
+  last_activity: last,
+});
+
+const sampleMembers: Member[] = [
+  sampleMember("m1", "Maëlle Ferrand", "maintainer", "2026-10-18T11:56:00Z"),
+  sampleMember("m2", "Tomas Reiner", "admin", "2026-10-17T10:00:00Z"),
+  sampleMember("m3", "Jonas Berg", "viewer", "2026-10-16T10:00:00Z"),
+  { ...sampleMember("m4", "Rin Takeda", "runner", null), name: "" },
+];
+
+const sampleInvitations: Invitation[] = [
+  {
+    id: "i1",
+    email: "a.duval@acme.dev",
+    role: "runner",
+    state: "pending",
+    expires_at: "2026-10-24T09:00:00Z",
+    created_at: "2026-10-17T09:00:00Z",
+  },
+  {
+    id: "i2",
+    email: "e.hoffmann@acme.dev",
+    role: "viewer",
+    state: "expired",
+    expires_at: "2026-10-15T09:00:00Z",
+    created_at: "2026-10-08T09:00:00Z",
+  },
+];
+
+const previewOf = (state: "pending" | "accepted" | "revoked" | "expired") => ({
+  organization_name: "Acme",
+  project_name: "storefront",
+  email: "ada@acme.dev",
+  role: "maintainer" as const,
+  state,
+  expires_at: "2026-10-24T09:00:00Z",
+});
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-4">
@@ -459,6 +531,62 @@ export function ComponentReference() {
           ]}
         />
         <SecretList projectId="checkout" environmentId="staging" secrets={[]} />
+      </Section>
+
+      <Section title="Members: permissions matrix and table">
+        <PermissionsMatrix matrix={rolesMatrix} />
+        <p className="text-xs text-muted-foreground">
+          As an admin: every role can be changed but the last admin&apos;s, which says why.
+        </p>
+        <MembersTable
+          projectId="checkout"
+          members={sampleMembers}
+          caller={{ canManage: true, role: "admin" }}
+          now={new Date("2026-10-18T12:00:00Z")}
+        />
+        <p className="text-xs text-muted-foreground">As a maintainer: every role is locked, and there is no menu.</p>
+        <MembersTable
+          projectId="checkout"
+          members={sampleMembers}
+          caller={{ canManage: false, role: "maintainer" }}
+          now={new Date("2026-10-18T12:00:00Z")}
+        />
+      </Section>
+
+      <Section title="Members: invitations">
+        <div>
+          <InviteMember projectId="checkout" roles={["viewer", "runner", "maintainer", "admin"]} />
+        </div>
+        <PendingInvitations projectId="checkout" invitations={sampleInvitations} now={new Date("2026-10-18T12:00:00Z")} />
+        <div className="grid gap-8 md:grid-cols-2">
+          {(["pending", "accepted", "revoked", "expired"] as const).map((state) => (
+            <InvitationCard
+              key={state}
+              token="example"
+              invitation={previewOf(state)}
+              signedInAs="ada@acme.dev"
+              now={new Date("2026-10-18T12:00:00Z")}
+            />
+          ))}
+          <InvitationCard
+            token="example"
+            invitation={previewOf("pending")}
+            signedInAs="someone@else.dev"
+            now={new Date("2026-10-18T12:00:00Z")}
+          />
+        </div>
+      </Section>
+
+      <Section title="Organization selector">
+        <div className="max-w-xs pb-28">
+          <OrgSelector
+            organization={{ id: "o1", name: "Acme" }}
+            organizations={[
+              { id: "o1", name: "Acme" },
+              { id: "o2", name: "Ada's organization" },
+            ]}
+          />
+        </div>
       </Section>
 
       <Section title="Project page: tiles, banner and tabs">

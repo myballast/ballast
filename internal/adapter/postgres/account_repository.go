@@ -10,6 +10,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres/sqlc"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
+	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 )
 
 // AccountRepository finds and creates the people who sign in.
@@ -84,9 +85,19 @@ func (r *AccountRepository) Me(ctx context.Context, who domain.Identity) (auth.M
 			return fmt.Errorf("read the signed-in user: %w", err)
 		}
 
-		me = auth.Me{UserID: row.UserID, Name: row.Name, Email: row.Email, OrgID: row.OrgID, OrgName: row.OrgName}
+		me = auth.Me{UserID: row.UserID, Subject: row.Subject, Name: row.Name, Email: row.Email, OrgID: row.OrgID, OrgName: row.OrgName}
 		return nil
 	})
 
 	return me, err
+}
+
+// Profile is who the caller is, for an invitation to be checked against: the
+// address they signed in with and the subject that identifies them.
+func (r *AccountRepository) Profile(ctx context.Context, who domain.Identity) (invitation.Profile, error) {
+	me, err := r.Me(ctx, who)
+	if err != nil {
+		return invitation.Profile{}, err
+	}
+	return invitation.Profile{Subject: me.Subject, Email: me.Email, Name: me.Name}, nil
 }

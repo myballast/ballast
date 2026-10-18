@@ -14,7 +14,7 @@ function SidebarContent({ me, scope, brand = true }: { me: Me; scope: ShellScope
   return (
     <div className="flex h-full flex-col gap-6 p-4">
       {brand && <Brand />}
-      <OrgSelector organization={me.organization} />
+      <OrgSelector organization={me.organization} organizations={me.organizations} />
       <Nav project={scope?.project} />
       <div className="mt-auto border-t pt-3">
         <UserMenu user={me.user} role={scope?.role} />

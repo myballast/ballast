@@ -245,29 +245,38 @@ func (q *Queries) ListProjectIDs(ctx context.Context, orgID uuid.UUID) ([]uuid.U
 }
 
 const listProjectMembers = `-- name: ListProjectMembers :many
-SELECT m.org_id, m.user_id, m.project_id, m.role, m.permissions, m.created_at, u.email, u.name AS display_name
+SELECT m.org_id, m.user_id, m.project_id, m.role, m.permissions, m.created_at, u.email, u.name AS display_name, act.last_at AS last_activity
 FROM membership m
 JOIN app_user u ON u.org_id = m.org_id AND u.id = m.user_id
+LEFT JOIN (
+    SELECT al.actor_id, max(al.created_at) AS last_at
+    FROM audit_log al
+    WHERE al.org_id = $1 AND al.project_id = $2 AND al.actor_id IS NOT NULL
+    GROUP BY al.actor_id
+) act ON act.actor_id = m.user_id
 WHERE m.org_id = $1 AND m.project_id = $2
 ORDER BY u.email
 `
 
 type ListProjectMembersParams struct {
 	OrgID     uuid.UUID
-	ProjectID uuid.UUID
+	ProjectID *uuid.UUID
 }
 
 type ListProjectMembersRow struct {
-	OrgID       uuid.UUID
-	UserID      uuid.UUID
-	ProjectID   uuid.UUID
-	Role        string
-	Permissions *int64
-	CreatedAt   time.Time
-	Email       string
-	DisplayName string
+	OrgID        uuid.UUID
+	UserID       uuid.UUID
+	ProjectID    uuid.UUID
+	Role         string
+	Permissions  *int64
+	CreatedAt    time.Time
+	Email        string
+	DisplayName  string
+	LastActivity interface{}
 }
 
+// last_activity is the newest entry of the project's journal written by the
+// member. A left join, so that someone who never did anything has none.
 func (q *Queries) ListProjectMembers(ctx context.Context, arg ListProjectMembersParams) ([]ListProjectMembersRow, error) {
 	rows, err := q.db.Query(ctx, listProjectMembers, arg.OrgID, arg.ProjectID)
 	if err != nil {
@@ -286,6 +295,7 @@ func (q *Queries) ListProjectMembers(ctx context.Context, arg ListProjectMembers
 			&i.CreatedAt,
 			&i.Email,
 			&i.DisplayName,
+			&i.LastActivity,
 		); err != nil {
 			return nil, err
 		}

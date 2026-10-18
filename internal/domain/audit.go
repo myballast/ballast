@@ -33,6 +33,13 @@ const (
 	ActionRoleChanged AuditAction = "member.role_changed"
 	// ActionMemberRemoved is a membership revoked.
 	ActionMemberRemoved AuditAction = "member.removed"
+	// ActionMemberInvited is an invitation written: an address, a role and a
+	// project, and nothing of the link itself.
+	ActionMemberInvited AuditAction = "member.invited"
+	// ActionMemberJoined is an invitation followed: somebody became a member.
+	ActionMemberJoined AuditAction = "member.joined"
+	// ActionInvitationRevoked is an invitation withdrawn before it was used.
+	ActionInvitationRevoked AuditAction = "invitation.revoked"
 )
 
 // AuditOutcome says whether what was attempted was allowed.
@@ -53,6 +60,7 @@ const (
 	TargetRun         = "run"
 	TargetEnvironment = "environment"
 	TargetMembership  = "membership"
+	TargetInvitation  = "invitation"
 	TargetOrg         = "organization"
 )
 

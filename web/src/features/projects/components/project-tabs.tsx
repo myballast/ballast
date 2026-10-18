@@ -3,8 +3,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 // ProjectTabs are the sections of a project, as the sidebar lists them, laid
-// out under the project's name. Members is not here until its page is (T38), and
-// neither is Settings: a tab with nothing behind it is a dead end.
+// out under the project's name. Settings is not here until its page is: a tab
+// with nothing behind it is a dead end.
 export function ProjectTabs({ projectId }: { projectId: string }) {
   const base = `/projects/${projectId}`;
   const tabs = [
@@ -12,6 +12,7 @@ export function ProjectTabs({ projectId }: { projectId: string }) {
     { href: `${base}/scenarios`, label: "Scenarios" },
     { href: `${base}/runs`, label: "Runs" },
     { href: `${base}/environments`, label: "Environments" },
+    { href: `${base}/members`, label: "Members" },
   ];
 
   return (

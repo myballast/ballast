@@ -53,7 +53,38 @@ export async function apiDelete<T = undefined>(path: string): Promise<T> {
   return request<T>("DELETE", path);
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+// apiPostAndAdoptSession is for the two calls whose answer is a new session —
+// accepting an invitation and switching organization. The API sets the cookie
+// on its response; the browser never sees that response, this server does, so
+// the cookie is set again on the response the browser will get. Server actions
+// only: nowhere else may a cookie be written.
+export async function apiPostAndAdoptSession<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("POST", path, body, true);
+}
+
+// adoptSession copies the session cookie of an API response onto this
+// application's own response, with the same lifetime. The flags are the ones
+// the API sets: HttpOnly, so no script reads it, and Lax.
+async function adoptSession(response: Response): Promise<void> {
+  for (const header of response.headers.getSetCookie()) {
+    const [pair, ...attributes] = header.split(";").map((part) => part.trim());
+    const [name, ...rest] = pair.split("=");
+    if (name !== sessionCookie) continue;
+
+    const maxAge = attributes.find((a) => a.toLowerCase().startsWith("max-age="));
+    (await cookies()).set({
+      name,
+      value: rest.join("="),
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: maxAge ? Number.parseInt(maxAge.split("=")[1], 10) : undefined,
+    });
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown, adopt = false): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
 
   const session = (await cookies()).get(sessionCookie);
@@ -77,6 +108,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       error?: string;
     } | null;
     throw new ApiError(response.status, failure?.error ?? response.statusText, failure ?? undefined);
+  }
+
+  if (adopt) {
+    await adoptSession(response);
   }
 
   if (response.status === 204) {

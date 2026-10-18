@@ -41,6 +41,9 @@ type Member struct {
 	// a role shown here is never mistaken for the whole story.
 	HasCustomPermissions bool      `json:"has_custom_permissions"`
 	CreatedAt            time.Time `json:"created_at"`
+	// LastActivity is the newest entry of the project's journal this person
+	// wrote, and null when they have written none.
+	LastActivity *time.Time `json:"last_activity"`
 }
 
 // MemberListResponse is returned by GET /projects/{projectId}/members.
