@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 
 import { ApiError, apiDelete, apiPatch, apiPost, apiPut } from "@/lib/api-client";
 
-import type { AllowedWindow, Environment } from "./types";
+import { getChallenge } from "./api";
+import type { AllowedWindow, Day, Environment, ProofFailure, VerificationChallenge } from "./types";
+import { weekdays } from "./window";
 
 function page(projectId: string, environmentId?: string): string {
   const list = `/projects/${projectId}/environments`;
@@ -57,7 +59,10 @@ function fields(form: FormData): Fields | string {
     if (!window.start || !window.end || !window.timezone) {
       return "An allowed window needs a start, an end and a timezone.";
     }
-    result.allowed_window = window;
+    // Seven boxes ticked is the same as none: every day, which is what leaving
+    // the field out says. Sending fewer is the only thing that narrows it.
+    const days = form.getAll("window_days").filter((d): d is Day => weekdays.includes(d as Day));
+    result.allowed_window = days.length > 0 && days.length < 7 ? { ...window, days } : window;
   }
   return result;
 }
@@ -146,17 +151,39 @@ export async function deleteEnvironment(projectId: string, environmentId: string
 // verifyEnvironment asks Ballast to fetch the challenge from the target. A
 // failure is an answer, not an error: its message says what to fix, and the
 // environment is now recorded as failed, so the page is rendered again.
-export async function verifyEnvironment(projectId: string, environmentId: string): Promise<FormState> {
+export type VerifyState = FormState & { failure?: ProofFailure; proven?: boolean };
+
+export async function verifyEnvironment(projectId: string, environmentId: string): Promise<VerifyState> {
   try {
     await apiPost<Environment>(`${path(projectId, environmentId)}/verify`, undefined);
   } catch (error) {
+    // A target that did not serve its challenge says where Ballast looked, what
+    // answered and how it differed. That detail is shown as it is.
+    const failure =
+      error instanceof ApiError && error.status === 422
+        ? (error.body as { failure?: ProofFailure } | undefined)?.failure
+        : undefined;
+
     const message = refusal(error, page(projectId, environmentId), cannotManage);
     refresh();
-    return { error: message };
+    return { error: message, failure };
   }
 
   refresh();
-  return {};
+  return { proven: true };
+}
+
+// loadChallenge reads what the target has to serve, for the verification dialog.
+// It is asked for when the dialog opens, not with the list: the token is read
+// only by whoever manages environments, and a table of every environment has no
+// business carrying one per row.
+export async function loadChallenge(projectId: string, environmentId: string): Promise<VerificationChallenge | null> {
+  try {
+    return await getChallenge(projectId, environmentId);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) return null;
+    throw error;
+  }
 }
 
 // approveEnvironment is the administrator's decision that load may reach the

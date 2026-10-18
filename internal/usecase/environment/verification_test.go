@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -344,4 +345,96 @@ func TestEveryAttemptIsLogged(t *testing.T) {
 func approveErr(f fixture, id uuid.UUID) error {
 	_, err := f.service.Approve(context.Background(), f.who, f.projectID, id)
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// What a failed attempt tells whoever has to fix it, and when it was made.
+// ---------------------------------------------------------------------------
+
+func TestAFailedAttemptSaysWhereItLookedAndWhatAnswered(t *testing.T) {
+	f := newFixture(allowAll{})
+	f.proof.err = &domain.ProofObserved{
+		Status: 404,
+		Err:    errors.New("the challenge file was not served: the target answered 404"),
+	}
+	env := f.pending(t)
+
+	_, err := f.service.Verify(context.Background(), f.who, f.projectID, env.ID)
+	if !errors.Is(err, domain.ErrVerificationFailed) {
+		t.Fatalf("got %v, want ErrVerificationFailed", err)
+	}
+
+	var failure *domain.ProofFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("the failure carries no description: %v", err)
+	}
+
+	wanted, _ := env.ProofURL()
+	switch {
+	case failure.URL != wanted:
+		t.Errorf("looked at %q, want %q", failure.URL, wanted)
+	case failure.Status != 404:
+		t.Errorf("answered %d, want 404", failure.Status)
+	case !strings.Contains(failure.Reason, "challenge file was not served"):
+		t.Errorf("reason: %q", failure.Reason)
+	}
+}
+
+// A target that was never reached has no status to report, and the description
+// says so by leaving it empty rather than inventing one.
+func TestAnUnreachableTargetHasNoStatus(t *testing.T) {
+	f := newFixture(allowAll{})
+	f.proof.err = errors.New("the target could not be reached: no such host")
+	env := f.pending(t)
+
+	_, err := f.service.Verify(context.Background(), f.who, f.projectID, env.ID)
+
+	var failure *domain.ProofFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("the failure carries no description: %v", err)
+	}
+	if failure.Status != 0 {
+		t.Errorf("status %d for a target that never answered", failure.Status)
+	}
+}
+
+// The journal is read by more people than the screen is, and the URL carries
+// the token. What the screen shows, the journal does not.
+func TestTheJournalDoesNotCarryTheURLOfAFailedAttempt(t *testing.T) {
+	f := newFixture(allowAll{})
+	f.proof.err = &domain.ProofObserved{Status: 200, Bytes: 42, Err: errors.New("the challenge file does not hold the expected token")}
+	env := f.pending(t)
+
+	if _, err := f.service.Verify(context.Background(), f.who, f.projectID, env.ID); err == nil {
+		t.Fatal("a failed proof was accepted")
+	}
+
+	for _, entry := range f.journal.entries {
+		for key, value := range entry.Details {
+			if strings.Contains(value, env.VerificationToken) || strings.Contains(value, "/.well-known/") {
+				t.Errorf("the entry carries %s=%q", key, value)
+			}
+		}
+	}
+}
+
+func TestEveryAttemptIsDatedWhetherItWorkedOrNot(t *testing.T) {
+	f := newFixture(allowAll{})
+
+	failing := f.pending(t)
+	f.proof.err = errors.New("the challenge file was not served")
+	_, _ = f.service.Verify(context.Background(), f.who, f.projectID, failing.ID)
+
+	f.proof.err = nil
+	working := f.pending(t)
+	if _, err := f.service.Verify(context.Background(), f.who, f.projectID, working.ID); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+
+	for name, id := range map[string]uuid.UUID{"a failed attempt": failing.ID, "a proven one": working.ID} {
+		checked := f.environments.byID[id].VerificationCheckedAt
+		if checked == nil || !checked.Equal(time.Unix(0, 0).UTC()) {
+			t.Errorf("%s was dated %v, want %v", name, checked, time.Unix(0, 0).UTC())
+		}
+	}
 }

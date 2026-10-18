@@ -7,7 +7,8 @@ import { useActionState, useState } from "react";
 import { buttonVariants, Button } from "@/components/ui/button";
 
 import { createEnvironment, updateEnvironment, type FormState } from "../actions";
-import type { Environment } from "../types";
+import type { Day, Environment } from "../types";
+import { weekdays } from "../window";
 
 const field =
   "h-9 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -20,6 +21,12 @@ function originOf(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+// With no days chosen the window is on every day, so a window written without
+// days shows all seven ticked — leaving them all ticked is how it stays that way.
+function chosen(days: Day[] | undefined, day: Day): boolean {
+  return days === undefined || days.length === 0 || days.includes(day);
 }
 
 function browserTimezone(): string {
@@ -163,8 +170,25 @@ export function EnvironmentForm({ projectId, environment }: { projectId: string;
                 className={`data ${field}`}
               />
             </label>
+            <fieldset className="flex flex-col gap-2 sm:col-span-3">
+              <legend className="mb-1.5">Days</legend>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {weekdays.map((day) => (
+                  <label key={day} className="data flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      name="window_days"
+                      value={day}
+                      defaultChecked={chosen(environment?.allowed_window?.days, day)}
+                    />
+                    {day}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <span className="text-xs text-muted-foreground sm:col-span-3">
-              A run has to fit entirely inside the window, or it is refused. A start after the end crosses midnight.
+              A run has to fit entirely inside the window, or it is refused. A start after the end crosses midnight, and
+              a night belongs to the day it starts: Friday 22:00–04:00 ends on Saturday morning.
             </span>
           </div>
         )}

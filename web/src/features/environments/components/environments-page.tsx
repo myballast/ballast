@@ -46,7 +46,13 @@ export function EnvironmentsPage({
         </div>
         {environments.length > 0 && declare}
       </header>
-      <EnvironmentList projectId={project.id} environments={environments} action={declare} />
+      <EnvironmentList
+        projectId={project.id}
+        environments={environments}
+        canManage={can(access, "manage_environments")}
+        now={new Date()}
+        action={declare}
+      />
     </div>
   );
 }

@@ -412,3 +412,22 @@ WHERE r.org_id = @org_id AND r.project_id = @project_id
   AND r.created_at >= @from_at AND r.created_at < @to_at
 GROUP BY 1
 ORDER BY 1;
+
+-- The runs waiting, oldest first, for the worker to look at before it claims
+-- one. Bounded: the queue itself is, by the limit on its depth.
+-- name: ListQueuedRuns :many
+SELECT * FROM run
+WHERE org_id = $1 AND status = 'queued'
+ORDER BY created_at, id
+LIMIT $2;
+
+-- A run that was accepted and may no longer be started: its target stopped being
+-- verified, or its window has shut. Decided while the run is still queued, which
+-- is the one place the state machine lets it become rejected from — so it never
+-- takes the environment lock and never has a container. The status in the WHERE
+-- is the guard: a run somebody claimed in the meantime is not touched.
+-- name: RejectQueuedRun :one
+UPDATE run
+SET status = 'rejected', ended_at = $3, error_message = $4
+WHERE org_id = $1 AND id = $2 AND status = 'queued'
+RETURNING *;

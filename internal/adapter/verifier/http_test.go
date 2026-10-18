@@ -15,9 +15,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/youssefmahersi/ballast/internal/domain"
 )
 
 // token is what the target is expected to serve. 32 random bytes in base64url,
@@ -391,5 +394,97 @@ func TestTheRequestCarriesNothingOfOurs(t *testing.T) {
 	}
 	if agent := sent.Header.Get("User-Agent"); !strings.Contains(strings.ToLower(agent), "ballast") {
 		t.Errorf("the user agent is %q; it should say who is calling", agent)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// What a failure says. The person who declared the target needs three things:
+// where Ballast looked, what answered, and how it differed. Not what the page
+// said: the verifier reads a URL somebody chose, and repeating a body back would
+// turn the endpoint into a way to read pages through Ballast.
+// ---------------------------------------------------------------------------
+
+func observed(t *testing.T, err error) *domain.ProofObserved {
+	t.Helper()
+
+	var seen *domain.ProofObserved
+	if !errors.As(err, &seen) {
+		t.Fatalf("the failure carries no observation: %v", err)
+	}
+	return seen
+}
+
+func TestAMissingProofSaysWhatTheTargetAnswered(t *testing.T) {
+	t.Parallel()
+
+	err := stubbed(answering(http.StatusNotFound, "no such file")).ReadProof(context.Background(), proofURL, token)
+
+	if seen := observed(t, err); seen.Status != http.StatusNotFound {
+		t.Errorf("observed status %d, want 404", seen.Status)
+	}
+	if !errors.Is(err, ErrProofMissing) {
+		t.Errorf("the sentinel is lost: %v", err)
+	}
+}
+
+func TestAMismatchSaysTheStatusAndTheSizeAndNotTheContent(t *testing.T) {
+	t.Parallel()
+
+	page := "<html><body>PRIVATE-DASHBOARD-CONTENT-9d41</body></html>"
+	err := stubbed(answering(http.StatusOK, page)).ReadProof(context.Background(), proofURL, token)
+
+	seen := observed(t, err)
+	if seen.Status != http.StatusOK || seen.Bytes != len(page) {
+		t.Errorf("observed %d / %d bytes, want 200 / %d", seen.Status, seen.Bytes, len(page))
+	}
+	if !errors.Is(err, ErrProofMismatch) {
+		t.Errorf("the sentinel is lost: %v", err)
+	}
+	if strings.Contains(err.Error(), "PRIVATE-DASHBOARD-CONTENT") {
+		t.Errorf("the failure repeats the target's content: %q", err)
+	}
+}
+
+// The observation is a status and a size and has nowhere to put anything else.
+// Pinned by shape: a field added to carry "a little of the body" would be the
+// whole leak.
+func TestAnObservationHasNowhereToHoldContent(t *testing.T) {
+	t.Parallel()
+
+	typ := reflect.TypeOf(domain.ProofObserved{})
+	allowed := map[string]bool{"Status": true, "Bytes": true, "Truncated": true, "Err": true}
+	for i := 0; i < typ.NumField(); i++ {
+		if name := typ.Field(i).Name; !allowed[name] {
+			t.Errorf("ProofObserved has a field %q; only %v are allowed", name, allowed)
+		}
+	}
+}
+
+func TestAFileThatIsTooLongSaysSoWithoutItsSize(t *testing.T) {
+	t.Parallel()
+
+	err := stubbed(answering(http.StatusOK, strings.Repeat("x", maxProofBytes+500))).
+		ReadProof(context.Background(), proofURL, token)
+
+	seen := observed(t, err)
+	if !seen.Truncated || seen.Status != http.StatusOK {
+		t.Errorf("observed %+v, want a truncated 200", seen)
+	}
+}
+
+func TestATargetThatAnsweredNothingObservesNoStatus(t *testing.T) {
+	t.Parallel()
+
+	refused := &stubTransport{answer: func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	}}
+	err := stubbed(refused).ReadProof(context.Background(), proofURL, token)
+
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("got %v", err)
+	}
+	var seen *domain.ProofObserved
+	if errors.As(err, &seen) && seen.Status != 0 {
+		t.Errorf("a request that got no answer observed status %d", seen.Status)
 	}
 }

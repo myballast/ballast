@@ -250,8 +250,10 @@ func environmentOf(e domain.Environment) dto.Environment {
 			Start:    clockOf(e.Window.StartMinute),
 			End:      clockOf(e.Window.EndMinute),
 			Timezone: e.Window.Zone,
+			Days:     e.Window.Days.Names(),
 		}
 	}
+	out.VerificationCheckedAt = e.VerificationCheckedAt
 
 	return out
 }
@@ -287,7 +289,16 @@ func windowOf(window *dto.AllowedWindow) (*domain.AllowedWindow, error) {
 		return nil, fmt.Errorf("allowed_window.end: %w", err)
 	}
 
-	return &domain.AllowedWindow{StartMinute: start, EndMinute: end, Zone: window.Timezone}, nil
+	// Left out is every day; an empty list is a mistake and ParseDays says so.
+	var days domain.DayMask
+	if window.Days != nil {
+		days, err = domain.ParseDays(window.Days)
+		if err != nil {
+			return nil, fmt.Errorf("allowed_window.days: %w", err)
+		}
+	}
+
+	return &domain.AllowedWindow{StartMinute: start, EndMinute: end, Zone: window.Timezone, Days: days}, nil
 }
 
 // minuteOf reads HH:MM. The hours and minutes are checked here rather than left
@@ -329,6 +340,17 @@ func (h *Environment) writeDomainError(w http.ResponseWriter, r *http.Request, e
 	// The attempt was made and proved nothing. The message is the one thing the
 	// caller can act on, and it never carries the token.
 	case errors.Is(err, domain.ErrVerificationFailed):
+		var failure *domain.ProofFailure
+		if errors.As(err, &failure) {
+			writeJSON(w, http.StatusUnprocessableEntity, dto.VerificationFailed{
+				Error: err.Error(),
+				Failure: dto.ProofFailure{
+					Searched: failure.SearchedPath(), Status: failure.Status, Bytes: failure.Bytes,
+					TooLong: failure.Truncated, Reason: failure.Reason,
+				},
+			})
+			return
+		}
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 
 	case errors.Is(err, domain.ErrNotProven):
@@ -374,9 +396,11 @@ func (h *Environment) Challenge(w http.ResponseWriter, r *http.Request) {
 		Token:      found.VerificationToken,
 		URL:        proofURL,
 		VerifiedAt: found.VerifiedAt,
+		CheckedAt:  found.VerificationCheckedAt,
 	}
 	if found.VerifiedBy != nil {
 		body.VerifiedBy = found.VerifiedBy.String()
+		body.VerifiedByName = found.VerifiedByName
 	}
 
 	writeJSON(w, http.StatusOK, body)

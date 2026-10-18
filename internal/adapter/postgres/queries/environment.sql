@@ -9,8 +9,8 @@ INSERT INTO environment
     (id, org_id, project_id, name, base_url, verification_token,
      verification_status, max_vus, max_duration_s,
      allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz,
-     created_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11, $12)
+     allowed_window_days, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11, $12, $13)
 RETURNING *;
 
 -- name: ListEnvironmentsInProject :many
@@ -25,7 +25,7 @@ ORDER BY name, id;
 UPDATE environment
 SET name = $3, base_url = $4, max_vus = $5, max_duration_s = $6,
     allowed_window_start_minute = $7, allowed_window_end_minute = $8,
-    allowed_window_tz = $9
+    allowed_window_tz = $9, allowed_window_days = $10
 WHERE org_id = $1 AND id = $2
 RETURNING *;
 
@@ -38,7 +38,7 @@ RETURNING *;
 UPDATE environment
 SET name = $3, base_url = $4, max_vus = $5, max_duration_s = $6,
     allowed_window_start_minute = $7, allowed_window_end_minute = $8,
-    allowed_window_tz = $9,
+    allowed_window_tz = $9, allowed_window_days = $10,
     verification_status = 'pending', verified_at = NULL, verified_by = NULL
 WHERE org_id = $1 AND id = $2
 RETURNING *;
@@ -77,13 +77,14 @@ DELETE FROM secret WHERE org_id = $1 AND environment_id = $2 AND key = $3;
 -- the status as a parameter: neither of them can write 'verified', so the only
 -- way into that state is the approval below.
 -- name: MarkEnvironmentProven :one
-UPDATE environment SET verification_status = 'proof_ok'
+UPDATE environment SET verification_status = 'proof_ok', verification_checked_at = $3
 WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
 RETURNING *;
 
 -- name: MarkEnvironmentProofFailed :one
 UPDATE environment
-SET verification_status = 'verification_failed', verified_at = NULL, verified_by = NULL
+SET verification_status = 'verification_failed', verified_at = NULL, verified_by = NULL,
+    verification_checked_at = $3
 WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
 RETURNING *;
 

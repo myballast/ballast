@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra/netguard"
 )
 
@@ -189,7 +190,10 @@ func (v *Verifier) ReadProof(ctx context.Context, proofURL, expected string) err
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: the target answered %d", ErrProofMissing, response.StatusCode)
+		return &domain.ProofObserved{
+			Status: response.StatusCode,
+			Err:    fmt.Errorf("%w: the target answered %d", ErrProofMissing, response.StatusCode),
+		}
 	}
 
 	// One byte past the bound, so that a file which is too long is told apart
@@ -199,14 +203,22 @@ func (v *Verifier) ReadProof(ctx context.Context, proofURL, expected string) err
 		return fmt.Errorf("%w: the file could not be read: %v", ErrUnreachable, err)
 	}
 	if len(body) > maxProofBytes {
-		return fmt.Errorf("%w: the file is larger than %d bytes", ErrProofMismatch, maxProofBytes)
+		return &domain.ProofObserved{
+			Status: response.StatusCode, Bytes: len(body), Truncated: true,
+			Err: fmt.Errorf("%w: the file is larger than %d bytes", ErrProofMismatch, maxProofBytes),
+		}
 	}
 
 	// Trimmed, because a text editor adds a newline and that is not a reason to
 	// refuse a proof. Nothing else is tolerated: the file holds the token and
 	// not a page that happens to contain it.
 	if strings.TrimSpace(string(body)) != expected {
-		return fmt.Errorf("%w", ErrProofMismatch)
+		// The status and the size say how it differed; the content is not
+		// repeated, since it belongs to a page somebody else chose.
+		return &domain.ProofObserved{
+			Status: response.StatusCode, Bytes: len(body),
+			Err: fmt.Errorf("%w", ErrProofMismatch),
+		}
 	}
 
 	return nil

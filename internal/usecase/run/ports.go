@@ -22,6 +22,12 @@ type Repository interface {
 	Create(ctx context.Context, run domain.Run) (domain.Run, error)
 	ByID(ctx context.Context, orgID, id uuid.UUID) (domain.Run, error)
 	ClaimNextQueued(ctx context.Context, orgID uuid.UUID, at time.Time) (domain.Run, bool, error)
+	// QueuedRuns lists the runs waiting, oldest first, up to limit. The worker
+	// reads them to refuse the ones that may no longer start, before claiming.
+	QueuedRuns(ctx context.Context, orgID uuid.UUID, limit int) ([]domain.Run, error)
+	// RejectQueued ends a run that is still queued as rejected, with the reason.
+	// It reports false, and writes nothing, for a run that is no longer queued.
+	RejectQueued(ctx context.Context, orgID, id uuid.UUID, at time.Time, reason string) (bool, error)
 	Finish(ctx context.Context, orgID, id uuid.UUID, status domain.RunStatus, at time.Time, message string) error
 	// SaveResults stores everything a finished run measured, and what it
 	// moved. The two traffic figures travel together because they are stored

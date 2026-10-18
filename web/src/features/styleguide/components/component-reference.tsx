@@ -423,16 +423,38 @@ export function ComponentReference() {
       </Section>
 
       <Section title="Environments">
+        <p className="text-xs text-muted-foreground">
+          As somebody who manages environments: Edit once verified, Verify before, the window with its days.
+        </p>
         <EnvironmentList
           projectId="checkout"
+          canManage
+          now={now}
           environments={[
+            {
+              ...environment("production", true),
+              max_vus: 1000,
+              allowed_window: {
+                start: "22:00",
+                end: "04:00",
+                timezone: "Europe/Paris",
+                days: ["mon", "tue", "wed", "thu", "fri"],
+              },
+            },
             { ...environment("staging", true), allowed_window: { start: "22:00", end: "06:00", timezone: "Europe/Paris" } },
-            environment("preview", false),
+            {
+              ...environment("partner-sandbox", false),
+              max_vus: 100,
+              allowed_window: { start: "00:00", end: "23:59", timezone: "UTC", days: ["sat", "sun"] },
+            },
+            { ...environment("preview", false), verification_checked_at: "2026-10-18T11:57:00Z" },
             { ...environment("canary", false), verification_status: "proof_ok" },
             { ...environment("legacy", false), verification_status: "verification_failed" },
           ]}
         />
-        <EnvironmentList projectId="checkout" environments={[]} />
+        <p className="text-xs text-muted-foreground">As anybody else: nothing the API would refuse is offered.</p>
+        <EnvironmentList projectId="checkout" now={now} environments={[environment("preview", false), environment("staging", true)]} />
+        <EnvironmentList projectId="checkout" now={now} environments={[]} />
       </Section>
 
       <Section title="Shell: sidebar, role and breadcrumb">

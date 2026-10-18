@@ -32,8 +32,9 @@ type Repository interface {
 	// Two methods rather than one taking a status, so that nothing on this port
 	// can write "verified". Approve is the only way into that state, and it
 	// stands behind a permission of its own.
-	RecordProofOK(ctx context.Context, orgID, id uuid.UUID) (domain.Environment, error)
-	RecordProofFailed(ctx context.Context, orgID, id uuid.UUID) (domain.Environment, error)
+	// at is when the attempt was made, kept whatever its outcome.
+	RecordProofOK(ctx context.Context, orgID, id uuid.UUID, at time.Time) (domain.Environment, error)
+	RecordProofFailed(ctx context.Context, orgID, id uuid.UUID, at time.Time) (domain.Environment, error)
 	// Approve records the human decision that lets load reach a target, and
 	// adds its host to the project's allowlist, in one transaction. A target
 	// whose proof is not in is refused by the statement itself.

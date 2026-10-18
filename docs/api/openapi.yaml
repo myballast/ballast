@@ -2254,21 +2254,44 @@ paths:
         "422":
           description: |
             The attempt was made and proved nothing. The environment is now
-            `verification_failed`, and the message says what to fix.
+            `verification_failed`, and the body says what to fix: the sentence, and
+            under `failure` where Ballast looked, what answered and how it differed.
+            It never carries what the target's file said — only its status and its
+            size — because the address was chosen by whoever declared the
+            environment, and repeating a page back would make this a way to read
+            pages through Ballast.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VerificationFailed"
               examples:
                 missing:
                   value:
                     error: "the target's ownership could not be verified: the challenge file was not served: the target answered 404"
+                    failure:
+                      searched: https://staging.example.test/.well-known/ballast-<token>
+                      status: 404
+                      reason: "the challenge file was not served: the target answered 404"
+                notTheToken:
+                  value:
+                    error: "the target's ownership could not be verified: the challenge file does not hold the expected token"
+                    failure:
+                      searched: https://staging.example.test/.well-known/ballast-<token>
+                      status: 200
+                      bytes: 5120
+                      reason: the challenge file does not hold the expected token
                 privateAddress:
                   value:
                     error: "the target's ownership could not be verified: the target does not resolve to a publicly routable address: 10.0.0.1"
+                    failure:
+                      searched: https://staging.example.test/.well-known/ballast-<token>
+                      reason: "the target does not resolve to a publicly routable address: 10.0.0.1"
                 redirected:
                   value:
                     error: "the target's ownership could not be verified: the target redirected the request elsewhere: staging.example.test sent it to 169.254.169.254"
+                    failure:
+                      searched: https://staging.example.test/.well-known/ballast-<token>
+                      reason: "the target redirected the request elsewhere: staging.example.test sent it to 169.254.169.254"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -3346,6 +3369,22 @@ components:
           type: string
           description: An IANA name. The window is wall-clock time there, daylight saving included.
           example: Europe/Paris
+        days:
+          type: array
+          description: |
+            Narrows the window to some days of the week, read in `timezone`. Left
+            out, every day; an empty list is refused with `400`, since a window on
+            no day would refuse every run.
+
+            A window that crosses midnight **belongs to the day it starts**:
+            `mon`–`fri` with `22:00`–`04:00` is five nights, and Friday's ends on
+            Saturday morning. A Sunday morning is therefore outside it, because
+            Saturday has no night of its own.
+          uniqueItems: true
+          items:
+            type: string
+            enum: [mon, tue, wed, thu, fri, sat, sun]
+          example: [mon, tue, wed, thu, fri]
 
     Environment:
       type: object
@@ -3388,6 +3427,12 @@ components:
           maximum: 86400
         allowed_window:
           $ref: "#/components/schemas/AllowedWindow"
+        verification_checked_at:
+          type: string
+          format: date-time
+          description: |
+            When somebody last asked Ballast to fetch the challenge, whether or not
+            it was served. Absent until the first attempt.
         created_at: { type: string, format: date-time }
 
     EnvironmentListResponse:
@@ -3480,6 +3525,41 @@ components:
             one entry of the generator's environment.
           example: a-token-for-the-test-account
 
+    VerificationFailed:
+      type: object
+      description: The answer to a verification that proved nothing.
+      required: [error, failure]
+      properties:
+        error: { type: string }
+        failure:
+          type: object
+          required: [searched, reason]
+          properties:
+            searched:
+              type: string
+              description: |
+                Where the challenge was looked for, with `<token>` where the token
+                is. The person fixing it has the token in front of them, in the
+                challenge; an error body is copied into tickets and chat, and the
+                token is what keeps anybody from serving a file for a target they
+                do not own.
+              example: https://staging.example.test/.well-known/ballast-<token>
+            status:
+              type: integer
+              description: |
+                The HTTP status the target answered. Absent when it answered
+                nothing: unreachable, resolving somewhere Ballast refuses, or
+                redirecting away.
+            bytes:
+              type: integer
+              description: How large the file it served was, when one was read.
+            too_long:
+              type: boolean
+              description: The file was longer than Ballast reads, which is 4 KiB.
+            reason:
+              type: string
+              description: Ballast's own sentence for what went wrong.
+
     VerificationChallenge:
       type: object
       description: |
@@ -3509,3 +3589,14 @@ components:
           type: string
           format: uuid
           description: Who approved it. Absent until then.
+        verified_by_name:
+          type: string
+          description: |
+            Who approved it, as a screen should say them: the name they signed in
+            with, or their address when they gave none. Absent until approval.
+        checked_at:
+          type: string
+          format: date-time
+          description: |
+            When the challenge was last fetched, whatever came of it. Absent until
+            somebody first asks.

@@ -36,7 +36,7 @@ const approveEnvironment = `-- name: ApproveEnvironment :one
 UPDATE environment
 SET verification_status = 'verified', verified_at = $4, verified_by = $3
 WHERE org_id = $1 AND id = $2 AND verification_status = 'proof_ok'
-RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at
 `
 
 type ApproveEnvironmentParams struct {
@@ -80,6 +80,8 @@ func (q *Queries) ApproveEnvironment(ctx context.Context, arg ApproveEnvironment
 		&i.AllowedWindowStartMinute,
 		&i.AllowedWindowEndMinute,
 		&i.AllowedWindowTz,
+		&i.AllowedWindowDays,
+		&i.VerificationCheckedAt,
 	)
 	return i, err
 }
@@ -141,9 +143,9 @@ INSERT INTO environment
     (id, org_id, project_id, name, base_url, verification_token,
      verification_status, max_vus, max_duration_s,
      allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz,
-     created_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11, $12)
-RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+     allowed_window_days, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at
 `
 
 type InsertEnvironmentParams struct {
@@ -158,6 +160,7 @@ type InsertEnvironmentParams struct {
 	AllowedWindowStartMinute *int16
 	AllowedWindowEndMinute   *int16
 	AllowedWindowTz          string
+	AllowedWindowDays        int16
 	CreatedAt                time.Time
 }
 
@@ -179,6 +182,7 @@ func (q *Queries) InsertEnvironment(ctx context.Context, arg InsertEnvironmentPa
 		arg.AllowedWindowStartMinute,
 		arg.AllowedWindowEndMinute,
 		arg.AllowedWindowTz,
+		arg.AllowedWindowDays,
 		arg.CreatedAt,
 	)
 	var i Environment
@@ -199,12 +203,14 @@ func (q *Queries) InsertEnvironment(ctx context.Context, arg InsertEnvironmentPa
 		&i.AllowedWindowStartMinute,
 		&i.AllowedWindowEndMinute,
 		&i.AllowedWindowTz,
+		&i.AllowedWindowDays,
+		&i.VerificationCheckedAt,
 	)
 	return i, err
 }
 
 const listEnvironmentsInProject = `-- name: ListEnvironmentsInProject :many
-SELECT id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz FROM environment
+SELECT id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at FROM environment
 WHERE org_id = $1 AND project_id = $2
 ORDER BY name, id
 `
@@ -240,6 +246,8 @@ func (q *Queries) ListEnvironmentsInProject(ctx context.Context, arg ListEnviron
 			&i.AllowedWindowStartMinute,
 			&i.AllowedWindowEndMinute,
 			&i.AllowedWindowTz,
+			&i.AllowedWindowDays,
+			&i.VerificationCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -374,18 +382,20 @@ func (q *Queries) ListSecrets(ctx context.Context, arg ListSecretsParams) ([]Sec
 
 const markEnvironmentProofFailed = `-- name: MarkEnvironmentProofFailed :one
 UPDATE environment
-SET verification_status = 'verification_failed', verified_at = NULL, verified_by = NULL
+SET verification_status = 'verification_failed', verified_at = NULL, verified_by = NULL,
+    verification_checked_at = $3
 WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
-RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at
 `
 
 type MarkEnvironmentProofFailedParams struct {
-	OrgID uuid.UUID
-	ID    uuid.UUID
+	OrgID                 uuid.UUID
+	ID                    uuid.UUID
+	VerificationCheckedAt *time.Time
 }
 
 func (q *Queries) MarkEnvironmentProofFailed(ctx context.Context, arg MarkEnvironmentProofFailedParams) (Environment, error) {
-	row := q.db.QueryRow(ctx, markEnvironmentProofFailed, arg.OrgID, arg.ID)
+	row := q.db.QueryRow(ctx, markEnvironmentProofFailed, arg.OrgID, arg.ID, arg.VerificationCheckedAt)
 	var i Environment
 	err := row.Scan(
 		&i.ID,
@@ -404,26 +414,29 @@ func (q *Queries) MarkEnvironmentProofFailed(ctx context.Context, arg MarkEnviro
 		&i.AllowedWindowStartMinute,
 		&i.AllowedWindowEndMinute,
 		&i.AllowedWindowTz,
+		&i.AllowedWindowDays,
+		&i.VerificationCheckedAt,
 	)
 	return i, err
 }
 
 const markEnvironmentProven = `-- name: MarkEnvironmentProven :one
-UPDATE environment SET verification_status = 'proof_ok'
+UPDATE environment SET verification_status = 'proof_ok', verification_checked_at = $3
 WHERE org_id = $1 AND id = $2 AND verification_status <> 'verified'
-RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at
 `
 
 type MarkEnvironmentProvenParams struct {
-	OrgID uuid.UUID
-	ID    uuid.UUID
+	OrgID                 uuid.UUID
+	ID                    uuid.UUID
+	VerificationCheckedAt *time.Time
 }
 
 // The outcome of a verification attempt. Two statements rather than one taking
 // the status as a parameter: neither of them can write 'verified', so the only
 // way into that state is the approval below.
 func (q *Queries) MarkEnvironmentProven(ctx context.Context, arg MarkEnvironmentProvenParams) (Environment, error) {
-	row := q.db.QueryRow(ctx, markEnvironmentProven, arg.OrgID, arg.ID)
+	row := q.db.QueryRow(ctx, markEnvironmentProven, arg.OrgID, arg.ID, arg.VerificationCheckedAt)
 	var i Environment
 	err := row.Scan(
 		&i.ID,
@@ -442,6 +455,8 @@ func (q *Queries) MarkEnvironmentProven(ctx context.Context, arg MarkEnvironment
 		&i.AllowedWindowStartMinute,
 		&i.AllowedWindowEndMinute,
 		&i.AllowedWindowTz,
+		&i.AllowedWindowDays,
+		&i.VerificationCheckedAt,
 	)
 	return i, err
 }
@@ -450,9 +465,9 @@ const updateEnvironment = `-- name: UpdateEnvironment :one
 UPDATE environment
 SET name = $3, base_url = $4, max_vus = $5, max_duration_s = $6,
     allowed_window_start_minute = $7, allowed_window_end_minute = $8,
-    allowed_window_tz = $9
+    allowed_window_tz = $9, allowed_window_days = $10
 WHERE org_id = $1 AND id = $2
-RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at
 `
 
 type UpdateEnvironmentParams struct {
@@ -465,6 +480,7 @@ type UpdateEnvironmentParams struct {
 	AllowedWindowStartMinute *int16
 	AllowedWindowEndMinute   *int16
 	AllowedWindowTz          string
+	AllowedWindowDays        int16
 }
 
 // The mutable half of an environment. The target's proof and its approval are
@@ -481,6 +497,7 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, arg UpdateEnvironmentPa
 		arg.AllowedWindowStartMinute,
 		arg.AllowedWindowEndMinute,
 		arg.AllowedWindowTz,
+		arg.AllowedWindowDays,
 	)
 	var i Environment
 	err := row.Scan(
@@ -500,6 +517,8 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, arg UpdateEnvironmentPa
 		&i.AllowedWindowStartMinute,
 		&i.AllowedWindowEndMinute,
 		&i.AllowedWindowTz,
+		&i.AllowedWindowDays,
+		&i.VerificationCheckedAt,
 	)
 	return i, err
 }
@@ -508,10 +527,10 @@ const updateEnvironmentAndResetVerification = `-- name: UpdateEnvironmentAndRese
 UPDATE environment
 SET name = $3, base_url = $4, max_vus = $5, max_duration_s = $6,
     allowed_window_start_minute = $7, allowed_window_end_minute = $8,
-    allowed_window_tz = $9,
+    allowed_window_tz = $9, allowed_window_days = $10,
     verification_status = 'pending', verified_at = NULL, verified_by = NULL
 WHERE org_id = $1 AND id = $2
-RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz
+RETURNING id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at
 `
 
 type UpdateEnvironmentAndResetVerificationParams struct {
@@ -524,6 +543,7 @@ type UpdateEnvironmentAndResetVerificationParams struct {
 	AllowedWindowStartMinute *int16
 	AllowedWindowEndMinute   *int16
 	AllowedWindowTz          string
+	AllowedWindowDays        int16
 }
 
 // The same, for an environment pointed at another origin. The proof was served by
@@ -542,6 +562,7 @@ func (q *Queries) UpdateEnvironmentAndResetVerification(ctx context.Context, arg
 		arg.AllowedWindowStartMinute,
 		arg.AllowedWindowEndMinute,
 		arg.AllowedWindowTz,
+		arg.AllowedWindowDays,
 	)
 	var i Environment
 	err := row.Scan(
@@ -561,6 +582,8 @@ func (q *Queries) UpdateEnvironmentAndResetVerification(ctx context.Context, arg
 		&i.AllowedWindowStartMinute,
 		&i.AllowedWindowEndMinute,
 		&i.AllowedWindowTz,
+		&i.AllowedWindowDays,
+		&i.VerificationCheckedAt,
 	)
 	return i, err
 }
