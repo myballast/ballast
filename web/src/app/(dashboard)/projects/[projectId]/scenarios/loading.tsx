@@ -1,5 +1,10 @@
-import { LoadingState } from "@/components/states";
+import { SkeletonHeading, SkeletonPage, SkeletonTable } from "@/components/skeleton";
 
 export default function Loading() {
-  return <LoadingState label="Loading the scenarios…" />;
+  return (
+    <SkeletonPage label="Loading the scenarios…">
+      <SkeletonHeading />
+      <SkeletonTable rows={5} />
+    </SkeletonPage>
+  );
 }

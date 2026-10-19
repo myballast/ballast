@@ -1,7 +1,7 @@
 import { ShieldCheck, ShieldQuestion } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDateTime } from "@/lib/format";
+import { Time } from "@/components/time";
 
 import { approveEnvironment } from "../actions";
 import type { Environment, VerificationChallenge } from "../types";
@@ -73,7 +73,7 @@ export function VerificationPanel({
                 {" "}
                 on{" "}
                 <span className="num">
-                  {formatDateTime(challenge.verified_at)}
+                  <Time iso={challenge.verified_at} />
                 </span>
               </>
             )}

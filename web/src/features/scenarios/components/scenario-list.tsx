@@ -2,7 +2,7 @@ import { ChevronRight, FileCode } from "lucide-react";
 import Link from "next/link";
 
 import { EmptyState } from "@/components/states";
-import { formatDateTime } from "@/lib/format";
+import { Time } from "@/components/time";
 
 import type { ScenarioListItem } from "../types";
 
@@ -47,7 +47,7 @@ export function ScenarioList({
                   {s.threshold_count === 1 ? "threshold" : "thresholds"}
                 </span>
                 <span>
-                  updated <span className="num">{formatDateTime(s.updated_at)}</span>
+                  updated <span className="num"><Time iso={s.updated_at} /></span>
                 </span>
               </span>
             </span>

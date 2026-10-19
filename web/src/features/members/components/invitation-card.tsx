@@ -1,4 +1,4 @@
-import { formatRelative } from "@/lib/format";
+import { Time } from "@/components/time";
 
 import type { InvitationPreview } from "../types";
 import { AcceptInvitation } from "./accept-invitation";
@@ -54,7 +54,7 @@ export function InvitationCard({
         <>
           <AcceptInvitation token={token} project={invitation.project_name} />
           <p className="text-xs text-muted-foreground">
-            Expires <span className="num">{formatRelative(invitation.expires_at, now)}</span>. You keep your own
+            Expires <span className="num"><Time iso={invitation.expires_at} mode="relative" now={now} /></span>. You keep your own
             organization and can switch between them.
           </p>
         </>

@@ -1,6 +1,9 @@
 import { Hourglass } from "lucide-react";
 
-import { formatClock, formatDuration } from "@/lib/format";
+import { Fragment, type ReactNode } from "react";
+
+import { Time } from "@/components/time";
+import { formatDuration } from "@/lib/format";
 import { can } from "@/lib/permissions";
 
 import type { RunContext } from "../detail";
@@ -11,17 +14,17 @@ import { RunStatusBadge, RunStatusIcon } from "./run-status-badge";
 
 // The facts of the run in the monospace face the design uses for them, in the
 // order a person reading a failed run asks them: which run, who, when, how long.
-function facts(run: Run, now: Date): string[] {
-  const parts = [`run #${run.number}`];
+function facts(run: Run, now: Date): ReactNode[] {
+  const parts: ReactNode[] = [`run #${run.number}`];
 
   if (run.triggered_by) parts.push(`triggered by ${run.triggered_by}`);
   if (run.started_at) {
-    parts.push(`started ${formatClock(run.started_at, now)}`);
+    parts.push(<>started <Time iso={run.started_at} mode="clock" now={now} /></>);
   } else {
-    parts.push(`queued ${formatClock(run.created_at, now)}`);
+    parts.push(<>queued <Time iso={run.created_at} mode="clock" now={now} /></>);
   }
   if (run.ended_at) {
-    parts.push(`finished ${formatClock(run.ended_at, now)}`);
+    parts.push(<>finished <Time iso={run.ended_at} mode="clock" now={now} /></>);
     parts.push(formatDuration(run.started_at, run.ended_at));
   }
   return parts;
@@ -69,7 +72,14 @@ export function RunHeader({ run, context, now }: { run: Run; context: RunContext
         </div>
       </div>
 
-      <p className="data text-[11.5px] leading-relaxed text-muted-foreground">{facts(run, now).join(" · ")}</p>
+      <p className="data text-[11.5px] leading-relaxed text-muted-foreground">
+        {facts(run, now).map((part, i) => (
+          <Fragment key={i}>
+            {i > 0 && " · "}
+            {part}
+          </Fragment>
+        ))}
+      </p>
 
       <ul className="flex flex-wrap gap-1.5">
         {pills.map((pill) => (
@@ -84,7 +94,9 @@ export function RunHeader({ run, context, now }: { run: Run; context: RunContext
         <p className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">
           <Hourglass aria-hidden className="size-4 shrink-0" />
           <span>
-            Stop requested at <span className="num">{formatClock(run.cancel_requested_at, now)}</span>. The worker is
+            Stop requested at <span className="num">
+              <Time iso={run.cancel_requested_at} mode="clock" now={now} />
+            </span>. The worker is
             stopping the load; the run ends as cancelled in a few seconds.
           </span>
         </p>

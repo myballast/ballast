@@ -40,6 +40,15 @@ export function AppShell({
 }) {
   return (
     <div className="flex min-h-svh flex-1">
+      {/* The first stop for the keyboard: the sidebar is a dozen of them, and the page
+          is what somebody came for. Invisible until it has focus. */}
+      <a
+        href="#content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:border focus:bg-background focus:px-3 focus:py-2 focus:text-sm"
+      >
+        Skip to the content
+      </a>
+
       <aside className="sticky top-0 hidden h-svh w-sidebar shrink-0 border-r bg-sidebar text-sidebar-foreground md:block">
         <SidebarContent me={me} scope={scope} />
       </aside>
@@ -57,7 +66,7 @@ export function AppShell({
         </details>
 
         <AppHeader organization={me.organization.name} scope={scope} />
-        <main className="mx-auto w-full max-w-6xl px-4 py-page-y md:px-page-x">{children}</main>
+        <main id="content" tabIndex={-1} className="mx-auto w-full max-w-6xl px-4 py-page-y outline-none md:px-page-x">{children}</main>
       </div>
     </div>
   );

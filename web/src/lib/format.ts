@@ -2,6 +2,8 @@
 //
 // One locale for the whole interface, so the same number never reads two ways
 // on two screens.
+import { formatMoment } from "./time";
+
 const locale = "en-GB";
 
 const integer = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
@@ -12,15 +14,6 @@ const oneDecimal = new Intl.NumberFormat(locale, {
 const twoDecimals = new Intl.NumberFormat(locale, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
-});
-
-const time = new Intl.DateTimeFormat(locale, {
-  year: "numeric",
-  month: "short",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
 });
 
 export const missing = "—";
@@ -44,23 +37,41 @@ export function formatPercent(ratio: number | null): string {
   return `${twoDecimals.format(ratio * 100)} %`;
 }
 
-const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const day = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short" });
+const clockFormats = new Map<string, Intl.DateTimeFormat>();
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+
+function inZone(cache: Map<string, Intl.DateTimeFormat>, zone: string | undefined, options: Intl.DateTimeFormatOptions) {
+  const key = zone ?? "";
+  let found = cache.get(key);
+  if (!found) {
+    found = new Intl.DateTimeFormat(locale, { ...options, timeZone: zone });
+    cache.set(key, found);
+  }
+  return found;
+}
 
 // formatClock prints a moment as the time of day, "14:02:11", and puts the day
 // in front of it when it is not today: a bare time of day on a run from last
-// week would read as this morning's. now is passed in, like formatRelative's.
-export function formatClock(iso: string | undefined, now: Date): string {
+// week would read as this morning's. now is passed in, like formatRelative's, and
+// zone is the reader's, which decides what "today" is.
+export function formatClock(iso: string | undefined, now: Date, zone?: string): string {
   if (!iso) return missing;
+
+  const clock = inZone(clockFormats, zone, { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  const day = inZone(dayFormats, zone, { day: "2-digit", month: "short", year: "numeric" });
 
   const at = new Date(iso);
-  const sameDay = day.format(at) === day.format(now) && at.getFullYear() === now.getFullYear();
-  return sameDay ? clock.format(at) : `${day.format(at)}, ${clock.format(at)}`;
+  const sameDay = day.format(at) === day.format(now);
+  const dayOnly = inZone(dayFormats, zone, { day: "2-digit", month: "short" });
+  return sameDay ? clock.format(at) : `${dayOnly.format(at)}, ${clock.format(at)}`;
 }
 
-export function formatDateTime(iso: string | undefined): string {
+// formatDateTime is the one way a date and time are written. The components that
+// show one use <Time>, which does it in the reader's zone; this is for text that
+// is built outside a component.
+export function formatDateTime(iso: string | undefined, zone?: string): string {
   if (!iso) return missing;
-  return time.format(new Date(iso));
+  return formatMoment(iso, zone);
 }
 
 // formatDuration prints the time between two instants as "8m 14s".

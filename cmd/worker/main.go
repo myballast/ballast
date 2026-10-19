@@ -168,8 +168,9 @@ func poll(
 	defer ticker.Stop()
 
 	for {
-		// Logs are drained and dropped here. Storing them is what the live log
-		// view will do.
+		// Not where the lines are stored: the service does that as they
+		// arrive, so that the live view has them. These are the same lines,
+		// forwarded here for a trace of what a run printed.
 		logs := make(chan domain.LogLine, 256)
 		drained := make(chan struct{})
 		go func() {

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
-import { formatRelative } from "@/lib/format";
+import { Time } from "@/components/time";
 
 import { loadChallenge, verifyEnvironment, type VerifyState } from "../actions";
 import type { Environment, ProofFailure, VerificationChallenge } from "../types";
@@ -148,7 +148,7 @@ export function VerifyDialog({
           <p role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <Icon aria-hidden className="size-3.5 shrink-0" />
             <span>{label}</span>·
-            <span>{checked ? <>last checked {formatRelative(checked, at)}</> : "never checked"}</span>
+            <span>{checked ? <>last checked <Time iso={checked} mode="relative" now={at} /></> : "never checked"}</span>
           </p>
 
           {state.error && <Failure message={state.error} failure={state.failure} />}

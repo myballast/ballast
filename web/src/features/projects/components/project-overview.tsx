@@ -123,6 +123,7 @@ export function ProjectOverview({
   rows: RunRow[];
 }) {
   const launch = can(access, "run_test");
+  const now = new Date();
   const noRunInWindow = stats.total_runs.value === 0;
 
   return (
@@ -181,7 +182,7 @@ export function ProjectOverview({
         />
       ) : (
         <>
-          <RecentRun run={rows[0]} />
+          <RecentRun run={rows[0]} now={now} />
           <Section
             title="Latest runs"
             link={

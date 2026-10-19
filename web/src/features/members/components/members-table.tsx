@@ -1,5 +1,5 @@
 import { EmptyState } from "@/components/states";
-import { formatRelative } from "@/lib/format";
+import { Time } from "@/components/time";
 import { Users } from "lucide-react";
 
 import { displayName, initials, lastAdmins, rolesGrantableBy, roleLockedReason } from "../roles";
@@ -86,7 +86,7 @@ export function MembersTable({
                 )}
               </div>
               <div role="cell" className="data text-[11.5px] text-muted-foreground">
-                {member.last_activity ? formatRelative(member.last_activity, now) : "no activity yet"}
+                {member.last_activity ? <Time iso={member.last_activity} mode="relative" now={now} /> : "no activity yet"}
               </div>
               <div role="cell" className="flex justify-end">
                 {caller.canManage && (

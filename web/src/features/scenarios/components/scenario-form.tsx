@@ -2,7 +2,7 @@
 
 import { Info, Save } from "lucide-react";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { profileKinds, type ProfileKind, type ProfileParams } from "@/features/runs/types";
@@ -10,6 +10,7 @@ import { profileKinds, type ProfileKind, type ProfileParams } from "@/features/r
 import { createScenario, updateScenario, type ScenarioFormState } from "../actions";
 import { linesOf } from "../findings";
 import { starterScript } from "../template";
+import { isDirty } from "../workspace";
 import type { Scenario } from "../types";
 import { ScriptEditor } from "./script-editor";
 import { ScriptFindings } from "./script-findings";
@@ -46,7 +47,17 @@ function FieldError({ children }: { children?: string }) {
 // Creating starts from a script that already passes the checks. Editing shows
 // the parameters as they are stored: changing the profile keeps them, since a
 // scenario's defaults are its own, and each run is clamped to its environment.
-export function ScenarioForm({ projectId, scenario }: { projectId: string; scenario?: Scenario }) {
+export function ScenarioForm({
+  projectId,
+  scenario,
+  onDirtyChange,
+}: {
+  projectId: string;
+  scenario?: Scenario;
+  // Told whenever the form starts or stops differing from what is saved, so that
+  // the bar above it can say so and hold Run back.
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const submit = scenario ? updateScenario.bind(null, projectId, scenario.id) : createScenario.bind(null, projectId);
   const [state, action, pending] = useActionState<ScenarioFormState, FormData>(submit, {});
 
@@ -59,6 +70,15 @@ export function ScenarioForm({ projectId, scenario }: { projectId: string; scena
   const [params, setParams] = useState<Partial<ProfileParams>>(
     ownParams(scenario) ?? { target_vus: 1, ramp_up_s: 0, plateau_s: 60, ramp_down_s: 0 },
   );
+
+  // What the form started from. Held, not recomputed: an edit that is put back
+  // is no edit, and a saved one makes a new form (keyed on the version) with a
+  // new start.
+  const [started] = useState({ name, script, profile, params });
+  const dirty = scenario !== undefined && isDirty(started, { name, script, profile, params });
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const findings = state.findings ?? [];
 
@@ -100,7 +120,7 @@ export function ScenarioForm({ projectId, scenario }: { projectId: string; scena
           {profileKinds.map((kind) => (
             <label
               key={kind}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground has-[:checked]:border-brand has-[:checked]:text-foreground"
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:checked]:border-brand has-[:checked]:text-foreground"
             >
               <input
                 type="radio"

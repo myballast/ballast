@@ -27,7 +27,7 @@ export async function loadProjectPage(projectId: string) {
   ]);
 
   const names = (list: { id: string; name: string }[]) => list.map(({ id, name }) => ({ id, name }));
-  const rows = runRows(page.runs, names(scenarios), names(environments), new Date());
+  const rows = runRows(page.runs, names(scenarios), names(environments));
 
   return { project, access, restricted: false as const, scenarios, environments, stats, rows };
 }

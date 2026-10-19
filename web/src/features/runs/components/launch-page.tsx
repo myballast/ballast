@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import Link from "next/link";
 
 import { EmptyState } from "@/components/states";
+import { buttonVariants } from "@/components/ui/button";
 import type { Environment } from "@/features/environments/types";
 import type { Project } from "@/features/projects/types";
 import type { ScenarioSummary } from "@/features/scenarios/types";
@@ -37,11 +38,26 @@ export function LaunchPage({
           Your role in this project ({access.role}) does not include launching runs.
         </p>
       ) : scenarios.length === 0 ? (
-        <EmptyState title="No scenario to run" description="Import a scenario into this project first." />
+        <EmptyState
+          title="No scenario to run"
+          description="Import a scenario into this project first."
+          action={
+            can(access, "manage_scenarios") ? (
+              <Link href={`/projects/${project.id}/scenarios/new`} className={buttonVariants()}>
+                New scenario
+              </Link>
+            ) : undefined
+          }
+        />
       ) : !verified ? (
         <EmptyState
           title="No verified environment"
           description="Load is only ever sent to an environment whose ownership has been verified and approved."
+          action={
+            <Link href={`/projects/${project.id}/environments`} className={buttonVariants()}>
+              Go to the environments
+            </Link>
+          }
         />
       ) : (
         <LaunchForm projectId={project.id} scenarios={scenarios} environments={environments} />
