@@ -21,7 +21,10 @@ type Environment struct {
 	MaxDurationS       int    `json:"max_duration_s"`
 	// AllowedWindow is absent when the target takes load at any hour.
 	AllowedWindow *AllowedWindow `json:"allowed_window,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
+	// VerificationCheckedAt is when somebody last asked Ballast to fetch the
+	// challenge, successful or not. Absent until the first attempt.
+	VerificationCheckedAt *time.Time `json:"verification_checked_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
 }
 
 // AllowedWindow is the stretch of the day a target accepts load, in its own
@@ -31,6 +34,11 @@ type AllowedWindow struct {
 	End   string `json:"end"`
 	// Timezone is an IANA name, such as Europe/Paris.
 	Timezone string `json:"timezone"`
+	// Days narrows the window to some days of the week, read in Timezone, as
+	// mon, tue, wed, thu, fri, sat, sun. Left out, every day. A window that
+	// crosses midnight belongs to the day it starts: mon–fri 22:00–04:00 is
+	// five nights, and Friday's ends on Saturday morning.
+	Days []string `json:"days,omitempty"`
 }
 
 // EnvironmentListResponse is returned by the environment list.
@@ -127,6 +135,39 @@ type VerificationChallenge struct {
 	// does not change it.
 	URL string `json:"url"`
 	// VerifiedAt and VerifiedBy are absent until an administrator approves.
-	VerifiedAt *time.Time `json:"verified_at,omitempty"`
-	VerifiedBy string     `json:"verified_by,omitempty"`
+	// VerifiedByName is who that was, as the screen should say it: the name they
+	// signed in with, or their address when they gave none.
+	VerifiedAt     *time.Time `json:"verified_at,omitempty"`
+	VerifiedBy     string     `json:"verified_by,omitempty"`
+	VerifiedByName string     `json:"verified_by_name,omitempty"`
+	// CheckedAt is when the challenge was last fetched, whatever came of it.
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+}
+
+// VerificationFailed is the body of a 422 from the verify endpoint: the
+// sentence, and what it was about.
+type VerificationFailed struct {
+	Error   string       `json:"error"`
+	Failure ProofFailure `json:"failure"`
+}
+
+// ProofFailure says where Ballast looked for the challenge, what answered, and
+// how it differed. It never carries what the target's file said: only its status
+// and its size.
+//
+// The searched address contains the token, which is meant to be published but is
+// read only by whoever manages environments; the endpoint takes that permission.
+type ProofFailure struct {
+	// Searched is the exact address the challenge was fetched from.
+	Searched string `json:"searched"`
+	// Status is the HTTP status the target answered. Absent when it answered
+	// nothing: it could not be reached, resolved somewhere Ballast refuses, or
+	// redirected away.
+	Status int `json:"status,omitempty"`
+	// Bytes is the size of the file it served, when one was read.
+	Bytes int `json:"bytes,omitempty"`
+	// TooLong reports a file longer than Ballast reads.
+	TooLong bool `json:"too_long,omitempty"`
+	// Reason is Ballast's own sentence for what went wrong.
+	Reason string `json:"reason"`
 }

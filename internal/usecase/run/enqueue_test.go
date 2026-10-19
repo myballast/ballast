@@ -18,6 +18,12 @@ import (
 // test set up. None of them asserts anything, so a test that cares about an
 // interaction says so itself.
 
+// rejection is a queued run the worker refused, and what it said.
+type rejection struct {
+	id     uuid.UUID
+	reason string
+}
+
 type fakeRuns struct {
 	// listed is what InProject hands back; listedFor, listedFilter,
 	// listedWindow and listedLimit record what it was asked.
@@ -79,6 +85,11 @@ type fakeRuns struct {
 	journal *journal
 	// next is what ClaimNextQueued hands over. Nil means an empty queue.
 	next *domain.Run
+	// waiting is what QueuedRuns lists, rejections what RejectQueued was asked
+	// to end, and alreadyClaimed makes it answer that somebody got there first.
+	waiting        []domain.Run
+	rejections     []rejection
+	alreadyClaimed bool
 	// saved is what SaveResults was given and savedFor which run for, so a
 	// test can check that what the generator reported is what was stored.
 	saved domain.RunResults
@@ -125,6 +136,20 @@ func (f *fakeRuns) ClaimNextQueued(context.Context, uuid.UUID, time.Time) (domai
 		return domain.Run{}, false, nil
 	}
 	return *f.next, true, nil
+}
+
+func (f *fakeRuns) QueuedRuns(context.Context, uuid.UUID, int) ([]domain.Run, error) {
+	return f.waiting, nil
+}
+
+func (f *fakeRuns) RejectQueued(
+	_ context.Context, _, id uuid.UUID, _ time.Time, reason string,
+) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.rejections = append(f.rejections, rejection{id: id, reason: reason})
+	return !f.alreadyClaimed, nil
 }
 
 func (f *fakeRuns) Finish(

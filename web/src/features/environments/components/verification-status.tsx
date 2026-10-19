@@ -9,7 +9,7 @@ import type { VerificationStatus as Status } from "../types";
 const verification: Record<Status, { label: string; icon: typeof ShieldCheck }> = {
   verified: { label: "Verified", icon: ShieldCheck },
   proof_ok: { label: "Awaiting approval", icon: ShieldQuestion },
-  pending: { label: "Not verified", icon: ShieldAlert },
+  pending: { label: "Pending verification", icon: ShieldAlert },
   verification_failed: { label: "Verification failed", icon: ShieldX },
 };
 

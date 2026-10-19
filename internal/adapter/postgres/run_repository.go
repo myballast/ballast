@@ -875,3 +875,51 @@ func (r *RunRepository) ProjectTrafficInPeriod(
 
 	return usage, err
 }
+
+// QueuedRuns lists the runs waiting, oldest first.
+func (r *RunRepository) QueuedRuns(
+	ctx context.Context, orgID uuid.UUID, limit int,
+) ([]domain.Run, error) {
+	var runs []domain.Run
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		rows, err := sqlc.New(tx).ListQueuedRuns(ctx, sqlc.ListQueuedRunsParams{
+			OrgID: orgID,
+			Limit: int32(limit), //nolint:gosec // a small constant chosen by the worker
+		})
+		if err != nil {
+			return fmt.Errorf("list the queued runs: %w", err)
+		}
+
+		runs, err = toDomainRuns(rows)
+		return err
+	})
+
+	return runs, err
+}
+
+// RejectQueued ends a queued run as rejected, and reports whether it did: false
+// means the run was no longer queued, because a worker had claimed it or somebody
+// had cancelled it, and nothing was written.
+func (r *RunRepository) RejectQueued(
+	ctx context.Context, orgID, id uuid.UUID, at time.Time, reason string,
+) (bool, error) {
+	var rejected bool
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		_, err := sqlc.New(tx).RejectQueuedRun(ctx, sqlc.RejectQueuedRunParams{
+			OrgID: orgID, ID: id, EndedAt: &at, ErrorMessage: &reason,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("reject the queued run: %w", err)
+		}
+
+		rejected = true
+		return nil
+	})
+
+	return rejected, err
+}

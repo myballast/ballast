@@ -227,3 +227,26 @@ func TestTheHostAndPortAnAllowlistHolds(t *testing.T) {
 		t.Error("a host and port were read out of something that is not a URL")
 	}
 }
+
+func TestTheSearchedPathNeverCarriesTheToken(t *testing.T) {
+	t.Parallel()
+
+	env := Environment{BaseURL: "https://staging.example.test/app", VerificationToken: "a-challenge-token"}
+	proofURL, err := env.ProofURL()
+	if err != nil {
+		t.Fatalf("ProofURL: %v", err)
+	}
+
+	failure := DescribeProofFailure(proofURL, errors.New("the challenge file was not served"))
+	if failure.URL != proofURL {
+		t.Errorf("the description lost the address: %q", failure.URL)
+	}
+
+	got := failure.SearchedPath()
+	if got != "https://staging.example.test/.well-known/ballast-<token>" {
+		t.Errorf("searched path %q", got)
+	}
+	if strings.Contains(got, "a-challenge-token") {
+		t.Errorf("the token is in %q", got)
+	}
+}

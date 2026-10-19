@@ -32,6 +32,12 @@ func (s *Service) ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- 
 		return false, nil
 	}
 
+	// Before claiming: a queued run whose target stopped being verified, or whose
+	// window has shut while it waited, is refused here, as rejected, rather than
+	// started and then failed. Rejected is reachable from queued only, so this is
+	// the last moment it can be said.
+	s.rejectWhatMayNoLongerStart(ctx, orgID)
+
 	claimed, ok, err := s.runs.ClaimNextQueued(ctx, orgID, s.clock.Now())
 	if err != nil || !ok {
 		return false, err
@@ -469,4 +475,71 @@ func (s *Service) recordRefusalAtTheLastMoment(
 		orgID, nil, domain.ActionRunRefused, domain.TargetRun, reason, s.clock.Now(),
 	).InProject(current.ProjectID).On(current.ID).
 		With("environment_id", current.EnvironmentID.String()))
+}
+
+// How many waiting runs one step looks at. A queue is bounded by the limit on
+// its depth, so this is more than it can hold in practice, and a few steps
+// clear what a very long one leaves.
+const rejectionScan = 100
+
+// rejectWhatMayNoLongerStart refuses, as rejected, every queued run that could not
+// be started now: its environment is no longer verified, or its allowed window is
+// shut — or would shut before the run ended.
+//
+// The reason is written on the run, in the words the window refusal uses, so that
+// the run's own page says which hours the target accepts and why this run was
+// not given them. The refusal is journaled as well, as for any other refusal
+// made at the last moment.
+//
+// A failure here is logged and the worker carries on: the checks in buildJob are
+// still there, and a run that slips past this sweep ends errored with the same
+// message instead of rejected.
+func (s *Service) rejectWhatMayNoLongerStart(ctx context.Context, orgID uuid.UUID) {
+	waiting, err := s.runs.QueuedRuns(ctx, orgID, rejectionScan)
+	if err != nil {
+		s.log.WarnContext(ctx, "list the queued runs", "error", err)
+		return
+	}
+
+	now := s.clock.Now()
+	for _, waiting := range waiting {
+		environment, err := s.envs.EnvironmentByID(ctx, orgID, waiting.EnvironmentID)
+		if err != nil {
+			continue
+		}
+
+		refusal := s.mayNoLongerStart(environment, waiting, now)
+		if refusal == nil {
+			continue
+		}
+
+		if !domain.StatusQueued.CanTransitionTo(domain.StatusRejected) {
+			return
+		}
+		rejected, err := s.runs.RejectQueued(ctx, orgID, waiting.ID, now, refusal.Error())
+		if err != nil {
+			s.log.WarnContext(ctx, "reject a queued run", "run_id", waiting.ID, "error", err)
+			continue
+		}
+		if !rejected {
+			// Claimed or cancelled between the read and the write.
+			continue
+		}
+
+		s.log.InfoContext(ctx, "queued run rejected", "run_id", waiting.ID, "reason", refusal.Error())
+		s.recordRefusalAtTheLastMoment(ctx, orgID, waiting, refusal)
+	}
+}
+
+// mayNoLongerStart is what buildJob would refuse for the target, asked of a run
+// that has not been claimed. Nil means nothing stands in the way of it.
+func (s *Service) mayNoLongerStart(
+	environment domain.Environment, waiting domain.Run, now time.Time,
+) error {
+	if !environment.IsVerified() {
+		return domain.ErrTargetNotVerified
+	}
+
+	runFor := time.Duration(waiting.ProfileParams.TotalDuration()) * time.Second
+	return environment.RequireWindowAllows(now, runFor)
 }

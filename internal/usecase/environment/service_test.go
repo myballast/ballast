@@ -80,17 +80,29 @@ func (f *fakeEnvironments) Save(
 // Approving is the only way into that state, and it is a different method with
 // a different permission in front of it.
 func (f *fakeEnvironments) RecordProofOK(
-	_ context.Context, _, id uuid.UUID,
+	_ context.Context, _, id uuid.UUID, at time.Time,
 ) (domain.Environment, error) {
 	f.proofs++
-	return f.move(id, domain.VerificationProofOK)
+	return f.moveChecked(id, domain.VerificationProofOK, at)
 }
 
 func (f *fakeEnvironments) RecordProofFailed(
-	_ context.Context, _, id uuid.UUID,
+	_ context.Context, _, id uuid.UUID, at time.Time,
 ) (domain.Environment, error) {
 	f.failures++
-	return f.move(id, domain.VerificationFailed)
+	return f.moveChecked(id, domain.VerificationFailed, at)
+}
+
+func (f *fakeEnvironments) moveChecked(
+	id uuid.UUID, to domain.VerificationStatus, at time.Time,
+) (domain.Environment, error) {
+	found, err := f.move(id, to)
+	if err != nil {
+		return found, err
+	}
+	found.VerificationCheckedAt = &at
+	f.byID[id] = found
+	return found, nil
 }
 
 func (f *fakeEnvironments) Approve(

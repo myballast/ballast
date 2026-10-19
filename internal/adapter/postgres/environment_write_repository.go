@@ -46,6 +46,8 @@ func toDomainEnvironment(row sqlc.Environment) domain.Environment {
 		MaxVUs:             int(row.MaxVus),
 		MaxDurationS:       int(row.MaxDurationS),
 		CreatedAt:          row.CreatedAt,
+
+		VerificationCheckedAt: row.VerificationCheckedAt,
 	}
 
 	// Migration 001 holds the two bounds to each other, so either both are there
@@ -55,6 +57,7 @@ func toDomainEnvironment(row sqlc.Environment) domain.Environment {
 			StartMinute: int(*row.AllowedWindowStartMinute),
 			EndMinute:   int(*row.AllowedWindowEndMinute),
 			Zone:        row.AllowedWindowTz,
+			Days:        domain.DayMask(row.AllowedWindowDays), //nolint:gosec // 0..127 by the schema's check
 		}
 	}
 
@@ -64,21 +67,21 @@ func toDomainEnvironment(row sqlc.Environment) domain.Environment {
 // windowColumns renders a window as the three columns that hold it. No window is
 // two nulls and the zone left as it was stored, since the column is not nullable
 // and a zone without bounds means nothing.
-func windowColumns(window *domain.AllowedWindow) (start, end *int16, zone string) {
+func windowColumns(window *domain.AllowedWindow) (start, end *int16, zone string, days int16) {
 	if window == nil {
-		return nil, nil, "UTC"
+		return nil, nil, "UTC", 0
 	}
 
 	//nolint:gosec // minutes of a day, bounded by AllowedWindow.Validate and by the schema
 	from, to := int16(window.StartMinute), int16(window.EndMinute)
-	return &from, &to, window.Zone
+	return &from, &to, window.Zone, int16(window.Days)
 }
 
 // Create writes an environment, pending verification.
 func (r *EnvironmentWriteRepository) Create(
 	ctx context.Context, orgID uuid.UUID, newEnvironment domain.Environment, token string, at time.Time,
 ) (domain.Environment, error) {
-	start, end, zone := windowColumns(newEnvironment.Window)
+	start, end, zone, days := windowColumns(newEnvironment.Window)
 
 	var created domain.Environment
 	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
@@ -94,6 +97,7 @@ func (r *EnvironmentWriteRepository) Create(
 			AllowedWindowStartMinute: start,
 			AllowedWindowEndMinute:   end,
 			AllowedWindowTz:          zone,
+			AllowedWindowDays:        days,
 			CreatedAt:                at,
 		})
 		if err != nil {
@@ -123,6 +127,20 @@ func (r *EnvironmentWriteRepository) ByID(
 		}
 
 		found = toDomainEnvironment(row)
+
+		// The approver as a name: the page says who approved, not which row.
+		if found.VerifiedBy != nil {
+			approver, err := sqlc.New(tx).GetUser(ctx, sqlc.GetUserParams{OrgID: orgID, ID: *found.VerifiedBy})
+			switch {
+			case err == nil:
+				found.VerifiedByName = approver.Name
+				if found.VerifiedByName == "" {
+					found.VerifiedByName = approver.Email
+				}
+			case !errors.Is(err, pgx.ErrNoRows):
+				return fmt.Errorf("read the approver: %w", err)
+			}
+		}
 		return nil
 	})
 
@@ -160,7 +178,7 @@ func (r *EnvironmentWriteRepository) InProject(
 func (r *EnvironmentWriteRepository) Save(
 	ctx context.Context, orgID uuid.UUID, updated domain.Environment, resetVerification bool,
 ) (domain.Environment, error) {
-	start, end, zone := windowColumns(updated.Window)
+	start, end, zone, days := windowColumns(updated.Window)
 
 	var saved domain.Environment
 	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
@@ -182,6 +200,7 @@ func (r *EnvironmentWriteRepository) Save(
 					AllowedWindowStartMinute: start,
 					AllowedWindowEndMinute:   end,
 					AllowedWindowTz:          zone,
+					AllowedWindowDays:        days,
 				})
 		} else {
 			row, err = queries.UpdateEnvironment(ctx, sqlc.UpdateEnvironmentParams{
@@ -194,6 +213,7 @@ func (r *EnvironmentWriteRepository) Save(
 				AllowedWindowStartMinute: start,
 				AllowedWindowEndMinute:   end,
 				AllowedWindowTz:          zone,
+				AllowedWindowDays:        days,
 			})
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -257,21 +277,21 @@ func writeError(err error, what string) error {
 // in. The statement refuses an already approved target, so this cannot be used
 // to take an approval away.
 func (r *EnvironmentWriteRepository) RecordProofOK(
-	ctx context.Context, orgID, id uuid.UUID,
+	ctx context.Context, orgID, id uuid.UUID, at time.Time,
 ) (domain.Environment, error) {
 	return r.recordProof(ctx, orgID, func(queries *sqlc.Queries) (sqlc.Environment, error) {
 		return queries.MarkEnvironmentProven(ctx,
-			sqlc.MarkEnvironmentProvenParams{OrgID: orgID, ID: id})
+			sqlc.MarkEnvironmentProvenParams{OrgID: orgID, ID: id, VerificationCheckedAt: &at})
 	})
 }
 
 // RecordProofFailed records an attempt that proved nothing.
 func (r *EnvironmentWriteRepository) RecordProofFailed(
-	ctx context.Context, orgID, id uuid.UUID,
+	ctx context.Context, orgID, id uuid.UUID, at time.Time,
 ) (domain.Environment, error) {
 	return r.recordProof(ctx, orgID, func(queries *sqlc.Queries) (sqlc.Environment, error) {
 		return queries.MarkEnvironmentProofFailed(ctx,
-			sqlc.MarkEnvironmentProofFailedParams{OrgID: orgID, ID: id})
+			sqlc.MarkEnvironmentProofFailedParams{OrgID: orgID, ID: id, VerificationCheckedAt: &at})
 	})
 }
 

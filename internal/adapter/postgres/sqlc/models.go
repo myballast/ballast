@@ -49,6 +49,8 @@ type Environment struct {
 	AllowedWindowStartMinute *int16
 	AllowedWindowEndMinute   *int16
 	AllowedWindowTz          string
+	AllowedWindowDays        int16
+	VerificationCheckedAt    *time.Time
 }
 
 type EnvironmentLock struct {

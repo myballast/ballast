@@ -81,9 +81,7 @@ export function VerificationPanel({
               <>
                 {" "}
                 by{" "}
-                <span className="data text-xs break-all">
-                  {challenge.verified_by}
-                </span>
+                <span className="font-medium">{challenge.verified_by_name || challenge.verified_by}</span>
               </>
             )}
             . Runs of this project may send load to it, within its ceilings.

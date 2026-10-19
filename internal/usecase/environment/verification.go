@@ -52,7 +52,7 @@ func (s *Service) Verify(
 			"environment_id", id, "host", hostOf(found),
 			"reason", readErr.Error())
 
-		failed, err := s.environments.RecordProofFailed(ctx, who.OrgID, id)
+		failed, err := s.environments.RecordProofFailed(ctx, who.OrgID, id, s.clock.Now())
 		if err != nil {
 			return domain.Environment{}, err
 		}
@@ -67,13 +67,15 @@ func (s *Service) Verify(
 			"the target did not serve its challenge", s.clock.Now(),
 		).InProject(found.ProjectID).On(id).With("host", hostOf(found)))
 
-		// Both wrapped: callers match on the sentinel, and the person who
-		// declared the environment needs the reason, since the four of them are
-		// fixed four different ways.
-		return failed, fmt.Errorf("%w: %w", domain.ErrVerificationFailed, readErr)
+		// Wrapped with a description rather than the bare error: callers match
+		// on the sentinel, and the person who declared the environment needs to
+		// be told where Ballast looked, what answered and how it differed,
+		// since the reasons are fixed in different places.
+		return failed, fmt.Errorf("%w: %w", domain.ErrVerificationFailed,
+			domain.DescribeProofFailure(proofURL, readErr))
 	}
 
-	proven, err := s.environments.RecordProofOK(ctx, who.OrgID, id)
+	proven, err := s.environments.RecordProofOK(ctx, who.OrgID, id, s.clock.Now())
 	if err != nil {
 		return domain.Environment{}, err
 	}

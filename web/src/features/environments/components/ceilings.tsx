@@ -1,6 +1,7 @@
 import { Clock } from "lucide-react";
 
 import type { Environment } from "../types";
+import { describeWindow } from "../window";
 
 export function formatCap(seconds: number): string {
   return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
@@ -17,10 +18,7 @@ export function Ceilings({ environment: e }: { environment: Environment }) {
       {e.allowed_window && (
         <span className="flex items-center gap-1">
           <Clock aria-hidden className="size-3.5" />
-          <span className="num">
-            {e.allowed_window.start}–{e.allowed_window.end}
-          </span>{" "}
-          {e.allowed_window.timezone}
+          <span className="num">{describeWindow(e.allowed_window)}</span>
         </span>
       )}
     </span>

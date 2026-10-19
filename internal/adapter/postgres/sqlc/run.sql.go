@@ -435,7 +435,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) (Run, erro
 }
 
 const getEnvironment = `-- name: GetEnvironment :one
-SELECT id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz FROM environment WHERE org_id = $1 AND id = $2
+SELECT id, org_id, project_id, name, base_url, verification_token, verification_status, verified_at, verified_by, max_vus, max_duration_s, runner_id, created_at, allowed_window_start_minute, allowed_window_end_minute, allowed_window_tz, allowed_window_days, verification_checked_at FROM environment WHERE org_id = $1 AND id = $2
 `
 
 type GetEnvironmentParams struct {
@@ -463,6 +463,8 @@ func (q *Queries) GetEnvironment(ctx context.Context, arg GetEnvironmentParams) 
 		&i.AllowedWindowStartMinute,
 		&i.AllowedWindowEndMinute,
 		&i.AllowedWindowTz,
+		&i.AllowedWindowDays,
+		&i.VerificationCheckedAt,
 	)
 	return i, err
 }
@@ -832,6 +834,64 @@ func (q *Queries) ListProjectRunsAfter(ctx context.Context, arg ListProjectRunsA
 			&i.Run.TrafficMeasured,
 			&i.Run.Number,
 			&i.TriggeredByName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listQueuedRuns = `-- name: ListQueuedRuns :many
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number FROM run
+WHERE org_id = $1 AND status = 'queued'
+ORDER BY created_at, id
+LIMIT $2
+`
+
+type ListQueuedRunsParams struct {
+	OrgID uuid.UUID
+	Limit int32
+}
+
+// The runs waiting, oldest first, for the worker to look at before it claims
+// one. Bounded: the queue itself is, by the limit on its depth.
+func (q *Queries) ListQueuedRuns(ctx context.Context, arg ListQueuedRunsParams) ([]Run, error) {
+	rows, err := q.db.Query(ctx, listQueuedRuns, arg.OrgID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Run{}
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.ScenarioID,
+			&i.EnvironmentID,
+			&i.ScheduleID,
+			&i.ScenarioVersion,
+			&i.Profile,
+			&i.ProfileParams,
+			&i.Status,
+			&i.TriggeredBy,
+			&i.EgressBytes,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.HeartbeatAt,
+			&i.CancelRequestedAt,
+			&i.IngressBytes,
+			&i.DataSentBytes,
+			&i.DataReceivedBytes,
+			&i.TrafficMeasured,
+			&i.Number,
 		); err != nil {
 			return nil, err
 		}
@@ -1382,6 +1442,61 @@ func (q *Queries) RecordRunTraffic(ctx context.Context, arg RecordRunTrafficPara
 		arg.TrafficMeasured,
 	)
 	return err
+}
+
+const rejectQueuedRun = `-- name: RejectQueuedRun :one
+UPDATE run
+SET status = 'rejected', ended_at = $3, error_message = $4
+WHERE org_id = $1 AND id = $2 AND status = 'queued'
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+`
+
+type RejectQueuedRunParams struct {
+	OrgID        uuid.UUID
+	ID           uuid.UUID
+	EndedAt      *time.Time
+	ErrorMessage *string
+}
+
+// A run that was accepted and may no longer be started: its target stopped being
+// verified, or its window has shut. Decided while the run is still queued, which
+// is the one place the state machine lets it become rejected from — so it never
+// takes the environment lock and never has a container. The status in the WHERE
+// is the guard: a run somebody claimed in the meantime is not touched.
+func (q *Queries) RejectQueuedRun(ctx context.Context, arg RejectQueuedRunParams) (Run, error) {
+	row := q.db.QueryRow(ctx, rejectQueuedRun,
+		arg.OrgID,
+		arg.ID,
+		arg.EndedAt,
+		arg.ErrorMessage,
+	)
+	var i Run
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.ScenarioID,
+		&i.EnvironmentID,
+		&i.ScheduleID,
+		&i.ScenarioVersion,
+		&i.Profile,
+		&i.ProfileParams,
+		&i.Status,
+		&i.TriggeredBy,
+		&i.EgressBytes,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.HeartbeatAt,
+		&i.CancelRequestedAt,
+		&i.IngressBytes,
+		&i.DataSentBytes,
+		&i.DataReceivedBytes,
+		&i.TrafficMeasured,
+		&i.Number,
+	)
+	return i, err
 }
 
 const releaseEnvironmentLock = `-- name: ReleaseEnvironmentLock :execrows

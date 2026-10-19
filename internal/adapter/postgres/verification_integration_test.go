@@ -36,7 +36,7 @@ func TestApprovingWritesTheStatusTheApproverAndTheAllowedHostTogether(t *testing
 		t.Fatalf("Create: %v", err)
 	}
 
-	proven, err := environments.RecordProofOK(ctx, who.OrgID, created.ID)
+	proven, err := environments.RecordProofOK(ctx, who.OrgID, created.ID, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("RecordProofOK: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestApprovingASecondTargetOnTheSameHostIsNotAConflict(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, err := environments.RecordProofOK(ctx, who.OrgID, created.ID); err != nil {
+		if _, err := environments.RecordProofOK(ctx, who.OrgID, created.ID, time.Now().UTC()); err != nil {
 			return err
 		}
 		_, err = environments.Approve(ctx, who.OrgID, created.ID, who, time.Now().UTC(), "staging.example.test", approval(who, created))
@@ -164,7 +164,7 @@ func TestApprovingDoesNotAllowTheHostForAnotherProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := environments.RecordProofOK(ctx, who.OrgID, created.ID); err != nil {
+	if _, err := environments.RecordProofOK(ctx, who.OrgID, created.ID, time.Now().UTC()); err != nil {
 		t.Fatalf("RecordProofOK: %v", err)
 	}
 	if _, err := environments.Approve(
@@ -202,7 +202,7 @@ func TestAFailedAttemptIsRecordedAndApprovesNothing(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	failed, err := environments.RecordProofFailed(ctx, who.OrgID, created.ID)
+	failed, err := environments.RecordProofFailed(ctx, who.OrgID, created.ID, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("RecordProofFailed: %v", err)
 	}

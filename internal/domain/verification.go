@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -99,4 +100,78 @@ func (e Environment) origin() (string, error) {
 	}
 
 	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host), nil
+}
+
+// ProofObserved says what a target answered when its challenge was fetched: a
+// status and a size, and deliberately nothing of what the body said.
+//
+// The verifier reads a URL somebody else chose. Repeating what the page held
+// would turn the verification into a way to read pages through Ballast, so the
+// type has nowhere to put content, and a test holds it to that.
+type ProofObserved struct {
+	// Status is the HTTP status the target answered, and zero when it answered
+	// nothing: unreachable, refused, redirected away.
+	Status int
+	// Bytes is how much the file held, when it was read.
+	Bytes int
+	// Truncated reports a file longer than the verifier is willing to read.
+	Truncated bool
+	// Err is why the proof failed, in the verifier's own words.
+	Err error
+}
+
+func (o *ProofObserved) Error() string { return o.Err.Error() }
+func (o *ProofObserved) Unwrap() error { return o.Err }
+
+// ProofFailure is what a failed verification tells whoever has to fix it: where
+// Ballast looked, what answered, and how it differed from the token.
+//
+// The URL carries the token. It is for the screen of somebody who manages the
+// environment — they are the one who has to publish it — and never for the
+// journal or the logs.
+type ProofFailure struct {
+	// URL is exactly where the challenge was looked for.
+	URL string
+	// Reason is the verifier's sentence, chosen by that code.
+	Reason string
+	// Status is zero when the target never answered.
+	Status    int
+	Bytes     int
+	Truncated bool
+}
+
+func (f *ProofFailure) Error() string { return f.Reason }
+
+// DescribeProofFailure builds the description of a failed fetch of proofURL.
+func DescribeProofFailure(proofURL string, err error) *ProofFailure {
+	failure := &ProofFailure{URL: proofURL, Reason: err.Error()}
+
+	var seen *ProofObserved
+	if errors.As(err, &seen) {
+		failure.Status, failure.Bytes, failure.Truncated = seen.Status, seen.Bytes, seen.Truncated
+	}
+	return failure
+}
+
+// SearchedPath is where the challenge was looked for, with the token replaced by
+// a placeholder: "https://host/.well-known/ballast-<token>".
+//
+// What leaves the service in an error body. The token is not a credential — it
+// is meant to be published — but an error body is copied into tickets and chat,
+// and the whole point of the token being unguessable is that nobody serves a
+// file for a target they do not own. The person fixing the failure already has
+// the token in front of them, in the challenge; what they need here is the host
+// and the path.
+func (f ProofFailure) SearchedPath() string {
+	parsed, err := url.Parse(f.URL)
+	if err != nil {
+		return ""
+	}
+
+	if i := strings.LastIndex(parsed.Path, wellKnownPath+proofPrefix); i >= 0 {
+		parsed.Path = parsed.Path[:i] + wellKnownPath + proofPrefix + "<token>"
+	}
+	parsed.RawPath = ""
+	// url.String would escape the angle brackets; the placeholder is for reading.
+	return strings.ReplaceAll(parsed.String(), "%3Ctoken%3E", "<token>")
 }

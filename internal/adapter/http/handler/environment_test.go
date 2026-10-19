@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -58,14 +59,14 @@ func (s *stubEnvironments) Save(
 func (s *stubEnvironments) Delete(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 func (s *stubEnvironments) RecordProofOK(
-	_ context.Context, _, _ uuid.UUID,
+	_ context.Context, _, _ uuid.UUID, _ time.Time,
 ) (domain.Environment, error) {
 	s.environment.VerificationStatus = domain.VerificationProofOK
 	return s.environment, nil
 }
 
 func (s *stubEnvironments) RecordProofFailed(
-	_ context.Context, _, _ uuid.UUID,
+	_ context.Context, _, _ uuid.UUID, _ time.Time,
 ) (domain.Environment, error) {
 	s.environment.VerificationStatus = domain.VerificationFailed
 	return s.environment, nil
@@ -511,4 +512,106 @@ func TestAnUpdateTellsAnAbsentWindowFromANullOne(t *testing.T) {
 			t.Fatalf("the window is %+v, want 01:00 to 05:00 in Europe/Paris", got)
 		}
 	})
+}
+
+// What the caller is told about a failed attempt: where Ballast looked, what
+// answered, and how it differed. The address carries a placeholder where the
+// token is, and the body repeats nothing of what the target said.
+func TestAFailedVerificationSaysWhereItLookedAndWhatAnswered(t *testing.T) {
+	f := newEnvironmentFixtureWithProof(t, &domain.ProofObserved{
+		Status: 200, Bytes: 5120,
+		Err: errors.New("the challenge file does not hold the expected token"),
+	})
+
+	rec := httptest.NewRecorder()
+	f.handler.Verify(rec, f.request(http.MethodPost, "", f.environmentPath()))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status %d, want 422: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Error   string `json:"error"`
+		Failure struct {
+			Searched string `json:"searched"`
+			Status   int    `json:"status"`
+			Bytes    int    `json:"bytes"`
+			Reason   string `json:"reason"`
+		} `json:"failure"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	switch {
+	case body.Failure.Searched != "https://staging.example.test/.well-known/ballast-<token>":
+		t.Errorf("searched %q", body.Failure.Searched)
+	case body.Failure.Status != 200 || body.Failure.Bytes != 5120:
+		t.Errorf("observed %d / %d bytes", body.Failure.Status, body.Failure.Bytes)
+	case !strings.Contains(body.Failure.Reason, "does not hold the expected token"):
+		t.Errorf("reason %q", body.Failure.Reason)
+	}
+	if strings.Contains(rec.Body.String(), "a-challenge-token") {
+		t.Errorf("the body carries the token: %s", rec.Body.String())
+	}
+}
+
+func TestTheDaysOfAWindowTravelAsTheirNames(t *testing.T) {
+	f := newEnvironmentFixture(t)
+
+	body := `{"name":"staging","base_url":"https://staging.example.test",
+		"max_vus":10,"max_duration_s":60,
+		"allowed_window":{"start":"22:00","end":"04:00","timezone":"Europe/Paris",
+		                  "days":["fri","mon","tue","wed","thu"]}}`
+
+	rec := httptest.NewRecorder()
+	f.handler.Create(rec, f.request(http.MethodPost, body,
+		map[string]string{"projectId": f.projectID.String()}))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	// Back in week order whatever order they were sent in.
+	if !strings.Contains(rec.Body.String(), `"days":["mon","tue","wed","thu","fri"]`) {
+		t.Fatalf("the days did not come back as names: %s", rec.Body.String())
+	}
+}
+
+func TestDaysBallastCannotReadAreRefused(t *testing.T) {
+	f := newEnvironmentFixture(t)
+
+	for name, days := range map[string]string{
+		"an unknown day": `["mon","funday"]`,
+		"a full name":    `["monday"]`,
+		"an empty list":  `[]`,
+	} {
+		body := `{"name":"staging","base_url":"https://staging.example.test",
+			"max_vus":10,"max_duration_s":60,
+			"allowed_window":{"start":"22:00","end":"04:00","timezone":"UTC","days":` + days + `}}`
+
+		rec := httptest.NewRecorder()
+		f.handler.Create(rec, f.request(http.MethodPost, body,
+			map[string]string{"projectId": f.projectID.String()}))
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s answered %d, want 400: %s", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestTheChallengeNamesWhoApprovedIt(t *testing.T) {
+	f := newEnvironmentFixture(t)
+	approver := uuid.New()
+	approvedAt := time.Unix(1_700_000_000, 0).UTC()
+	f.environments.environment.VerificationStatus = domain.VerificationVerified
+	f.environments.environment.VerifiedBy = &approver
+	f.environments.environment.VerifiedByName = "Maëlle Ferrand"
+	f.environments.environment.VerifiedAt = &approvedAt
+
+	rec := httptest.NewRecorder()
+	f.handler.Challenge(rec, f.request(http.MethodGet, "", f.environmentPath()))
+
+	if !strings.Contains(rec.Body.String(), `"verified_by_name":"Maëlle Ferrand"`) {
+		t.Errorf("the approver is not named: %s", rec.Body.String())
+	}
 }
