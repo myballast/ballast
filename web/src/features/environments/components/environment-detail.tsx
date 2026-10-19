@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDateTime } from "@/lib/format";
+import { Time } from "@/components/time";
 import { can } from "@/lib/permissions";
 
 import { deleteEnvironment } from "../actions";
@@ -35,7 +35,7 @@ export function EnvironmentDetail({ page }: { page: EnvironmentPage }) {
             <span className="data text-sm break-all text-muted-foreground">{environment.base_url}</span>
             <Ceilings environment={environment} />
             <span className="text-xs text-muted-foreground">
-              declared <span className="num">{formatDateTime(environment.created_at)}</span>
+              declared <span className="num"><Time iso={environment.created_at} /></span>
             </span>
           </div>
           {/* Hidden from whoever cannot use them; the API refuses them anyway. */}

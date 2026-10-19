@@ -1,11 +1,9 @@
 import { ApiError } from "@/lib/api-client";
 import {
   formatCount,
-  formatDateTime,
   formatDuration,
   formatMs,
   formatPercent,
-  formatRelative,
   missing,
 } from "@/lib/format";
 import { getEnvironments } from "@/features/environments/api";
@@ -19,16 +17,16 @@ export const pageSize = 25;
 
 export type RunFilters = { status?: RunStatus; scenario?: string; environment?: string };
 
-// RunRow is a run as the table shows it, already put into words on the server:
-// dates and numbers are formatted once, there, so that a browser in another
-// timezone cannot render them differently from the page it was sent.
+// RunRow is a run as the table shows it, with its numbers already put into words
+// on the server. Its date is not: it is written in the reader's own timezone, which
+// only the browser knows, and arrives here as it came from the API.
 export type RunRow = {
   id: string;
   number: number;
   status: RunStatus;
+  // When it was queued, as the API gave it: the screen writes it in the reader's
+  // own zone, which only the browser knows.
   createdAt: string;
-  // How long ago it was queued, for a place with room for one phrase.
-  ago: string;
   scenario: string;
   environment: string;
   triggeredBy: string;
@@ -108,7 +106,7 @@ export async function loadRunsPage(projectId: string, params: SearchParams): Pro
     prev: page.prev,
     scenarios: scenarios.map((s) => ({ id: s.id, name: s.name })),
     environments: environments.map((e) => ({ id: e.id, name: e.name })),
-    rows: runRows(page.runs, scenarios, environments, new Date()),
+    rows: runRows(page.runs, scenarios, environments),
   };
 }
 
@@ -120,7 +118,6 @@ export function runRows(
   runs: RunSummary[],
   scenarios: Option[],
   environments: Option[],
-  now: Date,
 ): RunRow[] {
   const scenarioNames = new Map(scenarios.map((s) => [s.id, s.name]));
   const environmentNames = new Map(environments.map((e) => [e.id, e.name]));
@@ -129,8 +126,7 @@ export function runRows(
     id: run.id,
     number: run.number,
     status: run.status,
-    createdAt: formatDateTime(run.created_at),
-    ago: formatRelative(run.created_at, now),
+    createdAt: run.created_at,
     scenario: scenarioNames.get(run.scenario_id) ?? "Deleted scenario",
     environment: environmentNames.get(run.environment_id) ?? "Deleted environment",
     triggeredBy: run.triggered_by ?? missing,

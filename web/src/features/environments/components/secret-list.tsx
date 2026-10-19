@@ -5,7 +5,7 @@ import { useActionState, useRef } from "react";
 
 import { EmptyState } from "@/components/states";
 import { Button } from "@/components/ui/button";
-import { formatDateTime } from "@/lib/format";
+import { Time } from "@/components/time";
 
 import { deleteSecret, setSecret, type SecretState } from "../actions";
 import type { Secret } from "../types";
@@ -55,7 +55,7 @@ export function SecretList({
               <span className="flex min-w-0 flex-col gap-1">
                 <span className="data break-all">{secret.key}</span>
                 <span className="text-xs text-muted-foreground">
-                  set <span className="num">{formatDateTime(secret.updated_at)}</span>
+                  set <span className="num"><Time iso={secret.updated_at} /></span>
                 </span>
               </span>
               <ConfirmAction

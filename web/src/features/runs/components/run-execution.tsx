@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { Time } from "@/components/time";
+import { formatDuration } from "@/lib/format";
 
 import type { RunContext } from "../detail";
 import type { Run } from "../types";
@@ -69,13 +70,13 @@ export function RunExecution({
         </span>
       </Fact>
       <Fact label="Created">
-        <span className="num">{formatDateTime(run.created_at)}</span>
+        <span className="num"><Time iso={run.created_at} /></span>
       </Fact>
       <Fact label="Started">
-        <span className="num">{formatDateTime(run.started_at)}</span>
+        <span className="num"><Time iso={run.started_at} /></span>
       </Fact>
       <Fact label="Finished">
-        <span className="num">{formatDateTime(run.ended_at)}</span>
+        <span className="num"><Time iso={run.ended_at} /></span>
         {run.started_at && run.ended_at && (
           <span className="num block text-xs text-muted-foreground">
             {formatDuration(run.started_at, run.ended_at)}

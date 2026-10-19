@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiDelete, apiPost } from "@/lib/api-client";
+import { getScenarioDetail } from "@/features/scenarios/api";
 
 import type { ProfileKind, ProfileParams } from "./types";
 
@@ -55,6 +56,55 @@ export async function launchRun(projectId: string, _previous: LaunchState, form:
         return { error: "That scenario or environment no longer exists. Reload the page." };
       case 400:
       case 403:
+      case 503:
+        // The API's messages for these say exactly why, and are written for
+        // whoever sent the request.
+        return { error: error.message };
+    }
+    throw error;
+  }
+
+  redirect(`/runs/${id}`);
+}
+
+// launchDefaultRun is the "Run" of a scenario's own page: it queues a run of the
+// saved scenario with its default profile and parameters, against the environment
+// chosen in the bar, and takes the browser to the run.
+//
+// The profile and parameters are read here, from the scenario as it is stored, and
+// not taken from the page: what is run is the saved version, and a page that held
+// an unsaved edit has no say in it. A scenario with no parameters of its own —
+// stored with every one at zero — leaves them out, and the API applies the
+// profile's template. Every rule that matters, a verified target above all, is the
+// API's to apply.
+export async function launchDefaultRun(
+  projectId: string,
+  scenarioId: string,
+  environmentId: string,
+): Promise<LaunchState> {
+  if (!environmentId) return { error: "Pick an environment to run against." };
+
+  const scenario = await getScenarioDetail(projectId, scenarioId);
+  const own = scenario.default_params.target_vus >= 1;
+
+  let id: string;
+  try {
+    ({ id } = await apiPost<{ id: string; status: string }>("/runs", {
+      scenario_id: scenarioId,
+      environment_id: environmentId,
+      profile: scenario.default_profile,
+      ...(own ? { params: scenario.default_params } : {}),
+    }));
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    switch (error.status) {
+      case 401:
+        redirect(`/login?next=${encodeURIComponent(`/projects/${projectId}/scenarios/${scenarioId}`)}`);
+      case 404:
+        return { error: "That scenario or environment no longer exists. Reload the page." };
+      case 400:
+      case 403:
+      case 429:
       case 503:
         // The API's messages for these say exactly why, and are written for
         // whoever sent the request.

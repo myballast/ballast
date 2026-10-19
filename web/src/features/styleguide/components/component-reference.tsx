@@ -7,7 +7,17 @@ import { UserMenu } from "@/components/layout/user-menu";
 import { buildTrail } from "@/features/shell/trail";
 import type { ShellScope } from "@/features/shell/types";
 import { MetricCard } from "@/components/metric-card";
-import { EmptyState, LoadingState } from "@/components/states";
+import { EmptyState, ErrorState, LoadingState } from "@/components/states";
+import {
+  Skeleton,
+  SkeletonCards,
+  SkeletonHeading,
+  SkeletonPage,
+  SkeletonPanel,
+  SkeletonTable,
+  SkeletonTiles,
+} from "@/components/skeleton";
+import { Time } from "@/components/time";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { OrgSelector } from "@/components/layout/org-selector";
@@ -19,6 +29,7 @@ import { PermissionsMatrix } from "@/features/members/components/permissions-mat
 import type { Invitation, Member, RolesMatrix } from "@/features/members/types";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
 import { SecretList } from "@/features/environments/components/secret-list";
+import { ScenarioWorkspace } from "@/features/scenarios/components/scenario-workspace";
 import { ScenarioList } from "@/features/scenarios/components/scenario-list";
 import { ScriptEditor } from "@/features/scenarios/components/script-editor";
 import { ScriptFindings } from "@/features/scenarios/components/script-findings";
@@ -147,8 +158,7 @@ const runRows: RunRow[] = (
   id: `run-${number}`,
   number,
   status,
-  createdAt: "16 Oct 2026, 12:51:19",
-  ago: "12 minutes ago",
+  createdAt: "2026-10-16T12:51:19Z",
   scenario,
   environment,
   triggeredBy,
@@ -650,7 +660,7 @@ export function ComponentReference() {
         <p className="text-xs text-muted-foreground">A window with no run, then one with nothing before it to compare with:</p>
         <StatTiles tiles={tilesOf(emptyStats)} days={30} />
         <StatTiles tiles={tilesOf(newStats)} days={30} />
-        <RecentRun run={runRows[0]} />
+        <RecentRun run={runRows[0]} now={now} />
         <ProjectPage
           project={project("checkout", "checkout")}
           access={{ role: "maintainer", permissions: ["view_project", "run_test", "manage_scenarios"], custom: false }}
@@ -762,9 +772,89 @@ export function ComponentReference() {
         </div>
       </Section>
 
-      <Section title="Loading and empty states">
+      <Section title="Loading, error and empty states">
         <LoadingState label="Loading the run…" />
+        <p className="text-xs text-muted-foreground">
+          Skeletons stand where the content will be, in the shape of the page. One status for a screen reader.
+        </p>
+        <SkeletonPage label="Loading the projects…">
+          <SkeletonHeading />
+          <SkeletonCards count={3} />
+          <SkeletonTiles />
+          <SkeletonTable rows={3} />
+          <SkeletonPanel height="h-24" />
+          <Skeleton className="h-4 w-40" />
+        </SkeletonPage>
+        <ErrorState onRetry={() => {}} />
         <EmptyState title="No runs yet" description="Runs appear here once a scenario has been executed." />
+      </Section>
+
+      <Section title="Dates: one format, the reader's zone, the full date in a tooltip">
+        <ul className="data flex flex-col gap-1 text-sm">
+          <li>
+            moment: <Time iso="2026-10-16T12:51:19Z" />
+          </li>
+          <li>
+            relative: <Time iso="2026-10-18T09:00:00Z" mode="relative" now={now} />
+          </li>
+          <li>
+            clock, today: <Time iso="2026-10-18T11:51:19Z" mode="clock" now={now} />
+          </li>
+          <li>
+            clock, another day: <Time iso="2026-10-16T12:51:19Z" mode="clock" now={now} />
+          </li>
+          <li>
+            nothing to say: <Time iso={undefined} />
+          </li>
+        </ul>
+      </Section>
+
+      <Section title="Scenario: top bar with target and Run">
+        <p className="text-xs text-muted-foreground">
+          Somebody who may edit and run, with two verified targets. Edit the script to see Run held back and why.
+        </p>
+        <ScenarioWorkspace
+          projectId="checkout"
+          projectName="storefront"
+          scenario={{
+            id: "s1",
+            name: "checkout-flow",
+            version: 3,
+            default_profile: "load",
+            default_params: { target_vus: 400, ramp_up_s: 60, plateau_s: 360, ramp_down_s: 60 },
+            created_at: "2026-10-01T09:00:00Z",
+            updated_at: "2026-10-18T11:58:00Z",
+            script: starterScript,
+            warnings: [],
+          }}
+          targets={[
+            { id: "e1", name: "staging-eu" },
+            { id: "e2", name: "staging-us" },
+          ]}
+          canEdit
+          canRun
+          now={now}
+        />
+        <p className="text-xs text-muted-foreground">Read-only, with no verified environment: Run says why.</p>
+        <ScenarioWorkspace
+          projectId="checkout"
+          projectName="storefront"
+          scenario={{
+            id: "s2",
+            name: "search",
+            version: 1,
+            default_profile: "smoke",
+            default_params: { target_vus: 0, ramp_up_s: 0, plateau_s: 0, ramp_down_s: 0 },
+            created_at: "2026-10-01T09:00:00Z",
+            updated_at: "2026-10-10T09:00:00Z",
+            script: starterScript,
+            warnings: [],
+          }}
+          targets={[]}
+          canEdit={false}
+          canRun
+          now={now}
+        />
       </Section>
     </div>
   );

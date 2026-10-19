@@ -38,6 +38,17 @@ export function ThresholdRules({
           icon={Gauge}
           title="No threshold"
           description="A threshold is a rule k6 judges at the end of a run, such as p(95)<300 on http_req_duration. Without one, a run passes as long as it ends."
+          action={
+            editable ? (
+              // The form is the next thing on the page; the link takes the keyboard
+              // to its first field, where a button that only scrolled would not.
+              <Button
+                onClick={() => document.getElementById("new-threshold")?.querySelector("input")?.focus()}
+              >
+                Add a threshold
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <ul className="flex flex-col divide-y rounded-xl border">
@@ -87,7 +98,7 @@ export function ThresholdRules({
       )}
 
       {editable && (
-        <div className="rounded-xl border p-4">
+        <div id="new-threshold" className="rounded-xl border p-4">
           <RuleForm submit={addThreshold.bind(null, projectId, scenarioId)} label="Add threshold" clearOnDone />
         </div>
       )}

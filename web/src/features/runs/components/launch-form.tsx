@@ -115,7 +115,7 @@ export function LaunchForm({
           {profileKinds.map((kind) => (
             <label
               key={kind}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 has-[:checked]:border-brand has-[:checked]:text-foreground text-muted-foreground"
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:checked]:border-brand has-[:checked]:text-foreground text-muted-foreground"
             >
               <input
                 type="radio"

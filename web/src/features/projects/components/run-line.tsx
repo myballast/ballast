@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { RunStatusBadge } from "@/features/runs/components/run-status-badge";
 import type { RunSummary } from "@/features/runs/types";
-import { formatRelative } from "@/lib/format";
+import { Time } from "@/components/time";
 
 // RunLine is the foot of a card and the last column of a row: how many
 // environments the project has and how its last run ended, with the link to that
@@ -39,7 +39,9 @@ export function RunLine({
       <span aria-hidden>·</span>
       <span>last run</span>
       <RunStatusBadge status={run.status} />
-      <span>{formatRelative(run.ended_at ?? run.created_at, now)}</span>
+      <span>
+        <Time iso={run.ended_at ?? run.created_at} mode="relative" now={now} />
+      </span>
       <Link href={`/runs/${run.id}`} className="ml-auto text-brand hover:underline">
         View run
       </Link>

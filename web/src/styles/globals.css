@@ -199,6 +199,17 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /*
+   * The keyboard's place on the page: a violet ring on everything that can be
+   * focused, links and menu summaries included, which the controls that draw a
+   * ring of their own did not cover. :where() gives it no specificity, so a
+   * component that draws its own — a field, a button — keeps its own.
+   */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
   html {
     @apply font-sans;
   }

@@ -1,6 +1,8 @@
+import { getEnvironments } from "@/features/environments/api";
+import type { Environment } from "@/features/environments/types";
 import { getAccess, getProject } from "@/features/projects/api";
 import type { Project } from "@/features/projects/types";
-import type { Access } from "@/lib/permissions";
+import { can, type Access } from "@/lib/permissions";
 
 import { getScenarioDetail, getThresholds } from "./api";
 import type { Scenario, Threshold } from "./types";
@@ -10,6 +12,9 @@ export type ScenarioPage = {
   access: Access;
   scenario: Scenario;
   thresholds: Threshold[];
+  // For the bar's target selector. Empty for somebody who cannot launch runs:
+  // not asked for, rather than asked for and refused.
+  environments: Environment[];
 };
 
 // loadScenarioPage reads everything the scenario page shows, at once.
@@ -20,5 +25,6 @@ export async function loadScenarioPage(projectId: string, scenarioId: string): P
     getScenarioDetail(projectId, scenarioId),
     getThresholds(projectId, scenarioId),
   ]);
-  return { project, access, scenario, thresholds };
+  const environments = can(access, "run_test") ? await getEnvironments(projectId) : [];
+  return { project, access, scenario, thresholds, environments };
 }

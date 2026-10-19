@@ -1,7 +1,7 @@
 import { MailPlus, Undo2 } from "lucide-react";
 
 import { ConfirmAction } from "@/components/confirm-action";
-import { formatRelative } from "@/lib/format";
+import { Time } from "@/components/time";
 
 import { revokeInvitation } from "../actions";
 import type { Invitation } from "../types";
@@ -36,9 +36,8 @@ export function PendingInvitations({
             <span className="data min-w-0 flex-1 truncate text-[12.5px]">{invitation.email}</span>
             <span className="data text-xs text-muted-foreground">{invitation.role}</span>
             <span className="data text-xs text-muted-foreground">
-              {invitation.state === "expired"
-                ? `expired ${formatRelative(invitation.expires_at, now)}`
-                : `expires ${formatRelative(invitation.expires_at, now)}`}
+              {invitation.state === "expired" ? "expired " : "expires "}
+              <Time iso={invitation.expires_at} mode="relative" now={now} />
             </span>
             <ConfirmAction
               icon={<Undo2 aria-hidden />}

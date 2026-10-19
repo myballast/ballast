@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { Time } from "@/components/time";
+
 import type { RunRow } from "../list";
 import { RunStatusBadge } from "./run-status-badge";
 
@@ -42,7 +44,9 @@ export function RunsTable({ rows }: { rows: RunRow[] }) {
                     <span className="sr-only">, open this run</span>
                   </Link>
                 </div>
-                <p className="num mt-1 text-[11px] text-muted-foreground">{row.createdAt}</p>
+                <p className="num mt-1 text-[11px] text-muted-foreground">
+                  <Time iso={row.createdAt} />
+                </p>
               </td>
               <td className="px-4 py-2.5">
                 <p>{row.scenario}</p>
