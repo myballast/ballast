@@ -18,7 +18,14 @@ type Repository interface {
 	Create(ctx context.Context, newProject domain.Project, owner domain.Identity, at time.Time) (domain.Project, error)
 	ByID(ctx context.Context, orgID, id uuid.UUID) (domain.Project, error)
 	OfMember(ctx context.Context, who domain.Identity) ([]domain.Project, error)
-	Rename(ctx context.Context, orgID, id uuid.UUID, name string) (domain.Project, error)
+	// Save writes the display name and the details. The slug never moves.
+	Save(ctx context.Context, orgID uuid.UUID, updated domain.Project) (domain.Project, error)
+	// FavoritesOf is the projects this person has starred, and IsFavorite asks
+	// about one. Both are about the caller alone: one person's stars are not
+	// another's.
+	FavoritesOf(ctx context.Context, who domain.Identity) (map[uuid.UUID]bool, error)
+	IsFavorite(ctx context.Context, who domain.Identity, projectID uuid.UUID) (bool, error)
+	SetFavorite(ctx context.Context, who domain.Identity, projectID uuid.UUID, on bool) error
 	// Delete refuses a project that still holds runs, and checks that in the
 	// same transaction as the delete: its foreign keys cascade, so losing that
 	// race would cost a run history.

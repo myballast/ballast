@@ -143,6 +143,9 @@ func seedEveryTable(ctx context.Context, t *testing.T, db *postgres.DB, label st
 			  VALUES ($1, $2, $3, now(), now() + interval '1 hour')`,
 				[]any{org, env, run}},
 
+			{`INSERT INTO project_favorite (org_id, user_id, project_id) VALUES ($1, $2, $3)`,
+				[]any{org, user, project}},
+
 			{`INSERT INTO invitation (org_id, project_id, email, role, token_hash, expires_at)
 			  VALUES ($1, $2, $3, 'runner', $4, now() + interval '7 days')`,
 				[]any{org, project, "invited-" + label + "@example.test", label + "-token-hash"}},

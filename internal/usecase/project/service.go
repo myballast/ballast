@@ -45,8 +45,29 @@ func NewService(
 // caller is not a member of is not theirs to see, and the query says so by
 // joining on their memberships. Row-level security keeps the organization
 // boundary.
-func (s *Service) List(ctx context.Context, who domain.Identity) ([]domain.Project, error) {
-	return s.projects.OfMember(ctx, who)
+func (s *Service) List(ctx context.Context, who domain.Identity) ([]Listed, error) {
+	found, err := s.projects.OfMember(ctx, who)
+	if err != nil {
+		return nil, err
+	}
+
+	starred, err := s.projects.FavoritesOf(ctx, who)
+	if err != nil {
+		return nil, err
+	}
+
+	listed := make([]Listed, 0, len(found))
+	for _, p := range found {
+		listed = append(listed, Listed{Project: p, Favorite: starred[p.ID]})
+	}
+	return listed, nil
+}
+
+// Listed is a project with whether the caller has starred it. The star is the
+// caller's own and travels with the project only to them.
+type Listed struct {
+	domain.Project
+	Favorite bool
 }
 
 // Create makes a project and its creator its administrator.
@@ -56,9 +77,13 @@ func (s *Service) List(ctx context.Context, who domain.Identity) ([]domain.Proje
 // within a project — so this is the nearest thing that stays scoped, and it
 // keeps somebody invited as a viewer from spinning up projects of their own.
 func (s *Service) Create(
-	ctx context.Context, who domain.Identity, name, slug string,
+	ctx context.Context, who domain.Identity, name, slug string, details domain.ProjectDetails,
 ) (domain.Project, error) {
 	if err := domain.ValidateProject(name, slug); err != nil {
+		return domain.Project{}, err
+	}
+	details, err := details.Clean()
+	if err != nil {
 		return domain.Project{}, err
 	}
 
@@ -71,10 +96,11 @@ func (s *Service) Create(
 	}
 
 	created, err := s.projects.Create(ctx, domain.Project{
-		ID:    uuid.New(),
-		OrgID: who.OrgID,
-		Name:  name,
-		Slug:  slug,
+		ID:      uuid.New(),
+		OrgID:   who.OrgID,
+		Name:    name,
+		Slug:    slug,
+		Details: details,
 	}, who, s.clock.Now())
 	if err != nil {
 		return domain.Project{}, err
@@ -86,36 +112,104 @@ func (s *Service) Create(
 	return created, nil
 }
 
-// ByID returns one project.
+// ByID returns one project, with whether the caller has starred it.
 func (s *Service) ByID(
 	ctx context.Context, who domain.Identity, id uuid.UUID,
-) (domain.Project, error) {
+) (Listed, error) {
 	if err := s.require(ctx, who, domain.PermViewProject, id); err != nil {
-		return domain.Project{}, err
+		return Listed{}, err
 	}
 
-	return s.projects.ByID(ctx, who.OrgID, id)
+	found, err := s.projects.ByID(ctx, who.OrgID, id)
+	if err != nil {
+		return Listed{}, err
+	}
+	starred, err := s.projects.IsFavorite(ctx, who, id)
+	if err != nil {
+		return Listed{}, err
+	}
+	return Listed{Project: found, Favorite: starred}, nil
 }
 
-// Rename changes a project's display name. The slug stays: it appears in URLs
-// and in object storage keys, where moving it would orphan what is filed under
-// it.
-func (s *Service) Rename(
-	ctx context.Context, who domain.Identity, id uuid.UUID, name string,
-) (domain.Project, error) {
+// Changes is what an update may touch. A field left nil stays as it is; one set
+// to the empty string — or an empty stack — says "not said any more".
+type Changes struct {
+	Name   *string
+	Infra  *string
+	Region *string
+	Owner  *string
+	Stack  *[]string
+}
+
+// Update changes a project's display name and the details said about it. The slug
+// stays: it appears in URLs and in object storage keys, where moving it would
+// orphan what is filed under it.
+func (s *Service) Update(
+	ctx context.Context, who domain.Identity, id uuid.UUID, changes Changes,
+) (Listed, error) {
 	if err := s.require(ctx, who, domain.PermManageProject, id); err != nil {
-		return domain.Project{}, err
+		return Listed{}, err
 	}
 
 	existing, err := s.projects.ByID(ctx, who.OrgID, id)
 	if err != nil {
-		return domain.Project{}, err
-	}
-	if err := domain.ValidateProject(name, existing.Slug); err != nil {
-		return domain.Project{}, err
+		return Listed{}, err
 	}
 
-	return s.projects.Rename(ctx, who.OrgID, id, name)
+	if changes.Name != nil {
+		existing.Name = *changes.Name
+	}
+	if changes.Infra != nil {
+		existing.Details.Infra = *changes.Infra
+	}
+	if changes.Region != nil {
+		existing.Details.Region = *changes.Region
+	}
+	if changes.Owner != nil {
+		existing.Details.Owner = *changes.Owner
+	}
+	if changes.Stack != nil {
+		existing.Details.Stack = *changes.Stack
+	}
+
+	if err := domain.ValidateProject(existing.Name, existing.Slug); err != nil {
+		return Listed{}, err
+	}
+	if existing.Details, err = existing.Details.Clean(); err != nil {
+		return Listed{}, err
+	}
+
+	saved, err := s.projects.Save(ctx, who.OrgID, existing)
+	if err != nil {
+		return Listed{}, err
+	}
+	starred, err := s.projects.IsFavorite(ctx, who, id)
+	if err != nil {
+		return Listed{}, err
+	}
+	return Listed{Project: saved, Favorite: starred}, nil
+}
+
+// Rename changes a project's display name alone.
+func (s *Service) Rename(
+	ctx context.Context, who domain.Identity, id uuid.UUID, name string,
+) (domain.Project, error) {
+	updated, err := s.Update(ctx, who, id, Changes{Name: &name})
+	return updated.Project, err
+}
+
+// SetFavorite stars or unstars a project for the caller, and for nobody else.
+//
+// It asks for no more than belonging to the project: a star changes nothing
+// anybody else can see or do, so it is not a right to grant. A person who does
+// not belong is told the project is not found, as everywhere.
+func (s *Service) SetFavorite(
+	ctx context.Context, who domain.Identity, projectID uuid.UUID, on bool,
+) error {
+	if err := s.require(ctx, who, domain.PermViewProject, projectID); err != nil {
+		return err
+	}
+	return s.projects.SetFavorite(ctx, who, projectID, on)
 }
 
 // Delete removes a project that holds no run. The repository refuses one that

@@ -39,7 +39,7 @@ func (h *Project) List(w http.ResponseWriter, r *http.Request) {
 
 	response := dto.ProjectListResponse{Projects: make([]dto.Project, 0, len(found))}
 	for _, p := range found {
-		response.Projects = append(response.Projects, toDTOProject(p))
+		response.Projects = append(response.Projects, toDTOProject(p.Project, p.Favorite))
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -58,13 +58,15 @@ func (h *Project) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.projects.Create(r.Context(), who, body.Name, body.Slug)
+	created, err := h.projects.Create(r.Context(), who, body.Name, body.Slug, domain.ProjectDetails{
+		Infra: body.Infra, Region: body.Region, Owner: body.Owner, Stack: body.Stack,
+	})
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, toDTOProject(created))
+	writeJSON(w, http.StatusCreated, toDTOProject(created, false))
 }
 
 // ByID handles GET /projects/{projectId}.
@@ -80,7 +82,7 @@ func (h *Project) ByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toDTOProject(found))
+	writeJSON(w, http.StatusOK, toDTOProject(found.Project, found.Favorite))
 }
 
 // Update handles PATCH /projects/{projectId}.
@@ -96,13 +98,15 @@ func (h *Project) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renamed, err := h.projects.Rename(r.Context(), who, id, body.Name)
+	updated, err := h.projects.Update(r.Context(), who, id, project.Changes{
+		Name: body.Name, Infra: body.Infra, Region: body.Region, Owner: body.Owner, Stack: body.Stack,
+	})
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toDTOProject(renamed))
+	writeJSON(w, http.StatusOK, toDTOProject(updated.Project, updated.Favorite))
 }
 
 // Delete handles DELETE /projects/{projectId}.
@@ -117,6 +121,30 @@ func (h *Project) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Favorite handles PUT /projects/{projectId}/favorite: the caller stars the
+// project. Their star alone; starring twice is the same as once.
+func (h *Project) Favorite(w http.ResponseWriter, r *http.Request) {
+	h.setFavorite(w, r, true)
+}
+
+// Unfavorite handles DELETE /projects/{projectId}/favorite.
+func (h *Project) Unfavorite(w http.ResponseWriter, r *http.Request) {
+	h.setFavorite(w, r, false)
+}
+
+func (h *Project) setFavorite(w http.ResponseWriter, r *http.Request, on bool) {
+	who, id, ok := projectRequest(w, r)
+	if !ok {
+		return
+	}
+
+	if err := h.projects.SetFavorite(r.Context(), who, id, on); err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -235,11 +263,21 @@ func projectRequest(w http.ResponseWriter, r *http.Request) (domain.Identity, uu
 	return who, id, true
 }
 
-func toDTOProject(p domain.Project) dto.Project {
+func toDTOProject(p domain.Project, favorite bool) dto.Project {
+	stack := p.Details.Stack
+	if stack == nil {
+		stack = []string{}
+	}
+
 	return dto.Project{
 		ID:        p.ID.String(),
 		Name:      p.Name,
 		Slug:      p.Slug,
+		Infra:     p.Details.Infra,
+		Region:    p.Details.Region,
+		Owner:     p.Details.Owner,
+		Stack:     stack,
+		Favorite:  favorite,
 		CreatedAt: p.CreatedAt,
 	}
 }

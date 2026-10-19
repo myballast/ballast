@@ -26,6 +26,7 @@ import { ThresholdRules } from "@/features/scenarios/components/threshold-rules"
 import { starterScript } from "@/features/scenarios/template";
 import { VerificationPanel } from "@/features/environments/components/verification-panel";
 import { ProjectCard } from "@/features/projects/components/project-card";
+import { ProjectList } from "@/features/projects/components/project-list";
 import { ProjectOverview as ProjectPage } from "@/features/projects/components/project-overview";
 import { ProjectTabs } from "@/features/projects/components/project-tabs";
 import { RecentRun } from "@/features/projects/components/recent-run";
@@ -71,11 +72,21 @@ const latencies = [
 
 const now = new Date("2026-10-12T18:00:00Z");
 
-const project = (name: string, slug: string) => ({
+const project = (
+  name: string,
+  slug: string,
+  details: Partial<{ infra: string; region: string; owner: string; stack: string[]; favorite: boolean }> = {},
+) => ({
   id: slug,
   name,
   slug,
+  infra: "",
+  region: "",
+  owner: "",
+  stack: [] as string[],
+  favorite: false,
   created_at: "2026-10-01T09:00:00Z",
+  ...details,
 });
 
 const environment = (name: string, verified: boolean) => ({
@@ -249,19 +260,32 @@ const lastRun = (status: "passed" | "failed" | "running", endedAt?: string) => (
 
 const projectCards: ProjectOverview[] = [
   {
-    project: project("Checkout service", "checkout"),
+    project: project("storefront", "storefront", {
+      infra: "k8s",
+      region: "eu-west-1",
+      owner: "Payments team",
+      stack: ["go", "pg", "rds", "k6", "ngx", "rmq"],
+      favorite: true,
+    }),
     access: "full",
     environments: [environment("staging", true), environment("production", true), environment("preview", false)],
     lastRun: lastRun("passed", "2026-10-12T15:02:00Z"),
   },
   {
-    project: project("Search", "search"),
+    project: project("identity", "identity", { infra: "railway", stack: ["node", "pg", "rds"] }),
     access: "full",
-    environments: [environment("staging", true)],
+    environments: [environment("staging", true), environment("production", true)],
     lastRun: lastRun("failed", "2026-10-10T08:00:00Z"),
   },
+  {
+    project: project("search-index", "search-index", { infra: "vm", region: "bare metal", stack: ["rust", "es"] }),
+    access: "full",
+    environments: [environment("production", true)],
+    lastRun: lastRun("running", "2026-10-11T08:00:00Z"),
+  },
+  // Nothing said about it: no chip, no blank, no "undefined".
   { project: project("Media pipeline", "media-pipeline"), access: "full", environments: [], lastRun: null },
-  { project: project("Partner gateway", "partner-gateway"), access: "restricted" },
+  { project: project("Partner gateway", "partner-gateway", { infra: "railway" }), access: "restricted" },
 ];
 
 // A trend's statistics, for the phase and endpoint tables below.
@@ -420,6 +444,15 @@ export function ComponentReference() {
             <ProjectCard key={overview.project.id} overview={overview} now={now} />
           ))}
         </div>
+      </Section>
+
+      <Section title="Project list: toolbar, grid and list views">
+        <p className="text-xs text-muted-foreground">
+          Favourites first whatever the order. The grid, sorted by last status, then the list view.
+        </p>
+        <ProjectList overviews={projectCards} now={now} sort="status" view="grid" />
+        <ProjectList overviews={projectCards} now={now} sort="name" view="list" />
+        <ProjectList overviews={[]} now={now} />
       </Section>
 
       <Section title="Environments">

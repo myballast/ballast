@@ -9,6 +9,9 @@ import type { RunRow } from "@/features/runs/list";
 import type { ScenarioListItem } from "@/features/scenarios/types";
 import { can, type Access } from "@/lib/permissions";
 
+import { place } from "../arrangement";
+import { EditDetails } from "./edit-details";
+import { StackChips } from "./stack-chips";
 import { tilesOf, type ProjectStats } from "../stats";
 import type { Project } from "../types";
 import { ProjectTabs } from "./project-tabs";
@@ -28,22 +31,30 @@ function Section({ title, link, children }: { title: string; link?: React.ReactN
 }
 
 export function ProjectHeader({ project, access }: { project: Project; access: Access }) {
+  const where = place(project);
+
   return (
     <header className="flex flex-wrap items-start justify-between gap-4">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-normal tracking-tight">{project.name}</h1>
         <p className="data text-xs text-muted-foreground">
-          {project.slug} · your role: {access.role}
+          {project.slug}
+          {where && <> · {where}</>}
+          {project.owner && <> · {project.owner}</>} · your role: {access.role}
           {access.custom && " (custom permissions)"}
         </p>
+        <StackChips stack={project.stack} />
       </div>
-      {/* Hidden from whoever cannot launch; the API refuses them anyway. */}
-      {can(access, "run_test") && (
-        <Link href={`/projects/${project.id}/runs/new`} className={buttonVariants()}>
-          <Play aria-hidden />
-          Run a test
-        </Link>
-      )}
+      {/* Hidden from whoever cannot use them; the API refuses them anyway. */}
+      <div className="flex flex-wrap items-start gap-2">
+        {can(access, "manage_project") && <EditDetails project={project} />}
+        {can(access, "run_test") && (
+          <Link href={`/projects/${project.id}/runs/new`} className={buttonVariants()}>
+            <Play aria-hidden />
+            Run a test
+          </Link>
+        )}
+      </div>
     </header>
   );
 }
@@ -60,6 +71,21 @@ export function RestrictedProject() {
 // What the project is made of, said in the shape of the design's tags. They are
 // counted from what the project holds, not typed in: a tag that nobody can edit
 // would say what somebody once guessed.
+// Said is what a person wrote about the project, under its name: where it runs,
+// who answers for it, what it is made of. Nothing when nothing was written — a
+// project with no details has no empty line under its name.
+function Said({ project }: { project: Project }) {
+  const parts = [place(project), project.owner].filter((part) => part !== "");
+  if (parts.length === 0 && project.stack.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {parts.length > 0 && <p className="data text-xs text-muted-foreground">{parts.join(" · ")}</p>}
+      <StackChips stack={project.stack} />
+    </div>
+  );
+}
+
 function Facts({ scenarios, environments }: { scenarios: ScenarioListItem[]; environments: Environment[] }) {
   const verified = environments.filter((e) => e.verification_status === "verified").length;
   const facts = [
@@ -103,9 +129,13 @@ export function ProjectOverview({
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <h1 className="text-3xl font-normal tracking-tight">{project.name}</h1>
+          <div className="flex flex-col gap-2">
+            <h1 className="text-3xl font-normal tracking-tight">{project.name}</h1>
+            <Said project={project} />
+          </div>
           {/* Hidden from whoever cannot use them; the API refuses them anyway. */}
           <div className="flex flex-wrap gap-2">
+            {can(access, "manage_project") && <EditDetails project={project} />}
             {can(access, "manage_scenarios") && (
               <Link href={`/projects/${project.id}/scenarios/new`} className={buttonVariants({ variant: "outline" })}>
                 <FilePlus aria-hidden />

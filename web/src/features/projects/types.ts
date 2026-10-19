@@ -6,6 +6,14 @@ export type Project = {
   id: string;
   name: string;
   slug: string;
+  // Optional details a person wrote. Always present: empty strings and an empty
+  // array when not said, so a card never has to guard against undefined.
+  infra: string;
+  region: string;
+  owner: string;
+  stack: string[];
+  // Whether the signed-in person has starred it. Their own star only.
+  favorite: boolean;
   created_at: string;
 };
 

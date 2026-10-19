@@ -89,6 +89,8 @@ func NewRouter(
 		"POST /projects/{projectId}/invitations":                  invitationHandler.Create,
 		"DELETE /projects/{projectId}/invitations/{invitationId}": invitationHandler.Revoke,
 		"GET /projects/{projectId}/permissions":                   projectHandler.Permissions,
+		"PUT /projects/{projectId}/favorite":                      projectHandler.Favorite,
+		"DELETE /projects/{projectId}/favorite":                   projectHandler.Unfavorite,
 		"PUT /projects/{projectId}/members/{userId}":              projectHandler.SetMemberRole,
 		"DELETE /projects/{projectId}/members/{userId}":           projectHandler.RemoveMember,
 

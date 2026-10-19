@@ -18,6 +18,8 @@ type fakeProjects struct {
 	created *domain.Project
 	deleted []uuid.UUID
 	err     error
+	// stars is who starred what: a person's stars are theirs alone.
+	stars map[uuid.UUID]map[uuid.UUID]bool
 }
 
 func (f *fakeProjects) Create(
@@ -46,14 +48,37 @@ func (f *fakeProjects) OfMember(_ context.Context, _ domain.Identity) ([]domain.
 	return all, nil
 }
 
-func (f *fakeProjects) Rename(_ context.Context, _, id uuid.UUID, name string) (domain.Project, error) {
-	found, ok := f.byID[id]
-	if !ok {
+func (f *fakeProjects) Save(_ context.Context, _ uuid.UUID, updated domain.Project) (domain.Project, error) {
+	if _, ok := f.byID[updated.ID]; !ok {
 		return domain.Project{}, domain.ErrNotFound
 	}
-	found.Name = name
-	f.byID[id] = found
-	return found, nil
+	f.byID[updated.ID] = updated
+	return updated, nil
+}
+
+func (f *fakeProjects) FavoritesOf(_ context.Context, who domain.Identity) (map[uuid.UUID]bool, error) {
+	starred := map[uuid.UUID]bool{}
+	for id, on := range f.stars[who.UserID] {
+		if on {
+			starred[id] = true
+		}
+	}
+	return starred, nil
+}
+
+func (f *fakeProjects) IsFavorite(_ context.Context, who domain.Identity, projectID uuid.UUID) (bool, error) {
+	return f.stars[who.UserID][projectID], nil
+}
+
+func (f *fakeProjects) SetFavorite(_ context.Context, who domain.Identity, projectID uuid.UUID, on bool) error {
+	if f.stars == nil {
+		f.stars = map[uuid.UUID]map[uuid.UUID]bool{}
+	}
+	if f.stars[who.UserID] == nil {
+		f.stars[who.UserID] = map[uuid.UUID]bool{}
+	}
+	f.stars[who.UserID][projectID] = on
+	return nil
 }
 
 func (f *fakeProjects) Delete(_ context.Context, _, id uuid.UUID) error {
@@ -151,7 +176,7 @@ func TestCreateMakesTheCallerAnAdministrator(t *testing.T) {
 	who := someone()
 
 	created, err := newService(projects, &fakeMemberships{}, permissions).
-		Create(context.Background(), who, "Checkout service", "checkout")
+		Create(context.Background(), who, "Checkout service", "checkout", domain.ProjectDetails{})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -179,7 +204,7 @@ func TestCreateRefusesSomebodyWhoAdministersNothing(t *testing.T) {
 	projects := &fakeProjects{byID: map[uuid.UUID]domain.Project{}}
 
 	_, err := newService(projects, &fakeMemberships{}, refuseAll{}).
-		Create(context.Background(), someone(), "Checkout service", "checkout")
+		Create(context.Background(), someone(), "Checkout service", "checkout", domain.ProjectDetails{})
 	if !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("got %v, want ErrForbidden", err)
 	}
@@ -193,7 +218,7 @@ func TestCreateRefusesABadSlug(t *testing.T) {
 	service := newService(projects, &fakeMemberships{}, &allowAll{})
 
 	for _, slug := range []string{"", "Checkout", "check out", "-checkout", "checkout-", "check--out", "chèque"} {
-		if _, err := service.Create(context.Background(), someone(), "A project", slug); !errors.Is(err, domain.ErrInvalidProject) {
+		if _, err := service.Create(context.Background(), someone(), "A project", slug, domain.ProjectDetails{}); !errors.Is(err, domain.ErrInvalidProject) {
 			t.Errorf("slug %q was accepted: %v", slug, err)
 		}
 	}

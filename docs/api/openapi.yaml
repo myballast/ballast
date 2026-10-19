@@ -910,11 +910,12 @@ paths:
 
     patch:
       tags: [projects]
-      summary: Rename a project
+      summary: Edit a project
       description: |
-        Only the display name moves. The slug does not: it appears in URLs and
-        in object storage keys, where changing it would orphan what is already
-        filed under it.
+        The display name and the details a person says about the project — where
+        it runs, who answers for it, what it is made of. The slug does not move:
+        it appears in URLs and in object storage keys, where changing it would
+        orphan what is already filed under it.
 
         Requires `admin`.
       operationId: updateProject
@@ -927,13 +928,13 @@ paths:
               $ref: "#/components/schemas/UpdateProjectRequest"
       responses:
         "200":
-          description: The renamed project.
+          description: The edited project.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Project"
         "400":
-          description: The body is not valid JSON, the id is not a UUID, or the name is refused.
+          description: The body is not valid JSON, the id is not a UUID, or the name or a detail is refused.
           content:
             application/json:
               schema:
@@ -973,6 +974,52 @@ paths:
                 $ref: "#/components/schemas/Error"
               example:
                 error: this project still holds runs; deleting it would take their history with it
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/favorite:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    put:
+      tags: [projects]
+      summary: Star a project
+      description: |
+        The caller's own star, which puts the project first in their list. It is
+        theirs alone: nobody else sees it, and it grants and changes nothing, so
+        belonging to the project is all it takes. Starring twice is the same as
+        once.
+      operationId: favoriteProject
+      x-ballast-permission: view_project
+      responses:
+        "204":
+          description: Starred.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [projects]
+      summary: Unstar a project
+      description: |
+        Takes back the caller's own star. Unstarring a project that is not
+        starred is not an error, and nobody else's star is touched.
+      operationId: unfavoriteProject
+      x-ballast-permission: view_project
+      responses:
+        "204":
+          description: Not starred any more.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -2483,7 +2530,7 @@ components:
 
     Project:
       type: object
-      required: [id, name, slug, created_at]
+      required: [id, name, slug, infra, region, owner, stack, favorite, created_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 80 }
@@ -2494,6 +2541,38 @@ components:
           description: |
             Appears in URLs and in object storage keys, and never changes after
             creation.
+        infra:
+          type: string
+          maxLength: 40
+          description: Where it runs, in a word or two — `k8s`, `railway`, `vm`. Empty when not said.
+          example: k8s
+        region:
+          type: string
+          maxLength: 40
+          description: Empty when not said.
+          example: eu-west-1
+        owner:
+          type: string
+          maxLength: 80
+          description: |
+            A person or a team, as text. It is not a user and grants nothing.
+            Empty when not said.
+        stack:
+          type: array
+          maxItems: 12
+          description: |
+            Short labels for what the project is made of. Always an array, empty
+            when none is said, never `null`.
+          items:
+            type: string
+            maxLength: 16
+            pattern: "^[a-z0-9][a-z0-9._+-]*$"
+          example: [go, pg, k6]
+        favorite:
+          type: boolean
+          description: |
+            Whether the **caller** has starred it. Their own star: it is never
+            another person's, in this response or any other.
         created_at: { type: string, format: date-time }
 
     ProjectListResponse:
@@ -2514,15 +2593,34 @@ components:
           type: string
           maxLength: 40
           pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        infra: { type: string, maxLength: 40 }
+        region: { type: string, maxLength: 40 }
+        owner: { type: string, maxLength: 80 }
+        stack:
+          type: array
+          maxItems: 12
+          description: |
+            Stored in lower case, each label once, in the order given. A label is
+            letters, digits and `. _ + -`, at most 16 characters.
+          items: { type: string }
       example:
         name: Checkout service
         slug: checkout
 
     UpdateProjectRequest:
       type: object
-      required: [name]
+      description: |
+        Anything left out stays as it is. An empty string, or an empty `stack`,
+        says it is not said any more. The slug cannot move.
       properties:
         name: { type: string, maxLength: 80 }
+        infra: { type: string, maxLength: 40 }
+        region: { type: string, maxLength: 40 }
+        owner: { type: string, maxLength: 80 }
+        stack:
+          type: array
+          maxItems: 12
+          items: { type: string }
 
     Member:
       type: object

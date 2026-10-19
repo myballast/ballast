@@ -35,10 +35,13 @@ func NewProjectRepository(db *DB) *ProjectRepository {
 
 func toDomainProject(row sqlc.Project) domain.Project {
 	return domain.Project{
-		ID:        row.ID,
-		OrgID:     row.OrgID,
-		Name:      row.Name,
-		Slug:      row.Slug,
+		ID:    row.ID,
+		OrgID: row.OrgID,
+		Name:  row.Name,
+		Slug:  row.Slug,
+		Details: domain.ProjectDetails{
+			Infra: row.Infra, Region: row.Region, Owner: row.Owner, Stack: row.Stack,
+		},
 		CreatedAt: row.CreatedAt,
 	}
 }
@@ -70,6 +73,10 @@ func (r *ProjectRepository) Create(
 			OrgID:     newProject.OrgID,
 			Name:      newProject.Name,
 			Slug:      newProject.Slug,
+			Infra:     newProject.Details.Infra,
+			Region:    newProject.Details.Region,
+			Owner:     newProject.Details.Owner,
+			Stack:     stackOrEmpty(newProject.Details.Stack),
 			CreatedAt: at,
 		})
 		if err != nil {
@@ -137,32 +144,102 @@ func (r *ProjectRepository) OfMember(
 	return projects, err
 }
 
-// Rename changes a project's display name. Its slug does not move: it appears
-// in URLs and in object storage keys, where a rename would orphan what is
+// Save writes a project's display name and details. Its slug does not move: it
+// appears in URLs and in object storage keys, where a change would orphan what is
 // already filed under it.
-func (r *ProjectRepository) Rename(
-	ctx context.Context, orgID, id uuid.UUID, name string,
+func (r *ProjectRepository) Save(
+	ctx context.Context, orgID uuid.UUID, updated domain.Project,
 ) (domain.Project, error) {
-	var renamed domain.Project
+	var saved domain.Project
 
 	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
-		row, err := sqlc.New(tx).RenameProject(ctx, sqlc.RenameProjectParams{
-			OrgID: orgID,
-			ID:    id,
-			Name:  name,
+		row, err := sqlc.New(tx).UpdateProject(ctx, sqlc.UpdateProjectParams{
+			OrgID:  orgID,
+			ID:     updated.ID,
+			Name:   updated.Name,
+			Infra:  updated.Details.Infra,
+			Region: updated.Details.Region,
+			Owner:  updated.Details.Owner,
+			Stack:  stackOrEmpty(updated.Details.Stack),
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
 		}
 		if err != nil {
-			return fmt.Errorf("rename the project: %w", translate(err))
+			return fmt.Errorf("save the project: %w", translate(err))
 		}
 
-		renamed = toDomainProject(row)
+		saved = toDomainProject(row)
 		return nil
 	})
 
-	return renamed, err
+	return saved, err
+}
+
+// stackOrEmpty keeps a null out of the column: an unset stack is an empty array,
+// which is what the schema's default says too.
+func stackOrEmpty(stack []string) []string {
+	if stack == nil {
+		return []string{}
+	}
+	return stack
+}
+
+// FavoritesOf lists the projects this person has starred, as a set. Read for the
+// caller alone: the statement names the user as well as the organization.
+func (r *ProjectRepository) FavoritesOf(ctx context.Context, who domain.Identity) (map[uuid.UUID]bool, error) {
+	favorites := map[uuid.UUID]bool{}
+
+	err := r.db.InTenantTx(ctx, who.OrgID, func(tx pgx.Tx) error {
+		ids, err := sqlc.New(tx).ListFavoriteProjects(ctx, sqlc.ListFavoriteProjectsParams{
+			OrgID: who.OrgID, UserID: who.UserID,
+		})
+		if err != nil {
+			return fmt.Errorf("list the favourites: %w", err)
+		}
+		for _, id := range ids {
+			favorites[id] = true
+		}
+		return nil
+	})
+
+	return favorites, err
+}
+
+// IsFavorite reports whether this person has starred the project.
+func (r *ProjectRepository) IsFavorite(ctx context.Context, who domain.Identity, projectID uuid.UUID) (bool, error) {
+	var starred bool
+
+	err := r.db.InTenantTx(ctx, who.OrgID, func(tx pgx.Tx) error {
+		var err error
+		starred, err = sqlc.New(tx).IsFavoriteProject(ctx, sqlc.IsFavoriteProjectParams{
+			OrgID: who.OrgID, UserID: who.UserID, ProjectID: projectID,
+		})
+		if err != nil {
+			return fmt.Errorf("read the favourite: %w", err)
+		}
+		return nil
+	})
+
+	return starred, err
+}
+
+// SetFavorite stars or unstars a project for this person alone.
+func (r *ProjectRepository) SetFavorite(
+	ctx context.Context, who domain.Identity, projectID uuid.UUID, on bool,
+) error {
+	return r.db.InTenantTx(ctx, who.OrgID, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+
+		if on {
+			return queries.AddFavoriteProject(ctx, sqlc.AddFavoriteProjectParams{
+				OrgID: who.OrgID, UserID: who.UserID, ProjectID: projectID,
+			})
+		}
+		return queries.RemoveFavoriteProject(ctx, sqlc.RemoveFavoriteProjectParams{
+			OrgID: who.OrgID, UserID: who.UserID, ProjectID: projectID,
+		})
+	})
 }
 
 // Delete removes a project that holds no run.
