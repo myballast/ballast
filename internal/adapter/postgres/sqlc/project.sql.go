@@ -12,6 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
+const addFavoriteProject = `-- name: AddFavoriteProject :exec
+INSERT INTO project_favorite (org_id, user_id, project_id)
+VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING
+`
+
+type AddFavoriteProjectParams struct {
+	OrgID     uuid.UUID
+	UserID    uuid.UUID
+	ProjectID uuid.UUID
+}
+
+// Starring twice is not an error, and not a second row.
+func (q *Queries) AddFavoriteProject(ctx context.Context, arg AddFavoriteProjectParams) error {
+	_, err := q.db.Exec(ctx, addFavoriteProject, arg.OrgID, arg.UserID, arg.ProjectID)
+	return err
+}
+
 const countProjectRuns = `-- name: CountProjectRuns :one
 SELECT count(*) FROM run WHERE org_id = $1 AND project_id = $2
 `
@@ -90,7 +108,7 @@ func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (M
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, org_id, name, slug, created_at, run_counter FROM project WHERE org_id = $1 AND id = $2
+SELECT id, org_id, name, slug, created_at, run_counter, infra, region, owner, stack FROM project WHERE org_id = $1 AND id = $2
 `
 
 type GetProjectParams struct {
@@ -108,6 +126,10 @@ func (q *Queries) GetProject(ctx context.Context, arg GetProjectParams) (Project
 		&i.Slug,
 		&i.CreatedAt,
 		&i.RunCounter,
+		&i.Infra,
+		&i.Region,
+		&i.Owner,
+		&i.Stack,
 	)
 	return i, err
 }
@@ -137,9 +159,9 @@ func (q *Queries) GetUser(ctx context.Context, arg GetUserParams) (AppUser, erro
 
 const insertProject = `-- name: InsertProject :one
 
-INSERT INTO project (id, org_id, name, slug, created_at)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, org_id, name, slug, created_at, run_counter
+INSERT INTO project (id, org_id, name, slug, infra, region, owner, stack, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, org_id, name, slug, created_at, run_counter, infra, region, owner, stack
 `
 
 type InsertProjectParams struct {
@@ -147,6 +169,10 @@ type InsertProjectParams struct {
 	OrgID     uuid.UUID
 	Name      string
 	Slug      string
+	Infra     string
+	Region    string
+	Owner     string
+	Stack     []string
 	CreatedAt time.Time
 }
 
@@ -162,6 +188,10 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) (P
 		arg.OrgID,
 		arg.Name,
 		arg.Slug,
+		arg.Infra,
+		arg.Region,
+		arg.Owner,
+		arg.Stack,
 		arg.CreatedAt,
 	)
 	var i Project
@@ -172,8 +202,65 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) (P
 		&i.Slug,
 		&i.CreatedAt,
 		&i.RunCounter,
+		&i.Infra,
+		&i.Region,
+		&i.Owner,
+		&i.Stack,
 	)
 	return i, err
+}
+
+const isFavoriteProject = `-- name: IsFavoriteProject :one
+SELECT EXISTS (
+    SELECT 1 FROM project_favorite
+    WHERE org_id = $1 AND user_id = $2 AND project_id = $3
+)
+`
+
+type IsFavoriteProjectParams struct {
+	OrgID     uuid.UUID
+	UserID    uuid.UUID
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) IsFavoriteProject(ctx context.Context, arg IsFavoriteProjectParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isFavoriteProject, arg.OrgID, arg.UserID, arg.ProjectID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const listFavoriteProjects = `-- name: ListFavoriteProjects :many
+SELECT project_id FROM project_favorite
+WHERE org_id = $1 AND user_id = $2
+`
+
+type ListFavoriteProjectsParams struct {
+	OrgID  uuid.UUID
+	UserID uuid.UUID
+}
+
+// The projects somebody keeps at the top. Both columns are named: row-level
+// security keeps another organization out and says nothing about another person,
+// so the user is in every one of these statements.
+func (q *Queries) ListFavoriteProjects(ctx context.Context, arg ListFavoriteProjectsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listFavoriteProjects, arg.OrgID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var project_id uuid.UUID
+		if err := rows.Scan(&project_id); err != nil {
+			return nil, err
+		}
+		items = append(items, project_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listMembershipsOfMember = `-- name: ListMembershipsOfMember :many
@@ -308,7 +395,7 @@ func (q *Queries) ListProjectMembers(ctx context.Context, arg ListProjectMembers
 }
 
 const listProjectsOfMember = `-- name: ListProjectsOfMember :many
-SELECT p.id, p.org_id, p.name, p.slug, p.created_at, p.run_counter
+SELECT p.id, p.org_id, p.name, p.slug, p.created_at, p.run_counter, p.infra, p.region, p.owner, p.stack
 FROM project p
 JOIN membership m ON m.org_id = p.org_id AND m.project_id = p.id
 WHERE m.org_id = $1 AND m.user_id = $2
@@ -339,6 +426,10 @@ func (q *Queries) ListProjectsOfMember(ctx context.Context, arg ListProjectsOfMe
 			&i.Slug,
 			&i.CreatedAt,
 			&i.RunCounter,
+			&i.Infra,
+			&i.Region,
+			&i.Owner,
+			&i.Stack,
 		); err != nil {
 			return nil, err
 		}
@@ -350,20 +441,50 @@ func (q *Queries) ListProjectsOfMember(ctx context.Context, arg ListProjectsOfMe
 	return items, nil
 }
 
-const renameProject = `-- name: RenameProject :one
-UPDATE project SET name = $3
-WHERE org_id = $1 AND id = $2
-RETURNING id, org_id, name, slug, created_at, run_counter
+const removeFavoriteProject = `-- name: RemoveFavoriteProject :exec
+DELETE FROM project_favorite
+WHERE org_id = $1 AND user_id = $2 AND project_id = $3
 `
 
-type RenameProjectParams struct {
-	OrgID uuid.UUID
-	ID    uuid.UUID
-	Name  string
+type RemoveFavoriteProjectParams struct {
+	OrgID     uuid.UUID
+	UserID    uuid.UUID
+	ProjectID uuid.UUID
 }
 
-func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (Project, error) {
-	row := q.db.QueryRow(ctx, renameProject, arg.OrgID, arg.ID, arg.Name)
+func (q *Queries) RemoveFavoriteProject(ctx context.Context, arg RemoveFavoriteProjectParams) error {
+	_, err := q.db.Exec(ctx, removeFavoriteProject, arg.OrgID, arg.UserID, arg.ProjectID)
+	return err
+}
+
+const updateProject = `-- name: UpdateProject :one
+UPDATE project SET name = $3, infra = $4, region = $5, owner = $6, stack = $7
+WHERE org_id = $1 AND id = $2
+RETURNING id, org_id, name, slug, created_at, run_counter, infra, region, owner, stack
+`
+
+type UpdateProjectParams struct {
+	OrgID  uuid.UUID
+	ID     uuid.UUID
+	Name   string
+	Infra  string
+	Region string
+	Owner  string
+	Stack  []string
+}
+
+// The mutable half of a project: its display name and what is said about it.
+// The slug is not here and never moves.
+func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error) {
+	row := q.db.QueryRow(ctx, updateProject,
+		arg.OrgID,
+		arg.ID,
+		arg.Name,
+		arg.Infra,
+		arg.Region,
+		arg.Owner,
+		arg.Stack,
+	)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -372,6 +493,10 @@ func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (P
 		&i.Slug,
 		&i.CreatedAt,
 		&i.RunCounter,
+		&i.Infra,
+		&i.Region,
+		&i.Owner,
+		&i.Stack,
 	)
 	return i, err
 }

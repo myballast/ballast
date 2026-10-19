@@ -98,6 +98,10 @@ type Project struct {
 	Slug       string
 	CreatedAt  time.Time
 	RunCounter int32
+	Infra      string
+	Region     string
+	Owner      string
+	Stack      []string
 }
 
 type ProjectAllowedHost struct {
@@ -105,6 +109,13 @@ type ProjectAllowedHost struct {
 	OrgID     uuid.UUID
 	ProjectID uuid.UUID
 	Host      string
+	CreatedAt time.Time
+}
+
+type ProjectFavorite struct {
+	OrgID     uuid.UUID
+	UserID    uuid.UUID
+	ProjectID uuid.UUID
 	CreatedAt time.Time
 }
 

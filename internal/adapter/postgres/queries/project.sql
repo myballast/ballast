@@ -6,8 +6,8 @@
 -- created_at comes from the injected clock rather than now(), so that what a
 -- project records about when it was created can be controlled in a test.
 -- name: InsertProject :one
-INSERT INTO project (id, org_id, name, slug, created_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO project (id, org_id, name, slug, infra, region, owner, stack, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetProject :one
@@ -23,10 +23,35 @@ JOIN membership m ON m.org_id = p.org_id AND m.project_id = p.id
 WHERE m.org_id = $1 AND m.user_id = $2
 ORDER BY p.name, p.id;
 
--- name: RenameProject :one
-UPDATE project SET name = $3
+-- The mutable half of a project: its display name and what is said about it.
+-- The slug is not here and never moves.
+-- name: UpdateProject :one
+UPDATE project SET name = $3, infra = $4, region = $5, owner = $6, stack = $7
 WHERE org_id = $1 AND id = $2
 RETURNING *;
+
+-- The projects somebody keeps at the top. Both columns are named: row-level
+-- security keeps another organization out and says nothing about another person,
+-- so the user is in every one of these statements.
+-- name: ListFavoriteProjects :many
+SELECT project_id FROM project_favorite
+WHERE org_id = $1 AND user_id = $2;
+
+-- name: IsFavoriteProject :one
+SELECT EXISTS (
+    SELECT 1 FROM project_favorite
+    WHERE org_id = $1 AND user_id = $2 AND project_id = $3
+);
+
+-- Starring twice is not an error, and not a second row.
+-- name: AddFavoriteProject :exec
+INSERT INTO project_favorite (org_id, user_id, project_id)
+VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING;
+
+-- name: RemoveFavoriteProject :exec
+DELETE FROM project_favorite
+WHERE org_id = $1 AND user_id = $2 AND project_id = $3;
 
 -- name: DeleteProject :execrows
 DELETE FROM project WHERE org_id = $1 AND id = $2;

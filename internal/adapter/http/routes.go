@@ -176,6 +176,16 @@ func Routes() []Route {
 			Method: "DELETE", Path: "/projects/{projectId}",
 			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
 		},
+		// A star is the caller's own and changes nothing anybody else can see or
+		// do, so belonging to the project is all it takes.
+		{
+			Method: "PUT", Path: "/projects/{projectId}/favorite",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/favorite",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
 		{
 			Method: "GET", Path: "/projects/{projectId}/permissions",
 			Scope: ScopeNone,

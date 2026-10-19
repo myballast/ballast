@@ -161,9 +161,10 @@ func TestProjectRepositoryRoundTrip(t *testing.T) {
 		t.Errorf("a non-member sees %d project(s)", len(theirs))
 	}
 
-	renamed, err := projects.Rename(ctx, who.OrgID, created.ID, "Checkout and payments")
+	created.Name = "Checkout and payments"
+	renamed, err := projects.Save(ctx, who.OrgID, created)
 	if err != nil {
-		t.Fatalf("Rename: %v", err)
+		t.Fatalf("Save: %v", err)
 	}
 	if renamed.Name != "Checkout and payments" || renamed.Slug != "checkout" {
 		t.Errorf("after renaming: %+v", renamed)

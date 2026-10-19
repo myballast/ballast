@@ -1,106 +1,55 @@
-import { CircleDashed, Globe, Lock, ShieldCheck } from "lucide-react";
+import { Lock } from "lucide-react";
 import Link from "next/link";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Environment } from "@/features/environments/types";
-import { RunStatusBadge } from "@/features/runs/components/run-status-badge";
-import type { RunSummary } from "@/features/runs/types";
-import { formatRelative } from "@/lib/format";
 
+import { place } from "../arrangement";
 import type { ProjectOverview } from "../types";
+import { FavoriteButton } from "./favorite-button";
+import { RunLine } from "./run-line";
+import { StackChips } from "./stack-chips";
 
-// ProjectCard is one project of the list: its name, its environments, and how
-// its last run ended.
+// ProjectCard is one project of the list: its name and slug, where it runs, what
+// it is made of, and how its last run ended.
 //
-// An environment's verification is not the status of a run or of a
-// threshold, so it is never green or amber: it is counted, in neutral text,
-// with an icon and a word.
+// Everything about a project that was never written is left out: no empty chip,
+// no "undefined", no blank where the infrastructure would be.
 export function ProjectCard({ overview, now }: { overview: ProjectOverview; now: Date }) {
   const { project } = overview;
+  const where = place(project);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="truncate">
-          <Link href={`/projects/${project.id}`} className="hover:underline">
-            {project.name}
-          </Link>
-        </CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle className="min-w-0 truncate">
+            <Link href={`/projects/${project.id}`} className="hover:underline">
+              {project.name}
+            </Link>
+          </CardTitle>
+          {where && (
+            <span className="data shrink-0 rounded-md border px-1.5 py-px text-[10.5px] whitespace-nowrap text-muted-foreground">
+              {where}
+            </span>
+          )}
+          <span className="ml-auto">
+            <FavoriteButton projectId={project.id} name={project.name} favorite={project.favorite} />
+          </span>
+        </div>
         <p className="data truncate text-xs text-muted-foreground">{project.slug}</p>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-3 text-sm">
+        <StackChips stack={project.stack} />
         {overview.access === "restricted" ? (
           <p className="flex items-center gap-2 text-muted-foreground">
             <Lock aria-hidden className="size-4 shrink-0" />
             Your role in this project does not include its details.
           </p>
         ) : (
-          <>
-            <Environments environments={overview.environments} />
-            <LastRun run={overview.lastRun} now={now} />
-          </>
+          <RunLine environments={overview.environments.length} run={overview.lastRun} now={now} />
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function Environments({ environments }: { environments: Environment[] }) {
-  if (environments.length === 0) {
-    return (
-      <p className="flex items-center gap-2 text-muted-foreground">
-        <Globe aria-hidden className="size-4 shrink-0" />
-        No environment yet
-      </p>
-    );
-  }
-
-  const verified = environments.filter((e) => e.verification_status === "verified").length;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Globe aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        <span className="whitespace-nowrap">
-          <span className="num">{environments.length}</span>{" "}
-          {environments.length === 1 ? "environment" : "environments"}
-        </span>
-        <span className="text-muted-foreground">·</span>
-        <span className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
-          <ShieldCheck aria-hidden className="size-3.5" />
-          <span className="num">{verified}</span> verified
-        </span>
-      </p>
-      <ul className="flex flex-wrap gap-1.5">
-        {environments.map((e) => (
-          <li key={e.id} className="data rounded-md border px-2 py-0.5 text-[11px] text-muted-foreground">
-            {e.name}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function LastRun({ run, now }: { run: RunSummary | null; now: Date }) {
-  if (!run) {
-    return (
-      <p className="flex items-center gap-2 text-muted-foreground">
-        <CircleDashed aria-hidden className="size-4 shrink-0" />
-        Never run
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-muted-foreground">Last run</span>
-      <RunStatusBadge status={run.status} />
-      <span className="text-xs text-muted-foreground">{formatRelative(run.ended_at ?? run.created_at, now)}</span>
-      <Link href={`/runs/${run.id}`} className="ml-auto text-xs text-brand hover:underline">
-        View run
-      </Link>
-    </div>
   );
 }

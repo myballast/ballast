@@ -123,7 +123,7 @@ func newMembersWorld(ctx context.Context, t *testing.T) membersWorld {
 		cleanup := context.WithoutCancel(ctx)
 		for _, org := range []uuid.UUID{w.acme, w.home, malloryOrg} {
 			_ = db.InTenantTx(cleanup, org, func(tx pgx.Tx) error {
-				for _, table := range []string{"invitation", "membership", "project", "app_user", "organization"} {
+				for _, table := range []string{"invitation", "project_favorite", "membership", "project", "app_user", "organization"} {
 					if _, err := tx.Exec(cleanup,
 						"DELETE FROM "+pgx.Identifier{table}.Sanitize()+" WHERE org_id = $1", org); err != nil {
 						return err

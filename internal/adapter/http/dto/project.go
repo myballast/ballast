@@ -8,7 +8,17 @@ type Project struct {
 	Name string `json:"name"`
 	// Slug appears in URLs and in object storage keys, so it never changes
 	// after creation.
-	Slug      string    `json:"slug"`
+	Slug string `json:"slug"`
+	// Infra, Region, Owner and Stack are optional details a person wrote. They
+	// are always present, empty when not said: an absent field and an empty one
+	// would be two ways of saying the same thing.
+	Infra  string   `json:"infra"`
+	Region string   `json:"region"`
+	Owner  string   `json:"owner"`
+	Stack  []string `json:"stack"`
+	// Favorite is whether the caller has starred it. Their own star: it is never
+	// another person's.
+	Favorite  bool      `json:"favorite"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -21,12 +31,22 @@ type ProjectListResponse struct {
 type CreateProjectRequest struct {
 	Name string `json:"name"`
 	Slug string `json:"slug"`
+	// The details are optional. Left out or empty, they are not said.
+	Infra  string   `json:"infra,omitempty"`
+	Region string   `json:"region,omitempty"`
+	Owner  string   `json:"owner,omitempty"`
+	Stack  []string `json:"stack,omitempty"`
 }
 
-// UpdateProjectRequest is the body of PATCH /projects/{projectId}. Only the
-// display name can move.
+// UpdateProjectRequest is the body of PATCH /projects/{projectId}. Anything left
+// out stays as it is; an empty string, or an empty stack, says it is not said any
+// more. The slug cannot move.
 type UpdateProjectRequest struct {
-	Name string `json:"name"`
+	Name   *string   `json:"name,omitempty"`
+	Infra  *string   `json:"infra,omitempty"`
+	Region *string   `json:"region,omitempty"`
+	Owner  *string   `json:"owner,omitempty"`
+	Stack  *[]string `json:"stack,omitempty"`
 }
 
 // Member is somebody in a project, with the role that decides what they may do.

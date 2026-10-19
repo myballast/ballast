@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 
 import { createProject, type CreateProjectState } from "../actions";
 import { slugify } from "../slug";
+import { DetailsFields } from "./details-fields";
 
 // CreateProject is the "New project" button and its form. A client component
 // because the slug follows the name as it is typed, until the user edits the
@@ -83,6 +84,8 @@ export function CreateProject() {
           Appears in URLs, and cannot be changed once the project exists.
         </span>
       </label>
+
+      <DetailsFields />
 
       {state.error && (
         <p role="alert" className="text-sm text-muted-foreground">

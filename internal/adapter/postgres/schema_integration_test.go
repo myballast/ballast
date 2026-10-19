@@ -24,6 +24,7 @@ var expectedTables = []string{
 	"organization",
 	"project",
 	"project_allowed_host",
+	"project_favorite",
 	"run",
 	"run_artifact",
 	"run_log",
