@@ -30,15 +30,44 @@ import (
 // Desktop and the Linux runners both provide.
 const hostAlias = "host.docker.internal"
 
+// ourRuns is every run identifier this suite used. TestMain checks those and
+// no others.
+//
+// The check reads the whole daemon, and `go test ./...` runs packages at the
+// same time: internal/e2e drives this very runner and executes real runs, two
+// containers to a run. Counting every ballast container made this suite fail
+// for somebody else's run that happened to be in flight — a failure that never
+// reproduces on its own and that names the wrong package.
+var ourRuns sync.Map
+
+// ourRun mints a run identifier and records it as this suite's.
+//
+// Every identifier in this package comes from here, which is what keeps the
+// check complete: Run is handed one in its job, leftover and NewRunNetwork take
+// one as an argument, so there is no other way for this package to label a
+// container.
+func ourRun() uuid.UUID {
+	id := uuid.New()
+	ourRuns.Store(id.String(), struct{}{})
+	return id
+}
+
 // TestMain is where the third acceptance criterion is enforced: whatever these
-// tests do, no container may outlive them.
+// tests do, no container of theirs may outlive them.
 func TestMain(m *testing.M) {
 	code := m.Run()
 
-	leftover, err := listBallastContainers(context.Background())
+	found, err := listBallastContainers(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not check for leftover containers: %v\n", err)
 		os.Exit(code)
+	}
+
+	var leftover []types.Container
+	for _, c := range found {
+		if _, mine := ourRuns.Load(c.Labels[hosted.RunIDLabel]); mine {
+			leftover = append(leftover, c)
+		}
 	}
 
 	if len(leftover) > 0 {
@@ -201,7 +230,7 @@ export default function () {
 	wg, gathered := drain(logs)
 
 	result, err := newRunner(t, 2*time.Minute).Run(ctx, hosted.Job{
-		RunID:        uuid.New(),
+		RunID:        ourRun(),
 		Script:       script,
 		Options:      smokeOptions(t, "3s"),
 		Env:          map[string]string{"BASE_URL": target},
@@ -279,7 +308,7 @@ export default function () {
 
 	started := time.Now()
 	result, err := newRunner(t, 2*time.Minute).Run(ctx, hosted.Job{
-		RunID:        uuid.New(),
+		RunID:        ourRun(),
 		Script:       script,
 		Options:      smokeOptions(t, "3s"),
 		Env:          map[string]string{"BASE_URL": target},
@@ -319,7 +348,7 @@ export default function () { sleep(60); }
 
 	started := time.Now()
 	result, err := newRunner(t, 5*time.Second).Run(ctx, hosted.Job{
-		RunID:        uuid.New(),
+		RunID:        ourRun(),
 		Script:       script,
 		Options:      smokeOptions(t, "120s"),
 		AllowedHosts: reachesNothing,
@@ -348,7 +377,7 @@ import { sleep } from 'k6';
 export default function () { sleep(60); }
 `)
 
-	runID := uuid.New()
+	runID := ourRun()
 
 	done := make(chan error, 1)
 	go func() {
@@ -412,7 +441,7 @@ export default function () {
 	wg, gathered := drain(logs)
 
 	if _, err := newRunner(t, time.Minute).Run(ctx, hosted.Job{
-		RunID:        uuid.New(),
+		RunID:        ourRun(),
 		Script:       script,
 		Options:      smokeOptions(t, "1s"),
 		AllowedHosts: reachesNothing,

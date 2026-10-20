@@ -119,7 +119,7 @@ func TestEverythingAnAbandonedRunLeftBehindIsDestroyed(t *testing.T) {
 	cli := dockerClient(t)
 	runner := newRunner(t, time.Minute)
 
-	abandoned := uuid.New()
+	abandoned := ourRun()
 	leftover(ctx, t, cli, abandoned)
 
 	if containers, networks := remains(ctx, t, cli, abandoned); containers != 1 || networks != 1 {
@@ -145,7 +145,7 @@ func TestASweepDestroysWhatNoLiveRunOwns(t *testing.T) {
 	cli := dockerClient(t)
 	runner := newRunner(t, time.Minute)
 
-	watched, abandoned := uuid.New(), uuid.New()
+	watched, abandoned := ourRun(), ourRun()
 	leftover(ctx, t, cli, watched)
 	leftover(ctx, t, cli, abandoned)
 
@@ -191,7 +191,7 @@ func TestDestroyingARunThatLeftNothingIsNotAFailure(t *testing.T) {
 
 	runner := newRunner(t, time.Minute)
 
-	if err := runner.Destroy(ctx, uuid.New()); err != nil {
+	if err := runner.Destroy(ctx, ourRun()); err != nil {
 		t.Fatalf("Destroy: %v", err)
 	}
 }

@@ -17,7 +17,6 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/google/uuid"
 
 	"github.com/youssefmahersi/ballast/internal/adapter/runner/hosted"
 	"github.com/youssefmahersi/ballast/internal/domain"
@@ -62,7 +61,7 @@ func TestARunNetworkHasNoWayOut(t *testing.T) {
 
 	runner := newRunner(t, 30*time.Second)
 
-	name, cleanup, err := runner.NewRunNetwork(ctx, uuid.New())
+	name, cleanup, err := runner.NewRunNetwork(ctx, ourRun())
 	if err != nil {
 		t.Fatalf("create the run network: %v", err)
 	}
@@ -110,7 +109,7 @@ func TestAScriptReachesTheHostItIsAllowed(t *testing.T) {
 	wg, gathered := drain(logs)
 
 	result, err := runner.Run(ctx, hosted.Job{
-		RunID:        uuid.New(),
+		RunID:        ourRun(),
 		Script:       reachScript(world.targetURL),
 		Options:      smokeOptions(t, "2s"),
 		AllowedHosts: []string{world.targetHostPort},
@@ -146,7 +145,7 @@ func TestAScriptCannotReachAHostItIsNotAllowed(t *testing.T) {
 
 	// The allowlist holds the target; the script asks for somewhere else.
 	_, err := runner.Run(ctx, hosted.Job{
-		RunID:        uuid.New(),
+		RunID:        ourRun(),
 		Script:       reachScript("http://example.com/"),
 		Options:      smokeOptions(t, "2s"),
 		AllowedHosts: []string{world.targetHostPort},
@@ -196,7 +195,7 @@ func TestAScriptCannotReachAPrivateAddress(t *testing.T) {
 			wg, gathered := drain(logs)
 
 			_, err := runner.Run(ctx, hosted.Job{
-				RunID:        uuid.New(),
+				RunID:        ourRun(),
 				Script:       reachScript(target),
 				Options:      smokeOptions(t, "2s"),
 				AllowedHosts: []string{world.targetHostPort},
@@ -224,7 +223,7 @@ func TestARunLeavesNoNetworkAndNoProxyBehind(t *testing.T) {
 	runner := newRunner(t, time.Minute)
 	world := newNetworkWorld(ctx, t, runner)
 
-	runID := uuid.New()
+	runID := ourRun()
 	logs := make(chan domain.LogLine, 256)
 	wg, _ := drain(logs)
 
@@ -272,7 +271,7 @@ type networkWorld struct {
 func newNetworkWorld(ctx context.Context, t *testing.T, runner *hosted.Runner) networkWorld {
 	t.Helper()
 
-	name, cleanup, err := runner.NewRunNetwork(ctx, uuid.New())
+	name, cleanup, err := runner.NewRunNetwork(ctx, ourRun())
 	if err != nil {
 		t.Fatalf("create the run network: %v", err)
 	}
