@@ -56,8 +56,20 @@ type Config struct {
 // Load reads the configuration, refusing to start rather than guessing at
 // anything whose absence would be silently wrong.
 func Load() (Config, error) {
+	// No default. A fallback to a local database is a process that starts in
+	// production, answers its health check, and fails on every request that
+	// touches a row — with nothing in the startup log to say why. The one
+	// machine where the local address is right is a developer's, and the
+	// Makefile sets it there.
+	database := env("BALLAST_DATABASE_URL", "")
+	if database == "" {
+		return Config{}, fmt.Errorf(
+			"BALLAST_DATABASE_URL is not set; it points at the application role. " +
+				"Locally: postgres://ballast_app:ballast_app@127.0.0.1:5432/ballast?sslmode=disable")
+	}
+
 	cfg := Config{
-		DatabaseURL:  env("BALLAST_DATABASE_URL", "postgres://ballast_app:ballast_app@127.0.0.1:5432/ballast?sslmode=disable"),
+		DatabaseURL:  database,
 		Addr:         env("BALLAST_ADDR", ":8080"),
 		K6Image:      env("BALLAST_K6_IMAGE", ""),
 		PollInterval: time.Second,

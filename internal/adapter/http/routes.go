@@ -65,6 +65,7 @@ func Routes() []Route {
 	return []Route{
 		// Public.
 		{Method: "GET", Path: "/healthz", Scope: ScopePublic},
+		{Method: "GET", Path: "/readyz", Scope: ScopePublic},
 		{Method: "GET", Path: "/auth/providers", Scope: ScopePublic},
 		{Method: "GET", Path: "/auth/{provider}/login", Scope: ScopePublic},
 		{Method: "GET", Path: "/auth/{provider}/callback", Scope: ScopePublic},

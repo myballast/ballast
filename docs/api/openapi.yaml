@@ -80,6 +80,37 @@ paths:
                 type: string
                 example: "ok\n"
 
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness check
+      description: |
+        Whether the API can do its work, which means whether the database
+        answers. `/healthz` says the process is up; a platform that restarts on
+        a failed liveness check would otherwise restart a healthy API because
+        its database was briefly away.
+
+        The reason for a refusal is not in the body. A driver's error names the
+        host, the user and the database it was given, and this endpoint needs no
+        session.
+      operationId: ready
+      security: []
+      responses:
+        "200":
+          description: The database answered.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "ready\n"
+        "503":
+          description: The database could not be reached within two seconds.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "not ready\n"
+
   /auth/providers:
     get:
       tags: [auth]
