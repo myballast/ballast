@@ -11,6 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	// The time zone database, carried in the binary. An allowed window is
+	// resolved in its own zone, and this process ships in an image that holds
+	// nothing but this binary — without it, time.LoadLocation fails and every
+	// environment carrying a window is refused. In production only: a
+	// developer's machine has the zones on disk.
+	_ "time/tzdata"
+
 	"github.com/google/uuid"
 
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
@@ -169,7 +176,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, invitations, journalReader, signIn, permissions, sessions, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

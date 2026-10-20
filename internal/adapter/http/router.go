@@ -1,10 +1,12 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/youssefmahersi/ballast/internal/adapter/http/handler"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/middleware"
@@ -17,6 +19,17 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
 )
+
+// Probe answers whether what the API depends on can be reached. It is a
+// function rather than an interface because there is one of them, and because
+// this package has no business knowing a database driver: cmd/api closes it
+// over the pool.
+type Probe func(context.Context) error
+
+// readyTimeout bounds the readiness check. A platform polls this endpoint, and
+// one that hangs on an unreachable database is worse than one that answers no:
+// the first looks like an API that is merely slow.
+const readyTimeout = 2 * time.Second
 
 // NewRouter wires the HTTP surface.
 //
@@ -42,6 +55,7 @@ func NewRouter(
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
 	sessions *session.Manager,
+	ready Probe,
 	web *url.URL,
 	log *slog.Logger,
 ) http.Handler {
@@ -57,6 +71,25 @@ func NewRouter(
 		"GET /healthz": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok\n"))
+		},
+		// Liveness says the process is up; this says it can do its work. A
+		// platform that restarts on a failed liveness check would otherwise
+		// restart a healthy API because its database was briefly away.
+		"GET /readyz": func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
+			defer cancel()
+
+			if err := ready(ctx); err != nil {
+				// The reason stays in the log. What is handed to whoever
+				// called is that the answer is no: a driver's error names the
+				// host, the user and the database it was given.
+				log.WarnContext(ctx, "the readiness probe could not reach the database", "error", err)
+				http.Error(w, "not ready\n", http.StatusServiceUnavailable)
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ready\n"))
 		},
 		"GET /auth/providers":           authHandler.Providers,
 		"GET /auth/{provider}/login":    authHandler.Login,

@@ -289,7 +289,7 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 		// The journal, which the limits write to and which a test reads back:
 		// a stack with it left out answers a request by dying.
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
-		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
 	))
 	t.Cleanup(api.Close)
 

@@ -54,6 +54,13 @@ func NewDB(pool *pgxpool.Pool) *DB {
 	return &DB{pool: pool}
 }
 
+// Ping reports whether the database answers, which is what the API's readiness
+// endpoint asks. It takes no tenant: it establishes that there is a database to
+// talk to, not that anything in it can be read.
+func (db *DB) Ping(ctx context.Context) error {
+	return db.pool.Ping(ctx)
+}
+
 // Close releases the pool.
 func (db *DB) Close() {
 	if db.pool != nil {

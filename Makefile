@@ -153,6 +153,14 @@ endif
 
 # Development defaults only: a value from the shell or from .env wins. The
 # session secret below signs cookies on this machine and nowhere else.
+#
+# The database address has no default in the code on purpose: a process that
+# falls back to localhost starts in production and fails on every request. The
+# local address is right on this machine, so it is set here.
+DEV_DATABASE_URL := postgres://ballast_app:ballast_app@127.0.0.1:5432/ballast?sslmode=disable
+api: export BALLAST_DATABASE_URL ?= $(DEV_DATABASE_URL)
+worker: export BALLAST_DATABASE_URL ?= $(DEV_DATABASE_URL)
+
 api: export BALLAST_SESSION_SECRET ?= development-only-session-secret-do-not-deploy
 api: export BALLAST_PUBLIC_URL ?= http://localhost:8080
 api: export BALLAST_WEB_URL ?= http://localhost:3000

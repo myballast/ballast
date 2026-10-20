@@ -1,0 +1,30 @@
+# What never belongs in a build context.
+#
+# The context is sent to the daemon whole, before any COPY decides what to keep.
+# A .env here holds real OAuth credentials, and the point of this file is that
+# they cannot reach an image by an oversight in a Dockerfile written later.
+.env
+.env.*
+!.env.example
+
+# History, and the credentials a remote may carry.
+.git
+.github
+
+# Built elsewhere, and large.
+web/node_modules
+web/.next
+web/out
+
+# Local output that has no business in an image.
+*.dump
+*.log
+bin/
+dist/
+coverage.out
+
+# Editors, and the machines they run on.
+.DS_Store
+.idea
+.vscode
+.claude

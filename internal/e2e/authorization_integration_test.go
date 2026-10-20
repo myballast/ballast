@@ -215,7 +215,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 	api := httptest.NewServer(httpadapter.NewRouter(
 		runs, projects, nil, nil, nil,
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
-		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, web, log,
+		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
 	))
 	t.Cleanup(api.Close)
 
