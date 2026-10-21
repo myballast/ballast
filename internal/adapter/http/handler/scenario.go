@@ -403,6 +403,10 @@ func (h *Scenario) writeDomainError(w http.ResponseWriter, r *http.Request, err 
 		writeError(w, http.StatusConflict,
 			"this scenario is written as a graph; its script is generated, so edit the graph instead")
 
+	case errors.Is(err, domain.ErrInvalidSpec),
+		errors.Is(err, domain.ErrInvalidGraph):
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+
 	case errors.Is(err, domain.ErrInvalidScenario),
 		errors.Is(err, domain.ErrInvalidThreshold),
 		errors.Is(err, domain.ErrInvalidProfileParams):

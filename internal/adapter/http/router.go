@@ -129,6 +129,8 @@ func NewRouter(
 
 		"GET /projects/{projectId}/scenarios":                                          scenarioHandler.List,
 		"POST /projects/{projectId}/scenarios":                                         scenarioHandler.Create,
+		"POST /projects/{projectId}/scenarios/import/openapi/preview":                  scenarioHandler.PreviewOpenAPI,
+		"POST /projects/{projectId}/scenarios/import/openapi":                          scenarioHandler.ImportOpenAPI,
 		"GET /projects/{projectId}/scenarios/{scenarioId}":                             scenarioHandler.ByID,
 		"PATCH /projects/{projectId}/scenarios/{scenarioId}":                           scenarioHandler.Update,
 		"DELETE /projects/{projectId}/scenarios/{scenarioId}":                          scenarioHandler.Delete,

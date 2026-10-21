@@ -81,9 +81,12 @@ export function ScenarioForm({
   }, [dirty, onDirtyChange]);
 
   const findings = state.findings ?? [];
+  // A script Ballast generated from a graph is shown, not edited.
+  const generated = scenario?.mode === "graph";
 
   return (
     <form action={action} className="flex flex-col gap-6">
+      {scenario && <input type="hidden" name="mode" value={scenario.mode} />}
       <label className="flex max-w-xl flex-col gap-1.5 text-sm">
         Name
         <input
@@ -103,14 +106,27 @@ export function ScenarioForm({
         <span>Script</span>
         <p className="flex items-start gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
           <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            Do not write an <code className="data text-foreground">options</code> block: Ballast generates it from the
-            profile and the thresholds. Read the target from{" "}
-            <code className="data text-foreground">__ENV.BASE_URL</code>, and give each request a{" "}
-            <code className="data text-foreground">name</code> tag.
-          </span>
+          {generated ? (
+            <span>
+              Ballast generated this script from the scenario&apos;s graph, so it cannot be edited here. The name and
+              the default load can still change.
+            </span>
+          ) : (
+            <span>
+              Do not write an <code className="data text-foreground">options</code> block: Ballast generates it from
+              the profile and the thresholds. Read the target from{" "}
+              <code className="data text-foreground">__ENV.BASE_URL</code>, and give each request a{" "}
+              <code className="data text-foreground">name</code> tag.
+            </span>
+          )}
         </p>
-        <ScriptEditor value={script} onChange={setScript} marked={linesOf(findings)} invalid={findings.length > 0} />
+        <ScriptEditor
+          value={script}
+          onChange={setScript}
+          marked={linesOf(findings)}
+          invalid={findings.length > 0}
+          readOnly={generated}
+        />
         <ScriptFindings findings={findings} kind="error" />
       </div>
 

@@ -27,6 +27,9 @@ export type ScriptFinding = {
 // inspecting it raised. Errors never get this far: they refuse the script.
 export type Scenario = ScenarioSummary & {
   script: string;
+  // "graph" means Ballast generated the script from a graph, and it is read
+  // only: the API refuses a new script for it.
+  mode: "code" | "graph";
   warnings: ScriptFinding[];
 };
 
@@ -46,4 +49,33 @@ export type ScenarioVersion = {
   default_profile: ProfileKind;
   default_params: ProfileParams;
   created_at: string;
+};
+
+// Mirror of dto.OpenAPIEndpoint: one operation of an uploaded specification.
+export type OpenAPIEndpoint = {
+  method: string;
+  // The template as the specification wrote it: /users/{id}.
+  path: string;
+  tag: string;
+  summary: string;
+  path_params: string[];
+  has_body: boolean;
+  body_too_long: boolean;
+};
+
+// Mirror of dto.OpenAPIAuthScheme. It names a scheme and says where it goes;
+// it never holds a value.
+export type OpenAPIScheme = {
+  name: string;
+  type: string;
+  detail: string;
+};
+
+// Mirror of dto.OpenAPIPreviewResponse.
+export type OpenAPIPreview = {
+  title: string;
+  base_path: string;
+  endpoints: OpenAPIEndpoint[];
+  schemes: OpenAPIScheme[];
+  notes: string[];
 };

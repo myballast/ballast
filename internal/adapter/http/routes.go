@@ -246,6 +246,14 @@ func Routes() []Route {
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
 		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/openapi/preview",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/openapi",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
 			Method: "GET", Path: "/projects/{projectId}/scenarios/{scenarioId}",
 			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
 		},

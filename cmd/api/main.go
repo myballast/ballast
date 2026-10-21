@@ -22,6 +22,7 @@ import (
 
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
+	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/adapter/verifier"
 	"github.com/youssefmahersi/ballast/internal/domain"
@@ -123,6 +124,8 @@ func serve(log *slog.Logger) error {
 		postgres.NewScenarioWriteRepository(db),
 		postgres.NewScenarioWriteRepository(db),
 		k6.NewScriptInspector(),
+		openapi.NewReader(),
+		k6.NewGenerator(),
 		permissions,
 		infra.SystemClock{},
 		log,

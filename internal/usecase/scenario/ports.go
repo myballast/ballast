@@ -51,6 +51,17 @@ type ScriptInspector interface {
 	Inspect(script string) domain.ScriptReport
 }
 
+// SpecReader reads the text of an OpenAPI specification. The text comes from an
+// upload, so what implements this is the code that decides how far to trust it.
+type SpecReader interface {
+	Read(data []byte) (domain.ImportedSpec, error)
+}
+
+// ScriptGenerator writes the k6 script of a scenario graph.
+type ScriptGenerator interface {
+	Generate(graph domain.ScenarioGraph) (string, error)
+}
+
 // Authorizer answers what the caller may do. Every question names a project.
 type Authorizer interface {
 	Can(ctx context.Context, who domain.Identity, perm domain.Permission, projectID uuid.UUID) (bool, error)

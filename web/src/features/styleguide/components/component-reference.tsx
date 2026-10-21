@@ -825,6 +825,7 @@ export function ComponentReference() {
             created_at: "2026-10-01T09:00:00Z",
             updated_at: "2026-10-18T11:58:00Z",
             script: starterScript,
+            mode: "code",
             warnings: [],
           }}
           targets={[
@@ -848,6 +849,7 @@ export function ComponentReference() {
             created_at: "2026-10-01T09:00:00Z",
             updated_at: "2026-10-10T09:00:00Z",
             script: starterScript,
+            mode: "code",
             warnings: [],
           }}
           targets={[]}
