@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -42,6 +43,11 @@ func toDomainScenario(row sqlc.Scenario) (domain.Scenario, error) {
 		return domain.Scenario{}, err
 	}
 
+	graph, err := graphFromColumn(row.Graph)
+	if err != nil {
+		return domain.Scenario{}, err
+	}
+
 	return domain.Scenario{
 		ID:                   row.ID,
 		ProjectID:            row.ProjectID,
@@ -50,12 +56,19 @@ func toDomainScenario(row sqlc.Scenario) (domain.Scenario, error) {
 		Version:              int(row.Version),
 		DefaultProfile:       domain.ProfileKind(row.DefaultProfile),
 		DefaultProfileParams: params,
+		Mode:                 domain.ScenarioMode(row.Mode),
+		Graph:                graph,
 		CreatedAt:            row.CreatedAt,
 		UpdatedAt:            row.UpdatedAt,
 	}, nil
 }
 
 func toDomainVersion(row sqlc.ScenarioVersion) (domain.ScenarioVersion, error) {
+	graph, err := graphFromColumn(row.Graph)
+	if err != nil {
+		return domain.ScenarioVersion{}, err
+	}
+
 	params, err := unmarshalParams(row.DefaultProfileParams)
 	if err != nil {
 		return domain.ScenarioVersion{}, err
@@ -67,6 +80,8 @@ func toDomainVersion(row sqlc.ScenarioVersion) (domain.ScenarioVersion, error) {
 		Script:               row.Script,
 		DefaultProfile:       domain.ProfileKind(row.DefaultProfile),
 		DefaultProfileParams: params,
+		Mode:                 domain.ScenarioMode(row.Mode),
+		Graph:                graph,
 		CreatedBy:            row.CreatedBy,
 		CreatedAt:            row.CreatedAt,
 	}, nil
@@ -78,6 +93,11 @@ func (r *ScenarioWriteRepository) Create(
 	ctx context.Context, newScenario domain.Scenario, by domain.Identity, at time.Time,
 ) (domain.Scenario, error) {
 	params, err := marshalParams(newScenario.DefaultProfileParams)
+	if err != nil {
+		return domain.Scenario{}, err
+	}
+
+	graph, err := graphColumn(newScenario.Graph)
 	if err != nil {
 		return domain.Scenario{}, err
 	}
@@ -96,6 +116,8 @@ func (r *ScenarioWriteRepository) Create(
 			DefaultProfile:       string(newScenario.DefaultProfile),
 			DefaultProfileParams: params,
 			CreatedAt:            at,
+			Mode:                 modeColumn(newScenario.Mode),
+			Graph:                graph,
 		})
 		if err != nil {
 			return fmt.Errorf("insert the scenario: %w", translate(err))
@@ -110,6 +132,8 @@ func (r *ScenarioWriteRepository) Create(
 			DefaultProfileParams: params,
 			CreatedBy:            &by.UserID,
 			CreatedAt:            at,
+			Mode:                 row.Mode,
+			Graph:                row.Graph,
 		}); err != nil {
 			return fmt.Errorf("insert the first version: %w", err)
 		}
@@ -211,6 +235,11 @@ func (r *ScenarioWriteRepository) NewVersion(
 		return domain.Scenario{}, err
 	}
 
+	graph, err := graphColumn(version.Graph)
+	if err != nil {
+		return domain.Scenario{}, err
+	}
+
 	var updated domain.Scenario
 	err = r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
 		queries := sqlc.New(tx)
@@ -224,6 +253,8 @@ func (r *ScenarioWriteRepository) NewVersion(
 			DefaultProfileParams: params,
 			CreatedBy:            &by.UserID,
 			CreatedAt:            at,
+			Mode:                 modeColumn(version.Mode),
+			Graph:                graph,
 		}); err != nil {
 			return fmt.Errorf("insert the version: %w", translate(err))
 		}
@@ -236,6 +267,8 @@ func (r *ScenarioWriteRepository) NewVersion(
 			DefaultProfile:       string(version.DefaultProfile),
 			DefaultProfileParams: params,
 			UpdatedAt:            at,
+			Mode:                 modeColumn(version.Mode),
+			Graph:                graph,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
@@ -438,4 +471,41 @@ func (r *ScenarioWriteRepository) CountInProject(
 	})
 
 	return counts, err
+}
+
+// modeColumn is what goes in the mode column. An empty mode is a scenario
+// written as code: every scenario stored before graphs existed has one.
+func modeColumn(mode domain.ScenarioMode) string {
+	if mode == "" {
+		return string(domain.ModeCode)
+	}
+	return string(mode)
+}
+
+// graphColumn is what goes in the graph column, and nothing at all for a
+// scenario written as code. The database refuses a mode and a graph that
+// disagree, so this keeps the two in step.
+func graphColumn(graph *domain.ScenarioGraph) ([]byte, error) {
+	if graph == nil {
+		return nil, nil
+	}
+
+	encoded, err := json.Marshal(graph)
+	if err != nil {
+		return nil, fmt.Errorf("encode the scenario graph: %w", err)
+	}
+	return encoded, nil
+}
+
+// graphFromColumn reads the graph back, or nil when the column holds nothing.
+func graphFromColumn(raw []byte) (*domain.ScenarioGraph, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var graph domain.ScenarioGraph
+	if err := json.Unmarshal(raw, &graph); err != nil {
+		return nil, fmt.Errorf("read the scenario graph: %w", err)
+	}
+	return &graph, nil
 }

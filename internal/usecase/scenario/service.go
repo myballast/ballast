@@ -176,8 +176,15 @@ func (s *Service) Update(
 		}
 	}
 
+	// A scenario written as a graph has a script Ballast generated. Editing it
+	// would leave the graph and the code saying different things, with nothing
+	// to tell which one a run used — so the edit is refused here rather than
+	// merely hidden by the interface.
 	script := current.Script
 	if update.Script != nil {
+		if current.Mode == domain.ModeGraph {
+			return domain.Scenario{}, domain.ScriptReport{}, domain.ErrScriptIsGenerated
+		}
 		script = *update.Script
 	}
 

@@ -5,8 +5,8 @@
 -- name: InsertScenario :one
 INSERT INTO scenario
     (id, org_id, project_id, name, script, version,
-     default_profile, default_profile_params, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+     default_profile, default_profile_params, created_at, updated_at, mode, graph)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11)
 RETURNING *;
 
 -- Nothing ever updates a row of this table. A run names the version it executed,
@@ -14,8 +14,8 @@ RETURNING *;
 -- name: InsertScenarioVersion :one
 INSERT INTO scenario_version
     (org_id, scenario_id, version, script, default_profile,
-     default_profile_params, created_by, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     default_profile_params, created_by, created_at, mode, graph)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- name: ListScenariosInProject :many
@@ -35,7 +35,7 @@ RETURNING *;
 -- name: PointScenarioAtVersion :one
 UPDATE scenario
 SET script = $3, version = $4, default_profile = $5,
-    default_profile_params = $6, updated_at = $7
+    default_profile_params = $6, updated_at = $7, mode = $8, graph = $9
 WHERE org_id = $1 AND id = $2
 RETURNING *;
 

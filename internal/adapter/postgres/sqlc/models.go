@@ -195,6 +195,8 @@ type Scenario struct {
 	DefaultProfileParams []byte
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	Mode                 string
+	Graph                []byte
 }
 
 type ScenarioVersion struct {
@@ -206,6 +208,8 @@ type ScenarioVersion struct {
 	DefaultProfileParams []byte
 	CreatedBy            *uuid.UUID
 	CreatedAt            time.Time
+	Mode                 string
+	Graph                []byte
 }
 
 type Secret struct {

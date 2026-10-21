@@ -311,9 +311,15 @@ func summaryOf(s domain.Scenario) dto.ScenarioSummary {
 func scenarioOf(s domain.Scenario, report domain.ScriptReport) dto.Scenario {
 	warnings := report.Warnings()
 
+	mode := s.Mode
+	if mode == "" {
+		mode = domain.ModeCode
+	}
+
 	out := dto.Scenario{
 		ScenarioSummary: summaryOf(s),
 		Script:          s.Script,
+		Mode:            string(mode),
 		Warnings:        make([]dto.ScriptFinding, 0, len(warnings)),
 	}
 	for _, finding := range warnings {
@@ -392,6 +398,10 @@ func (h *Scenario) writeDomainError(w http.ResponseWriter, r *http.Request, err 
 
 	case errors.Is(err, domain.ErrAlreadyExists):
 		writeError(w, http.StatusConflict, "a scenario or threshold already uses that")
+
+	case errors.Is(err, domain.ErrScriptIsGenerated):
+		writeError(w, http.StatusConflict,
+			"this scenario is written as a graph; its script is generated, so edit the graph instead")
 
 	case errors.Is(err, domain.ErrInvalidScenario),
 		errors.Is(err, domain.ErrInvalidThreshold),

@@ -1586,6 +1586,15 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            A `script` was sent for a scenario whose `mode` is `graph`. That
+            script is generated from the graph, so an edit would be kept only
+            until the next save.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "422":
           $ref: "#/components/responses/ScriptRefused"
         "500":
@@ -2788,9 +2797,16 @@ components:
       allOf:
         - $ref: "#/components/schemas/ScenarioSummary"
         - type: object
-          required: [script, warnings]
+          required: [script, mode, warnings]
           properties:
             script: { type: string }
+            mode:
+              type: string
+              enum: [code, graph]
+              description: |
+                How the scenario was written. `graph` means the script was
+                generated from a graph and is read only: sending a `script`
+                back is refused with `409`.
             warnings:
               type: array
               description: Worth reading before launching a run. Never a reason the request failed.
@@ -2815,7 +2831,11 @@ components:
       description: Anything left out stays as it is.
       properties:
         name: { type: string, maxLength: 120 }
-        script: { type: string }
+        script:
+          type: string
+          description: |
+            Refused with `409` on a scenario whose `mode` is `graph`: that
+            script is generated, and editing the graph is what changes it.
         default_profile:
           $ref: "#/components/schemas/ProfileKind"
         default_params:

@@ -510,7 +510,7 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (Run, error) {
 }
 
 const getScenario = `-- name: GetScenario :one
-SELECT id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at FROM scenario WHERE org_id = $1 AND id = $2
+SELECT id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at, mode, graph FROM scenario WHERE org_id = $1 AND id = $2
 `
 
 type GetScenarioParams struct {
@@ -532,6 +532,8 @@ func (q *Queries) GetScenario(ctx context.Context, arg GetScenarioParams) (Scena
 		&i.DefaultProfileParams,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Mode,
+		&i.Graph,
 	)
 	return i, err
 }

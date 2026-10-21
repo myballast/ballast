@@ -34,6 +34,10 @@ type ScenarioListResponse struct {
 type Scenario struct {
 	ScenarioSummary
 	Script string `json:"script"`
+	// Mode is "code" or "graph". A graph scenario's script is generated, and
+	// sending one back is refused: it is here so an interface can say so before
+	// somebody types into a field that will not save.
+	Mode string `json:"mode"`
 	// Warnings are worth reading before launching a run. Anything that would
 	// refuse the script is an error on the request that tried to store it, not a
 	// warning here.
