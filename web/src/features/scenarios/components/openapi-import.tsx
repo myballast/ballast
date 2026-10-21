@@ -2,15 +2,18 @@
 
 import { FileUp, Info, Search } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import { importToCatalog } from "@/features/endpoints/actions";
 
 import { importOpenAPI, previewOpenAPI } from "../import-actions";
 import {
   chosenInOrder,
   countWithPathParams,
   groupByTag,
+  maxCatalogEndpoints,
   maxChosenEndpoints,
   maxSpecBytes,
   toggleGroup,
@@ -43,8 +46,14 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
   const [search, setSearch] = useState("");
   const [name, setName] = useState("");
+  // What to do with the chosen endpoints: make a scenario of them, keep them in
+  // the project's catalog, or both.
+  const [makeScenario, setMakeScenario] = useState(true);
+  const [addToCatalog, setAddToCatalog] = useState(false);
+  const [source, setSource] = useState("");
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   function readFile(file: File) {
     setError("");
@@ -66,7 +75,9 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
       setLoaded({ spec, preview: result.preview });
       setChosen(new Set());
       setSearch("");
-      setName((result.preview.title || file.name.replace(/\.[^.]+$/, "")).slice(0, 120));
+      const title = (result.preview.title || file.name.replace(/\.[^.]+$/, "")).slice(0, 120);
+      setName(title);
+      setSource(title);
     });
   }
 
@@ -76,7 +87,9 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
 
   const { spec, preview } = loaded;
   const groups = groupByTag(preview.endpoints, search);
-  const full = chosen.size >= maxChosenEndpoints;
+  // A scenario holds fewer requests than a catalog does.
+  const limit = makeScenario ? maxChosenEndpoints : maxCatalogEndpoints;
+  const full = chosen.size >= limit;
   const withPathParams = countWithPathParams(preview.endpoints, chosen);
 
   function toggle(key: string) {
@@ -89,7 +102,7 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
 
   function toggleWholeGroup(group: EndpointGroup) {
     const next = toggleGroup(chosen, group);
-    if (next.size > maxChosenEndpoints) {
+    if (next.size > limit) {
       setError(`A scenario holds at most ${maxChosenEndpoints} requests.`);
       return;
     }
@@ -101,8 +114,28 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
     setError("");
 
     startTransition(async () => {
-      const result = await importOpenAPI(projectId, name.trim(), spec, chosenInOrder(preview.endpoints, chosen));
-      setError(result.error);
+      const references = chosenInOrder(preview.endpoints, chosen);
+
+      if (addToCatalog) {
+        const added = await importToCatalog(projectId, source.trim(), spec, references);
+        if (added.error) {
+          setError(added.error);
+          return;
+        }
+        if (!makeScenario) {
+          router.push(`/projects/${projectId}/endpoints`);
+          return;
+        }
+      }
+
+      // Only returns when the import was refused: it takes the browser to the
+      // scenario otherwise.
+      const result = await importOpenAPI(projectId, name.trim(), spec, references);
+      setError(
+        addToCatalog
+          ? `The endpoints were added to the catalog, but the scenario was not created: ${result.error}`
+          : result.error,
+      );
     });
   }
 
@@ -159,16 +192,56 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
           importChosen();
         }}
       >
-        <label className="flex max-w-xl flex-col gap-1.5 text-sm">
-          Scenario name
-          <input
-            required
-            maxLength={120}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className={field}
-          />
-        </label>
+        <fieldset className="flex flex-col gap-2 text-sm">
+          <legend className="pb-1">What to do with them</legend>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={makeScenario}
+              onChange={(event) => setMakeScenario(event.target.checked)}
+              className="accent-brand"
+            />
+            Create a scenario, one request per endpoint
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={addToCatalog}
+              onChange={(event) => setAddToCatalog(event.target.checked)}
+              className="accent-brand"
+            />
+            Add them to the project&apos;s endpoints, to pick from when writing scenarios
+          </label>
+        </fieldset>
+
+        {makeScenario && (
+          <label className="flex max-w-xl flex-col gap-1.5 text-sm">
+            Scenario name
+            <input
+              required
+              maxLength={120}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className={field}
+            />
+          </label>
+        )}
+
+        {addToCatalog && (
+          <label className="flex max-w-xl flex-col gap-1.5 text-sm">
+            Source
+            <input
+              required
+              maxLength={120}
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
+              className={field}
+            />
+            <span className="text-xs text-muted-foreground">
+              Importing the same source again replaces the endpoints it brought before. Other sources are left alone.
+            </span>
+          </label>
+        )}
 
         {error && (
           <p role="alert" className="rounded-lg border bg-background px-3 py-2 text-sm text-muted-foreground">
@@ -177,7 +250,16 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" disabled={pending || chosen.size === 0 || name.trim() === ""}>
+          <Button
+            type="submit"
+            disabled={
+              pending ||
+              chosen.size === 0 ||
+              (!makeScenario && !addToCatalog) ||
+              (makeScenario && name.trim() === "") ||
+              (addToCatalog && source.trim() === "")
+            }
+          >
             <FileUp aria-hidden />
             {pending ? "Importing…" : `Import ${chosen.size} ${chosen.size === 1 ? "endpoint" : "endpoints"}`}
           </Button>

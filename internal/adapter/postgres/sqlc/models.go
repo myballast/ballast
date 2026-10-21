@@ -32,6 +32,24 @@ type AuditLog struct {
 	ProjectID  *uuid.UUID
 }
 
+type CatalogEndpoint struct {
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	ProjectID   uuid.UUID
+	Source      string
+	Method      string
+	Path        string
+	Tag         string
+	Summary     string
+	PathParams  []string
+	Headers     []byte
+	ContentType string
+	Body        string
+	BodyTooLong bool
+	ImportedBy  *uuid.UUID
+	CreatedAt   time.Time
+}
+
 type Environment struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID

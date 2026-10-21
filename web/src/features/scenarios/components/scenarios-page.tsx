@@ -1,4 +1,4 @@
-import { FileUp, Plus } from "lucide-react";
+import { FileUp, ListTree, Plus } from "lucide-react";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -46,7 +46,13 @@ export function ScenariosPage({
             a run always keeps the version it executed.
           </p>
         </div>
-        {scenarios.length > 0 && create}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href={`/projects/${project.id}/endpoints`} className={buttonVariants({ variant: "ghost" })}>
+            <ListTree aria-hidden />
+            Endpoints
+          </Link>
+          {scenarios.length > 0 && create}
+        </div>
       </header>
       <ScenarioList projectId={project.id} scenarios={scenarios} action={create} />
     </div>

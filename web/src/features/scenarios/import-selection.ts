@@ -4,14 +4,22 @@ import type { OpenAPIEndpoint } from "./types";
 // Mirrors maxImportedEndpoints in internal/domain/openapi_import.go.
 export const maxChosenEndpoints = 199;
 
+// The most endpoints one project keeps in its catalog. Mirrors
+// domain.MaxCatalogEndpoints.
+export const maxCatalogEndpoints = 5000;
+
 // The largest specification the API reads. Mirrors domain.MaxSpecBytes.
 export const maxSpecBytes = 5 * 1024 * 1024;
 
 export const untaggedLabel = "Untagged";
 
-export type EndpointGroup = {
+// What the grouping and the search read of an endpoint, so that they serve the
+// endpoints of a file and those of the catalog alike.
+type Listed = Pick<OpenAPIEndpoint, "method" | "path" | "summary" | "tag">;
+
+export type EndpointGroup<T extends Listed = OpenAPIEndpoint> = {
   label: string;
-  endpoints: OpenAPIEndpoint[];
+  endpoints: T[];
 };
 
 // endpointKey identifies an endpoint in a set of chosen ones.
@@ -21,7 +29,7 @@ export function endpointKey(endpoint: Pick<OpenAPIEndpoint, "method" | "path">):
 
 // matchesSearch looks for every word of the search in the method, the path, the
 // summary and the tag, in any order and whatever the case.
-function matchesSearch(endpoint: OpenAPIEndpoint, search: string): boolean {
+function matchesSearch(endpoint: Listed, search: string): boolean {
   const words = search.toLowerCase().split(/\s+/).filter((word) => word !== "");
   const text = `${endpoint.method} ${endpoint.path} ${endpoint.summary} ${endpoint.tag}`.toLowerCase();
 
@@ -31,8 +39,8 @@ function matchesSearch(endpoint: OpenAPIEndpoint, search: string): boolean {
 // groupByTag keeps the endpoints that match the search and gathers them under
 // their tag, in the order the tags first appear. The API already sends them
 // tagged first, so the groups come out in the same order as the list.
-export function groupByTag(endpoints: OpenAPIEndpoint[], search: string): EndpointGroup[] {
-  const groups: EndpointGroup[] = [];
+export function groupByTag<T extends Listed>(endpoints: T[], search: string): EndpointGroup<T>[] {
+  const groups: EndpointGroup<T>[] = [];
 
   for (const endpoint of endpoints) {
     if (!matchesSearch(endpoint, search)) continue;

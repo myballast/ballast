@@ -213,7 +213,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 
 	web, _ := url.Parse("http://web.test")
 	api := httptest.NewServer(httpadapter.NewRouter(
-		runs, projects, nil, nil, nil,
+		runs, projects, nil, nil, nil, nil,
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
 		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
 	))

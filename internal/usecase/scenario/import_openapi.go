@@ -2,7 +2,6 @@ package scenario
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/google/uuid"
 
@@ -53,7 +52,7 @@ func (s *Service) ImportOpenAPI(
 		return domain.Scenario{}, domain.ScriptReport{}, nil, err
 	}
 
-	chosen, err := chooseEndpoints(spec, request.Endpoints)
+	chosen, err := spec.Choose(request.Endpoints)
 	if err != nil {
 		return domain.Scenario{}, domain.ScriptReport{}, nil, err
 	}
@@ -83,28 +82,4 @@ func (s *Service) ImportOpenAPI(
 		"scenario_id", created.ID, "endpoints", len(chosen))
 
 	return created, report, notes, nil
-}
-
-// chooseEndpoints finds each reference in the specification, once, in the order
-// given. A reference to an endpoint the file does not have is an error: it means
-// the file changed between the preview and the import, or the request was made
-// by hand.
-func chooseEndpoints(spec domain.ImportedSpec, references []domain.EndpointRef) ([]domain.ImportedEndpoint, error) {
-	chosen := make([]domain.ImportedEndpoint, 0, len(references))
-	alreadyChosen := map[domain.EndpointRef]bool{}
-
-	for _, reference := range references {
-		if alreadyChosen[reference] {
-			continue
-		}
-		alreadyChosen[reference] = true
-
-		endpoint, found := spec.EndpointByRef(reference)
-		if !found {
-			return nil, fmt.Errorf("%w: %s is not in the specification", domain.ErrInvalidSpec, reference)
-		}
-		chosen = append(chosen, endpoint)
-	}
-
-	return chosen, nil
 }

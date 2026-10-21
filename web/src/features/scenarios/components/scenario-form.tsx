@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { profileKinds, type ProfileKind, type ProfileParams } from "@/features/runs/types";
 
 import { createScenario, updateScenario, type ScenarioFormState } from "../actions";
@@ -50,10 +51,13 @@ function FieldError({ children }: { children?: string }) {
 export function ScenarioForm({
   projectId,
   scenario,
+  endpoints,
   onDirtyChange,
 }: {
   projectId: string;
   scenario?: Scenario;
+  // The project's catalog, offered to the script editor.
+  endpoints?: CatalogEndpoint[];
   // Told whenever the form starts or stops differing from what is saved, so that
   // the bar above it can say so and hold Run back.
   onDirtyChange?: (dirty: boolean) => void;
@@ -126,6 +130,8 @@ export function ScenarioForm({
           marked={linesOf(findings)}
           invalid={findings.length > 0}
           readOnly={generated}
+          endpoints={endpoints}
+          importHref={`/projects/${projectId}/scenarios/import`}
         />
         <ScriptFindings findings={findings} kind="error" />
       </div>

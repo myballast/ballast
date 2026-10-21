@@ -288,6 +288,26 @@ func Routes() []Route {
 			Scope:  ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
 
+		// The project's catalog of endpoints, read from the specifications
+		// somebody imported. Reading it takes the right to view the project;
+		// everything that changes it takes the right to manage scenarios.
+		{
+			Method: "GET", Path: "/projects/{projectId}/endpoints",
+			Scope: ScopePath, Permission: domain.PermViewProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/endpoints",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/endpoints/import/openapi",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/endpoints/{endpointId}",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+
 		// Environments, nested under the project for the same reason as the
 		// scenarios. The secrets take the permission to manage environments even
 		// to be listed: the name of a key says how the target expects to be

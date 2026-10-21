@@ -1,12 +1,13 @@
 import Link from "next/link";
 
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import type { Project } from "@/features/projects/types";
 
 import { ScenarioForm } from "./scenario-form";
 
 // NewScenarioPage frames the creation form. The thresholds come after: they
 // belong to a scenario, which exists once this is saved.
-export function NewScenarioPage({ project }: { project: Project }) {
+export function NewScenarioPage({ project, endpoints }: { project: Project; endpoints: CatalogEndpoint[] }) {
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-1">
@@ -19,7 +20,7 @@ export function NewScenarioPage({ project }: { project: Project }) {
           thresholds.
         </p>
       </header>
-      <ScenarioForm projectId={project.id} />
+      <ScenarioForm projectId={project.id} endpoints={endpoints} />
     </div>
   );
 }

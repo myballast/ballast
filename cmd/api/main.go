@@ -34,6 +34,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
+	"github.com/youssefmahersi/ballast/internal/usecase/catalog"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
 	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
@@ -131,6 +132,14 @@ func serve(log *slog.Logger) error {
 		log,
 	)
 
+	catalogs := catalog.NewService(
+		postgres.NewCatalogRepository(db),
+		openapi.NewReader(),
+		permissions,
+		infra.SystemClock{},
+		log,
+	)
+
 	environments := environment.NewService(
 		postgres.NewEnvironmentWriteRepository(db),
 		secrets,
@@ -179,7 +188,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, scenarios, catalogs, environments, invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -1,4 +1,5 @@
 import { NotAllowed } from "@/components/not-allowed";
+import { getCatalogOrNothing } from "@/features/endpoints/api";
 import { getAccess, getProject } from "@/features/projects/api";
 import { NewScenarioPage } from "@/features/scenarios/components/new-scenario-page";
 import { can } from "@/lib/permissions";
@@ -12,5 +13,5 @@ export default async function NewScenarioRoute(props: PageProps<"/projects/[proj
     return <NotAllowed>Writing a scenario takes the maintainer role on this project.</NotAllowed>;
   }
 
-  return <NewScenarioPage project={project} />;
+  return <NewScenarioPage project={project} endpoints={await getCatalogOrNothing(projectId)} />;
 }

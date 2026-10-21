@@ -285,7 +285,7 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 	}
 
 	api := httptest.NewServer(httpadapter.NewRouter(
-		service, nil, nil, nil, nil,
+		service, nil, nil, nil, nil, nil,
 		// The journal, which the limits write to and which a test reads back:
 		// a stack with it left out answers a request by dying.
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
