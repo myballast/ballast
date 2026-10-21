@@ -101,3 +101,12 @@ var ErrTooManyRuns = errors.New("too many runs")
 // once. It is a mistake in the request, refused rather than answered with an
 // empty list that would look like a project with nothing in it.
 var ErrInvalidRunFilter = errors.New("invalid run filter")
+
+// ErrScriptIsGenerated reports an attempt to edit the script of a scenario
+// written as a graph.
+//
+// That script is generated, and it is rewritten from the graph every time the
+// graph changes. Accepting an edit would keep it exactly until the next save,
+// and in the meantime the graph and the code would say different things with
+// nothing to tell which one a run executed.
+var ErrScriptIsGenerated = errors.New("the script of this scenario is generated from its graph")

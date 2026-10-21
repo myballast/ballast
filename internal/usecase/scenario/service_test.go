@@ -588,3 +588,53 @@ func TestUpdatingARuleTheScenarioDoesNotImposeIsNotFound(t *testing.T) {
 		t.Error("a rule was written anyway")
 	}
 }
+
+// The script of a graph scenario is generated. An edit would be kept exactly
+// until the next save, and in between the graph and the code would say
+// different things with nothing to tell which one a run executed.
+func TestTheScriptOfAGraphScenarioCannotBeEdited(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// It became a graph scenario since.
+	stored := f.scenarios.byID[created.ID]
+	stored.Mode = domain.ModeGraph
+	f.scenarios.byID[created.ID] = stored
+
+	edited := "export default function () { /* mine */ }"
+	_, _, err = f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{Script: &edited})
+
+	if !errors.Is(err, domain.ErrScriptIsGenerated) {
+		t.Fatalf("editing a generated script gave %v, wanted ErrScriptIsGenerated", err)
+	}
+}
+
+// Everything that is not the script still changes on a graph scenario: its
+// name and the load it suggests are not generated from anything.
+func TestAGraphScenarioCanStillBeRenamed(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	stored := f.scenarios.byID[created.ID]
+	stored.Mode = domain.ModeGraph
+	f.scenarios.byID[created.ID] = stored
+
+	name := "checkout, from the canvas"
+	renamed, _, err := f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{Name: &name})
+	if err != nil {
+		t.Fatalf("renaming a graph scenario: %v", err)
+	}
+	if renamed.Name != name {
+		t.Errorf("the scenario is called %q, wanted %q", renamed.Name, name)
+	}
+}

@@ -104,7 +104,7 @@ func (q *Queries) DeleteThreshold(ctx context.Context, arg DeleteThresholdParams
 }
 
 const getScenarioVersion = `-- name: GetScenarioVersion :one
-SELECT org_id, scenario_id, version, script, default_profile, default_profile_params, created_by, created_at FROM scenario_version
+SELECT org_id, scenario_id, version, script, default_profile, default_profile_params, created_by, created_at, mode, graph FROM scenario_version
 WHERE org_id = $1 AND scenario_id = $2 AND version = $3
 `
 
@@ -127,6 +127,8 @@ func (q *Queries) GetScenarioVersion(ctx context.Context, arg GetScenarioVersion
 		&i.DefaultProfileParams,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.Mode,
+		&i.Graph,
 	)
 	return i, err
 }
@@ -135,9 +137,9 @@ const insertScenario = `-- name: InsertScenario :one
 
 INSERT INTO scenario
     (id, org_id, project_id, name, script, version,
-     default_profile, default_profile_params, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-RETURNING id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at
+     default_profile, default_profile_params, created_at, updated_at, mode, graph)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11)
+RETURNING id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at, mode, graph
 `
 
 type InsertScenarioParams struct {
@@ -150,6 +152,8 @@ type InsertScenarioParams struct {
 	DefaultProfile       string
 	DefaultProfileParams []byte
 	CreatedAt            time.Time
+	Mode                 string
+	Graph                []byte
 }
 
 // Every statement runs inside InTenantTx, so row-level security already restricts
@@ -166,6 +170,8 @@ func (q *Queries) InsertScenario(ctx context.Context, arg InsertScenarioParams) 
 		arg.DefaultProfile,
 		arg.DefaultProfileParams,
 		arg.CreatedAt,
+		arg.Mode,
+		arg.Graph,
 	)
 	var i Scenario
 	err := row.Scan(
@@ -179,6 +185,8 @@ func (q *Queries) InsertScenario(ctx context.Context, arg InsertScenarioParams) 
 		&i.DefaultProfileParams,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Mode,
+		&i.Graph,
 	)
 	return i, err
 }
@@ -186,9 +194,9 @@ func (q *Queries) InsertScenario(ctx context.Context, arg InsertScenarioParams) 
 const insertScenarioVersion = `-- name: InsertScenarioVersion :one
 INSERT INTO scenario_version
     (org_id, scenario_id, version, script, default_profile,
-     default_profile_params, created_by, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING org_id, scenario_id, version, script, default_profile, default_profile_params, created_by, created_at
+     default_profile_params, created_by, created_at, mode, graph)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING org_id, scenario_id, version, script, default_profile, default_profile_params, created_by, created_at, mode, graph
 `
 
 type InsertScenarioVersionParams struct {
@@ -200,6 +208,8 @@ type InsertScenarioVersionParams struct {
 	DefaultProfileParams []byte
 	CreatedBy            *uuid.UUID
 	CreatedAt            time.Time
+	Mode                 string
+	Graph                []byte
 }
 
 // Nothing ever updates a row of this table. A run names the version it executed,
@@ -214,6 +224,8 @@ func (q *Queries) InsertScenarioVersion(ctx context.Context, arg InsertScenarioV
 		arg.DefaultProfileParams,
 		arg.CreatedBy,
 		arg.CreatedAt,
+		arg.Mode,
+		arg.Graph,
 	)
 	var i ScenarioVersion
 	err := row.Scan(
@@ -225,6 +237,8 @@ func (q *Queries) InsertScenarioVersion(ctx context.Context, arg InsertScenarioV
 		&i.DefaultProfileParams,
 		&i.CreatedBy,
 		&i.CreatedAt,
+		&i.Mode,
+		&i.Graph,
 	)
 	return i, err
 }
@@ -263,7 +277,7 @@ func (q *Queries) InsertThreshold(ctx context.Context, arg InsertThresholdParams
 }
 
 const listScenarioVersions = `-- name: ListScenarioVersions :many
-SELECT org_id, scenario_id, version, script, default_profile, default_profile_params, created_by, created_at FROM scenario_version
+SELECT org_id, scenario_id, version, script, default_profile, default_profile_params, created_by, created_at, mode, graph FROM scenario_version
 WHERE org_id = $1 AND scenario_id = $2
 ORDER BY version DESC
 `
@@ -291,6 +305,8 @@ func (q *Queries) ListScenarioVersions(ctx context.Context, arg ListScenarioVers
 			&i.DefaultProfileParams,
 			&i.CreatedBy,
 			&i.CreatedAt,
+			&i.Mode,
+			&i.Graph,
 		); err != nil {
 			return nil, err
 		}
@@ -303,7 +319,7 @@ func (q *Queries) ListScenarioVersions(ctx context.Context, arg ListScenarioVers
 }
 
 const listScenariosInProject = `-- name: ListScenariosInProject :many
-SELECT id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at FROM scenario
+SELECT id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at, mode, graph FROM scenario
 WHERE org_id = $1 AND project_id = $2
 ORDER BY name, id
 `
@@ -333,6 +349,8 @@ func (q *Queries) ListScenariosInProject(ctx context.Context, arg ListScenariosI
 			&i.DefaultProfileParams,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Mode,
+			&i.Graph,
 		); err != nil {
 			return nil, err
 		}
@@ -347,9 +365,9 @@ func (q *Queries) ListScenariosInProject(ctx context.Context, arg ListScenariosI
 const pointScenarioAtVersion = `-- name: PointScenarioAtVersion :one
 UPDATE scenario
 SET script = $3, version = $4, default_profile = $5,
-    default_profile_params = $6, updated_at = $7
+    default_profile_params = $6, updated_at = $7, mode = $8, graph = $9
 WHERE org_id = $1 AND id = $2
-RETURNING id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at
+RETURNING id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at, mode, graph
 `
 
 type PointScenarioAtVersionParams struct {
@@ -360,6 +378,8 @@ type PointScenarioAtVersionParams struct {
 	DefaultProfile       string
 	DefaultProfileParams []byte
 	UpdatedAt            time.Time
+	Mode                 string
+	Graph                []byte
 }
 
 // The head of the scenario follows the version just written. The two are
@@ -374,6 +394,8 @@ func (q *Queries) PointScenarioAtVersion(ctx context.Context, arg PointScenarioA
 		arg.DefaultProfile,
 		arg.DefaultProfileParams,
 		arg.UpdatedAt,
+		arg.Mode,
+		arg.Graph,
 	)
 	var i Scenario
 	err := row.Scan(
@@ -387,6 +409,8 @@ func (q *Queries) PointScenarioAtVersion(ctx context.Context, arg PointScenarioA
 		&i.DefaultProfileParams,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Mode,
+		&i.Graph,
 	)
 	return i, err
 }
@@ -394,7 +418,7 @@ func (q *Queries) PointScenarioAtVersion(ctx context.Context, arg PointScenarioA
 const renameScenario = `-- name: RenameScenario :one
 UPDATE scenario SET name = $3, updated_at = $4
 WHERE org_id = $1 AND id = $2
-RETURNING id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at
+RETURNING id, org_id, project_id, name, script, version, default_profile, default_profile_params, created_at, updated_at, mode, graph
 `
 
 type RenameScenarioParams struct {
@@ -424,6 +448,8 @@ func (q *Queries) RenameScenario(ctx context.Context, arg RenameScenarioParams) 
 		&i.DefaultProfileParams,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Mode,
+		&i.Graph,
 	)
 	return i, err
 }

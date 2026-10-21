@@ -27,8 +27,14 @@ type Scenario struct {
 	// DefaultProfileParams is the load this scenario suggests. Whatever is used
 	// is still clamped to the environment's ceilings before a run is written.
 	DefaultProfileParams ProfileParams
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	// Mode says whether Script was written by hand or generated from Graph.
+	// Empty means ModeCode, which is what every scenario written before graphs
+	// existed is.
+	Mode ScenarioMode
+	// Graph is set when Mode is ModeGraph, and nil otherwise.
+	Graph     *ScenarioGraph
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // ScenarioVersion is one version of a scenario's script, kept for good.
@@ -41,6 +47,11 @@ type ScenarioVersion struct {
 	Script               string
 	DefaultProfile       ProfileKind
 	DefaultProfileParams ProfileParams
+	// Mode and Graph are frozen like everything else on a version: the script
+	// a run executed was generated from this graph by the generator of that
+	// day, and neither is rewritten afterwards.
+	Mode  ScenarioMode
+	Graph *ScenarioGraph
 	// CreatedBy is nil once the person who wrote it has been removed.
 	CreatedBy *uuid.UUID
 	CreatedAt time.Time
