@@ -37,6 +37,12 @@ type SpecReader interface {
 	Read(data []byte) (domain.ImportedSpec, error)
 }
 
+// CollectionReader reads the text of a Postman collection and, optionally, of an
+// environment file.
+type CollectionReader interface {
+	Read(collection, environment []byte) (domain.ImportedCollection, error)
+}
+
 // Authorizer answers what the caller may do. Every question names a project.
 type Authorizer interface {
 	Can(ctx context.Context, who domain.Identity, perm domain.Permission, projectID uuid.UUID) (bool, error)

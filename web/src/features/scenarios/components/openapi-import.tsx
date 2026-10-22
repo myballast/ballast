@@ -21,6 +21,7 @@ import {
 } from "../import-selection";
 import type { OpenAPIPreview } from "../types";
 import { EndpointList } from "./endpoint-list";
+import { ImportDestination } from "./import-destination";
 
 const field =
   "h-9 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -192,56 +193,17 @@ export function OpenAPIImport({ projectId }: { projectId: string }) {
           importChosen();
         }}
       >
-        <fieldset className="flex flex-col gap-2 text-sm">
-          <legend className="pb-1">What to do with them</legend>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={makeScenario}
-              onChange={(event) => setMakeScenario(event.target.checked)}
-              className="accent-brand"
-            />
-            Create a scenario, one request per endpoint
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={addToCatalog}
-              onChange={(event) => setAddToCatalog(event.target.checked)}
-              className="accent-brand"
-            />
-            Add them to the project&apos;s endpoints, to pick from when writing scenarios
-          </label>
-        </fieldset>
-
-        {makeScenario && (
-          <label className="flex max-w-xl flex-col gap-1.5 text-sm">
-            Scenario name
-            <input
-              required
-              maxLength={120}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className={field}
-            />
-          </label>
-        )}
-
-        {addToCatalog && (
-          <label className="flex max-w-xl flex-col gap-1.5 text-sm">
-            Source
-            <input
-              required
-              maxLength={120}
-              value={source}
-              onChange={(event) => setSource(event.target.value)}
-              className={field}
-            />
-            <span className="text-xs text-muted-foreground">
-              Importing the same source again replaces the endpoints it brought before. Other sources are left alone.
-            </span>
-          </label>
-        )}
+        <ImportDestination
+          noun="endpoint"
+          makeScenario={makeScenario}
+          onMakeScenario={setMakeScenario}
+          addToCatalog={addToCatalog}
+          onAddToCatalog={setAddToCatalog}
+          name={name}
+          onName={setName}
+          source={source}
+          onSource={setSource}
+        />
 
         {error && (
           <p role="alert" className="rounded-lg border bg-background px-3 py-2 text-sm text-muted-foreground">

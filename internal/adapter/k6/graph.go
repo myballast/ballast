@@ -3,6 +3,7 @@ package k6
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -151,6 +152,14 @@ func (w *scriptWriter) request(node domain.Node) error {
 		return err
 	}
 
+	query, err := queryExpression(node.Query)
+	if err != nil {
+		return err
+	}
+	url += query
+
+	w.comment(node)
+
 	// The tag is the path as it was written, never the address that was built.
 	// With the real one, every identifier would become its own metric and a
 	// threshold could not name an endpoint.
@@ -184,6 +193,51 @@ func (w *scriptWriter) request(node domain.Node) error {
 	}
 
 	return nil
+}
+
+// comment writes where a node came from, when it says: the folder and the name
+// its author gave it. They are text from somebody else's file, so they go on one
+// comment line and nowhere else, with anything that could end the line turned
+// into a space.
+func (w *scriptWriter) comment(node domain.Node) {
+	var parts []string
+	for _, text := range []string{node.Group, node.Label} {
+		if line := oneLine(text); line != "" {
+			parts = append(parts, line)
+		}
+	}
+	if len(parts) == 0 {
+		return
+	}
+	w.line("// %s", strings.Join(parts, " / "))
+}
+
+// oneLine keeps text on a single line.
+func oneLine(text string) string {
+	return strings.TrimSpace(lineBreaks.ReplaceAllString(text, " "))
+}
+
+// lineBreaks are the characters JavaScript ends a line comment at.
+var lineBreaks = regexp.MustCompile("[\\r\\n\u2028\u2029]+")
+
+// queryExpression writes the query string: each name and value encoded as a
+// component, in the order they were given. Nothing here depends on a map, so
+// the same graph gives the same bytes.
+func queryExpression(params []domain.QueryParam) (string, error) {
+	if len(params) == 0 {
+		return "", nil
+	}
+
+	pairs := make([]string, 0, len(params))
+	for _, param := range params {
+		value, err := textExpression(param.Value)
+		if err != nil {
+			return "", err
+		}
+		pairs = append(pairs, "encodeURIComponent("+jsString(param.Name)+") + \"=\" + encodeURIComponent("+value+")")
+	}
+
+	return " + \"?\" + " + strings.Join(pairs, " + \"&\" + "), nil
 }
 
 // assertion writes a check, and a fail when the step is critical.

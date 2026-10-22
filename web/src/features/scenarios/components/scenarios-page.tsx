@@ -24,7 +24,7 @@ export function ScenariosPage({
     <div className="flex flex-wrap gap-2">
       <Link href={`/projects/${project.id}/scenarios/import`} className={buttonVariants({ variant: "outline" })}>
         <FileUp aria-hidden />
-        Import OpenAPI
+        Import requests
       </Link>
       <Link href={`/projects/${project.id}/scenarios/new`} className={buttonVariants()}>
         <Plus aria-hidden />

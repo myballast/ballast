@@ -12,16 +12,19 @@ import (
 
 // Service keeps a project's catalog of endpoints.
 type Service struct {
-	endpoints Repository
-	specs     SpecReader
-	authz     Authorizer
-	clock     Clock
-	log       *slog.Logger
+	endpoints   Repository
+	specs       SpecReader
+	collections CollectionReader
+	authz       Authorizer
+	clock       Clock
+	log         *slog.Logger
 }
 
 // NewService wires the service.
-func NewService(endpoints Repository, specs SpecReader, authz Authorizer, clock Clock, log *slog.Logger) *Service {
-	return &Service{endpoints: endpoints, specs: specs, authz: authz, clock: clock, log: log}
+func NewService(
+	endpoints Repository, specs SpecReader, collections CollectionReader, authz Authorizer, clock Clock, log *slog.Logger,
+) *Service {
+	return &Service{endpoints: endpoints, specs: specs, collections: collections, authz: authz, clock: clock, log: log}
 }
 
 // Import is a request to add some endpoints of a specification to a project's
@@ -63,24 +66,32 @@ func (s *Service) Import(ctx context.Context, who domain.Identity, request Impor
 		return 0, err
 	}
 
-	entries, err := s.entriesOf(who, request, chosen)
+	return s.replaceSource(ctx, who, request.ProjectID, request.Source, chosen)
+}
+
+// replaceSource validates the endpoints and writes them in place of what the
+// source had. Whatever produced them, the same rules apply here.
+func (s *Service) replaceSource(
+	ctx context.Context, who domain.Identity, projectID uuid.UUID, source string, chosen []domain.ImportedEndpoint,
+) (int, error) {
+	entries, err := s.entriesOf(who, projectID, source, chosen)
 	if err != nil {
 		return 0, err
 	}
 
-	if err := s.endpoints.ReplaceSource(ctx, who.OrgID, request.ProjectID, request.Source, entries); err != nil {
+	if err := s.endpoints.ReplaceSource(ctx, who.OrgID, projectID, source, entries); err != nil {
 		return 0, err
 	}
 
 	s.log.InfoContext(ctx, "endpoints added to the catalog",
-		"org_id", who.OrgID, "project_id", request.ProjectID, "endpoints", len(entries))
+		"org_id", who.OrgID, "project_id", projectID, "endpoints", len(entries))
 	return len(entries), nil
 }
 
 // entriesOf turns the chosen endpoints into catalog entries, refusing the first
 // one the catalog would not keep.
 func (s *Service) entriesOf(
-	who domain.Identity, request Import, chosen []domain.ImportedEndpoint,
+	who domain.Identity, projectID uuid.UUID, source string, chosen []domain.ImportedEndpoint,
 ) ([]domain.CatalogEndpoint, error) {
 	now := s.clock.Now()
 	entries := make([]domain.CatalogEndpoint, 0, len(chosen))
@@ -94,8 +105,8 @@ func (s *Service) entriesOf(
 		entries = append(entries, domain.CatalogEndpoint{
 			ImportedEndpoint: endpoint,
 			ID:               uuid.New(),
-			ProjectID:        request.ProjectID,
-			Source:           request.Source,
+			ProjectID:        projectID,
+			Source:           source,
 			ImportedBy:       &importedBy,
 			CreatedAt:        now,
 		})

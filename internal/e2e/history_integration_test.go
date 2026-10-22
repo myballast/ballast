@@ -18,6 +18,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
+	"github.com/youssefmahersi/ballast/internal/adapter/postman"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
@@ -78,6 +79,7 @@ func TestARunIsUnchangedByEditingItsScenario(t *testing.T) {
 		postgres.NewScenarioWriteRepository(db),
 		k6.NewScriptInspector(),
 		openapi.NewReader(),
+		postman.NewReader(),
 		k6.NewGenerator(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),
 		infra.SystemClock{},

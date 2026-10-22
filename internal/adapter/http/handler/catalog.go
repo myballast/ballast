@@ -31,7 +31,7 @@ func (h *Catalog) ImportOpenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body dto.CatalogImportRequest
-	if !readImportBody(w, r, &body) {
+	if !readImportBody(w, r, &body, maxImportBody) {
 		return
 	}
 
@@ -148,7 +148,8 @@ func (h *Catalog) writeError(w http.ResponseWriter, r *http.Request, err error) 
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such endpoint")
 
-	case errors.Is(err, domain.ErrInvalidSpec), errors.Is(err, domain.ErrInvalidGraph):
+	case errors.Is(err, domain.ErrInvalidSpec), errors.Is(err, domain.ErrInvalidCollection),
+		errors.Is(err, domain.ErrInvalidGraph):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 
 	case errors.Is(err, domain.ErrInvalidCatalog):

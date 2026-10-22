@@ -261,3 +261,41 @@ func TestAGraphThatNeverEndsIsRefused(t *testing.T) {
 		t.Fatalf("refused for the wrong reason: %v", err)
 	}
 }
+
+func TestWhatANodesLabelsAndQueryAreRefusedFor(t *testing.T) {
+	cases := map[string]struct {
+		change func(*Node)
+		says   string
+	}{
+		"a group too long":        {func(n *Node) { n.Group = strings.Repeat("g", maxNodeLabelLength+1) }, "group"},
+		"a label too long":        {func(n *Node) { n.Label = strings.Repeat("l", maxNodeLabelLength+1) }, "label"},
+		"a nameless parameter":    {func(n *Node) { n.Query = []QueryParam{{Name: " ", Value: "1"}} }, "no name"},
+		"a value never closed":    {func(n *Node) { n.Query = []QueryParam{{Name: "a", Value: "{{x"}} }, "never closed"},
+		"a value too long":        {func(n *Node) { n.Query = []QueryParam{{Name: "a", Value: strings.Repeat("v", maxNodeTextLength+1)}} }, "longer"},
+		"too many parameters":     {func(n *Node) { n.Query = make([]QueryParam, maxQueryParams+1) }, "more than"},
+		"a bad variable in value": {func(n *Node) { n.Query = []QueryParam{{Name: "a", Value: "{{no good}}"}} }, "not a usable"},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			graph := validGraph()
+			c.change(&graph.Nodes[0])
+
+			err := graph.Validate()
+			if !errors.Is(err, ErrInvalidGraph) || !strings.Contains(err.Error(), c.says) {
+				t.Fatalf("error = %v, wanted ErrInvalidGraph mentioning %q", err, c.says)
+			}
+		})
+	}
+}
+
+func TestANodeWithLabelsAndAQueryIsAccepted(t *testing.T) {
+	graph := validGraph()
+	graph.Nodes[0].Group = "Orders / Admin"
+	graph.Nodes[0].Label = "List orders"
+	graph.Nodes[0].Query = []QueryParam{{Name: "page", Value: "{{page}}"}, {Name: "q", Value: "a=b"}}
+
+	if err := graph.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}

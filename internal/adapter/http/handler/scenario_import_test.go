@@ -67,6 +67,14 @@ type importReader struct {
 
 func (r importReader) Read([]byte) (domain.ImportedSpec, error) { return r.spec, r.err }
 
+// importedCollections returns an empty collection: these tests are about
+// specifications.
+type importedCollections struct{}
+
+func (importedCollections) Read(_, _ []byte) (domain.ImportedCollection, error) {
+	return domain.ImportedCollection{}, nil
+}
+
 type importGenerator struct{}
 
 func (importGenerator) Generate(domain.ScenarioGraph) (string, error) { return "// generated", nil }
@@ -84,7 +92,7 @@ func (fixedNow) Now() time.Time { return time.Unix(0, 0).UTC() }
 func importHandler(reader importReader) (*handler.Scenario, *importScenarios) {
 	store := &importScenarios{}
 	service := scenario.NewService(
-		store, noThresholds{}, acceptingInspector{}, reader, importGenerator{}, everyone{}, fixedNow{}, discard())
+		store, noThresholds{}, acceptingInspector{}, reader, importedCollections{}, importGenerator{}, everyone{}, fixedNow{}, discard())
 	return handler.NewScenario(service, discard()), store
 }
 

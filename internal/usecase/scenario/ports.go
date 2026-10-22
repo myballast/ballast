@@ -57,6 +57,12 @@ type SpecReader interface {
 	Read(data []byte) (domain.ImportedSpec, error)
 }
 
+// CollectionReader reads the text of a Postman collection and, optionally, of an
+// environment file. As with a specification, the text comes from an upload.
+type CollectionReader interface {
+	Read(collection, environment []byte) (domain.ImportedCollection, error)
+}
+
 // ScriptGenerator writes the k6 script of a scenario graph.
 type ScriptGenerator interface {
 	Generate(graph domain.ScenarioGraph) (string, error)

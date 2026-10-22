@@ -59,6 +59,16 @@ func (f *fakeReader) Read([]byte) (domain.ImportedSpec, error) {
 	return f.spec, f.err
 }
 
+type fakeCollections struct {
+	collection domain.ImportedCollection
+	calls      int
+}
+
+func (f *fakeCollections) Read(_, _ []byte) (domain.ImportedCollection, error) {
+	f.calls++
+	return f.collection, nil
+}
+
 type decision bool
 
 func (d decision) Can(context.Context, domain.Identity, domain.Permission, uuid.UUID) (bool, error) {
@@ -86,7 +96,7 @@ func newFixture(allowed bool) fixture {
 	}}}
 
 	return fixture{
-		service: NewService(repository, reader, decision(allowed), fixedClock{},
+		service: NewService(repository, reader, &fakeCollections{}, decision(allowed), fixedClock{},
 			slog.New(slog.NewTextHandler(io.Discard, nil))),
 		repository: repository,
 		reader:     reader,
@@ -225,5 +235,79 @@ func TestDeletingNeedsTheRightToManageScenarios(t *testing.T) {
 	count, err := allowed.service.DeleteSource(context.Background(), allowed.who, allowed.projectID, "shop.yaml")
 	if err != nil || count != 3 {
 		t.Errorf("DeleteSource = %d, %v", count, err)
+	}
+}
+
+func collectionFixture(allowed bool) (fixture, *fakeCollections) {
+	f := newFixture(allowed)
+	collections := &fakeCollections{collection: domain.ImportedCollection{
+		Requests: []domain.CollectionRequest{
+			{Position: 0, Name: "Login", Method: "POST", URL: "{{baseUrl}}/login", Folders: []string{"Auth"},
+				Headers: []domain.CollectionPair{{Name: "Authorization", Value: "Bearer ghp_ThisTokenMustNeverBeStored0123456789"}}},
+			{Position: 1, Name: "Login again", Method: "POST", URL: "{{baseUrl}}/login"},
+			{Position: 2, Name: "List", Method: "GET", URL: "{{baseUrl}}/orders"},
+		},
+	}}
+	f.service.collections = collections
+	return f, collections
+}
+
+func (f fixture) collectionRequest(positions ...int) CollectionImport {
+	return CollectionImport{ProjectID: f.projectID, Source: "Shop", Collection: []byte("c"), Requests: positions}
+}
+
+func TestImportingACollectionKeepsEachMethodAndPathOnceAndSaysSo(t *testing.T) {
+	f, _ := collectionFixture(true)
+
+	result, err := f.service.ImportCollection(context.Background(), f.who, f.collectionRequest(0, 1, 2))
+	if err != nil {
+		t.Fatalf("ImportCollection: %v", err)
+	}
+	if result.Count != 2 || len(f.repository.replaced) != 2 {
+		t.Fatalf("count = %d, stored = %d", result.Count, len(f.repository.replaced))
+	}
+	if f.repository.replaced[0].Tag != "Auth" || f.repository.replaced[0].Source != "Shop" {
+		t.Errorf("first = %+v", f.repository.replaced[0])
+	}
+
+	said := false
+	for _, finding := range result.Findings {
+		if finding.Request == "Login again" {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("the repeated request was not reported: %+v", result.Findings)
+	}
+}
+
+func TestACollectionsCredentialIsNeverStoredInTheCatalog(t *testing.T) {
+	f, _ := collectionFixture(true)
+
+	if _, err := f.service.ImportCollection(context.Background(), f.who, f.collectionRequest(0)); err != nil {
+		t.Fatalf("ImportCollection: %v", err)
+	}
+	for _, endpoint := range f.repository.replaced {
+		for name, value := range endpoint.Headers {
+			t.Errorf("the catalog kept the header %s: %s", name, value)
+		}
+	}
+}
+
+func TestImportingACollectionReadsNothingWithoutTheRightAndRefusesAChoiceOfNothing(t *testing.T) {
+	denied, collections := collectionFixture(false)
+	if _, err := denied.service.ImportCollection(context.Background(), denied.who, denied.collectionRequest(0)); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("error = %v, wanted ErrForbidden", err)
+	}
+	if collections.calls != 0 || denied.repository.replaceCalls != 0 {
+		t.Errorf("read %d times, wrote %d", collections.calls, denied.repository.replaceCalls)
+	}
+
+	allowed, _ := collectionFixture(true)
+	if _, err := allowed.service.ImportCollection(context.Background(), allowed.who, allowed.collectionRequest()); !errors.Is(err, domain.ErrInvalidCollection) {
+		t.Errorf("an empty choice: %v, wanted ErrInvalidCollection", err)
+	}
+	if allowed.repository.replaceCalls != 0 {
+		t.Error("an empty choice reached the repository")
 	}
 }

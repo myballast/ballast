@@ -21,6 +21,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
+	"github.com/youssefmahersi/ballast/internal/adapter/postman"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
@@ -98,7 +99,7 @@ func TestARerunExecutesWhatTheRunFroze(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	scenarios := scenario.NewService(
 		postgres.NewScenarioWriteRepository(db), postgres.NewScenarioWriteRepository(db),
-		k6.NewScriptInspector(), openapi.NewReader(), k6.NewGenerator(),
+		k6.NewScriptInspector(), openapi.NewReader(), postman.NewReader(), k6.NewGenerator(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),
 		infra.SystemClock{}, log,
 	)
