@@ -80,13 +80,26 @@ export type OpenAPIPreview = {
   notes: string[];
 };
 
-// Mirror of dto.CollectionRequest: one request of an uploaded Postman collection.
+// What a file of requests was exported from. The path segment of the import
+// routes: /scenarios/import/{format}.
+export type RequestsFormat = "postman" | "har" | "curl";
+
+// What a browser used a HAR request for. Mirrors the kinds the HAR reader sorts
+// into; the other formats leave it empty.
+export type RequestKind = "api" | "document" | "script" | "style" | "image" | "font" | "media" | "other";
+
+// Mirror of dto.CollectionRequest: one request of an uploaded collection, HAR
+// file or set of cURL commands.
 export type CollectionRequest = {
   // How the request is named when chosen. Names repeat; positions do not.
   position: number;
   folders: string[];
   name: string;
   method: string;
+  // The host a HAR request was sent to, and what the browser used it for. Both
+  // are empty for the other formats.
+  host: string;
+  kind: RequestKind | "";
   // The template it becomes. Empty when it was left out.
   path: string;
   has_body: boolean;
@@ -114,4 +127,7 @@ export type CollectionPreview = {
   requests: CollectionRequest[];
   secrets: DetectedSecret[];
   findings: ImportFinding[];
+  // How many nodes the variables would take at the start of a scenario: that much
+  // less room for requests.
+  variable_nodes: number;
 };

@@ -213,7 +213,7 @@ func newFixture(report domain.ScriptReport, authz Authorizer) fixture {
 			scenarios, thresholds,
 			reportingInspector{report: report},
 			&fakeSpecReader{},
-			&fakeCollectionReader{},
+			CollectionReaders{Postman: &fakeCollectionReader{}},
 			fakeGenerator{},
 			authz,
 			fixedClock{at: time.Unix(0, 0).UTC()},

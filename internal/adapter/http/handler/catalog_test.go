@@ -57,7 +57,7 @@ func (nobody) Can(context.Context, domain.Identity, domain.Permission, uuid.UUID
 
 func catalogHandler(authz catalog.Authorizer) (*handler.Catalog, *catalogStore) {
 	store := &catalogStore{}
-	service := catalog.NewService(store, importReader{spec: shop()}, importedCollections{}, authz, fixedNow{}, discard())
+	service := catalog.NewService(store, importReader{spec: shop()}, catalog.CollectionReaders{Postman: importedCollections{}}, authz, fixedNow{}, discard())
 	return handler.NewCatalog(service, discard()), store
 }
 

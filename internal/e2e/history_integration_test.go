@@ -79,7 +79,7 @@ func TestARunIsUnchangedByEditingItsScenario(t *testing.T) {
 		postgres.NewScenarioWriteRepository(db),
 		k6.NewScriptInspector(),
 		openapi.NewReader(),
-		postman.NewReader(),
+		scenario.CollectionReaders{Postman: postman.NewReader()},
 		k6.NewGenerator(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),
 		infra.SystemClock{},

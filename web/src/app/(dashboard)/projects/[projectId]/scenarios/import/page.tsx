@@ -1,8 +1,14 @@
 import { NotAllowed } from "@/components/not-allowed";
 import { getEnvironments } from "@/features/environments/api";
 import { getAccess, getProject } from "@/features/projects/api";
-import { ImportPage } from "@/features/scenarios/components/import-page";
+import { ImportPage, type ImportSource } from "@/features/scenarios/components/import-page";
 import { can } from "@/lib/permissions";
+
+const sources: ImportSource[] = ["openapi", "postman", "har", "curl"];
+
+function sourceOf(from: string | string[] | undefined): ImportSource {
+  return sources.find((source) => source === from) ?? "openapi";
+}
 
 export default async function ImportRoute(props: PageProps<"/projects/[projectId]/scenarios/import">) {
   const { projectId } = await props.params;
@@ -21,7 +27,7 @@ export default async function ImportRoute(props: PageProps<"/projects/[projectId
   return (
     <ImportPage
       project={project}
-      from={from === "postman" ? "postman" : "openapi"}
+      from={sourceOf(from)}
       environments={environments.map((environment) => ({ id: environment.id, name: environment.name }))}
       canManageEnvironments={canManageEnvironments}
     />

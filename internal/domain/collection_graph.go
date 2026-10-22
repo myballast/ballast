@@ -17,7 +17,8 @@ func (a CollectionAnalysis) Check() error {
 // everything about to be written, and refuses the import if one is there.
 //
 // The error says where, never what: repeating the value would put the secret in
-// a log.
+// a log. The request is named by its rank and not by its name, since a name can
+// be the very text that holds the secret (a HAR request is named by its path).
 func (a CollectionAnalysis) checkNoSecretIsHeld() error {
 	for _, request := range a.Requests {
 		nodes := append([]Node{}, request.Setters...)
@@ -27,8 +28,8 @@ func (a CollectionAnalysis) checkNoSecretIsHeld() error {
 
 		for _, node := range nodes {
 			if where := a.heldIn(node); where != "" {
-				return fmt.Errorf("%w: a secret of the file would have been copied into %s of %q",
-					ErrInvalidCollection, where, shorten(request.Name, 60))
+				return fmt.Errorf("%w: a secret of the file would have been copied into %s of request number %d",
+					ErrInvalidCollection, where, request.Position+1)
 			}
 		}
 	}
@@ -185,6 +186,10 @@ type CollectionPreview struct {
 	Secrets []DetectedSecret
 	// Findings are about the collection as a whole, not about one request.
 	Findings []ImportFinding
+	// VariableNodes is how many nodes the variables of the requests would take at
+	// the start of a scenario. A scenario holds a limited number of nodes, and
+	// these leave less room for requests.
+	VariableNodes int
 }
 
 // PreviewRequest is one request of a collection, as the choice screen lists it.
@@ -193,6 +198,10 @@ type PreviewRequest struct {
 	Folders  []string
 	Name     string
 	Method   string
+	// Host and Kind are what the reader knew of the request, empty when it did
+	// not: the choice screen of a HAR file filters on them.
+	Host string
+	Kind string
 	// Path is the template the request becomes, empty when it was left out.
 	Path     string
 	HasBody  bool
@@ -212,7 +221,7 @@ func (c ImportedCollection) Preview() (CollectionPreview, error) {
 		return preview, nil
 	}
 
-	analysis, err := AnalyseCollection(c, positions)
+	analysis, err := analyseCollection(c, positions, c.ManyHosts)
 	if err != nil {
 		return CollectionPreview{}, err
 	}
@@ -229,6 +238,8 @@ func (c ImportedCollection) Preview() (CollectionPreview, error) {
 			Folders:  source.Folders,
 			Name:     analysed.Name,
 			Method:   strings.ToUpper(source.Method),
+			Host:     source.Host,
+			Kind:     source.Kind,
 			LeftOut:  analysed.Node == nil,
 		}
 		if analysed.Node != nil {
@@ -242,6 +253,7 @@ func (c ImportedCollection) Preview() (CollectionPreview, error) {
 	}
 
 	preview.Secrets = analysis.Secrets
+	preview.VariableNodes = len(analysis.Variables)
 	for _, finding := range analysis.Findings {
 		if finding.Request == "" {
 			preview.Findings = append(preview.Findings, finding)

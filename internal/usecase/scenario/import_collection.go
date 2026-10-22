@@ -8,19 +8,25 @@ import (
 	"github.com/youssefmahersi/ballast/internal/domain"
 )
 
-// PreviewCollection reads a collection, and an environment file if one is given,
-// and says what an import would make of each request. Nothing is stored.
+// PreviewCollection reads a file of requests of the given format, and an
+// environment file if one is given, and says what an import would make of each
+// request. Nothing is stored.
 //
 // Like the preview of a specification, it asks for the right to create a
 // scenario before it reads anything.
 func (s *Service) PreviewCollection(
-	ctx context.Context, who domain.Identity, projectID uuid.UUID, collection, environment []byte,
+	ctx context.Context, who domain.Identity, projectID uuid.UUID,
+	format domain.CollectionFormat, collection, environment []byte,
 ) (domain.CollectionPreview, error) {
 	if err := s.require(ctx, who, domain.PermManageScenarios, projectID); err != nil {
 		return domain.CollectionPreview{}, err
 	}
 
-	imported, err := s.collections.Read(collection, environment)
+	reader, err := s.collections.For(format)
+	if err != nil {
+		return domain.CollectionPreview{}, err
+	}
+	imported, err := reader.Read(collection, environment)
 	if err != nil {
 		return domain.CollectionPreview{}, err
 	}
@@ -28,9 +34,10 @@ func (s *Service) PreviewCollection(
 }
 
 // CollectionImport is a request to build a scenario from some requests of a
-// collection.
+// file of requests.
 type CollectionImport struct {
 	ProjectID uuid.UUID
+	Format    domain.CollectionFormat
 	Name      string
 	// Collection and Environment are the files again: the preview keeps nothing
 	// on the server. The environment may be empty.
@@ -63,7 +70,11 @@ func (s *Service) ImportCollection(
 		return domain.Scenario{}, none, CollectionResult{}, err
 	}
 
-	imported, err := s.collections.Read(request.Collection, request.Environment)
+	reader, err := s.collections.For(request.Format)
+	if err != nil {
+		return domain.Scenario{}, none, CollectionResult{}, err
+	}
+	imported, err := reader.Read(request.Collection, request.Environment)
 	if err != nil {
 		return domain.Scenario{}, none, CollectionResult{}, err
 	}
@@ -98,7 +109,7 @@ func (s *Service) ImportCollection(
 	// Counts only: what the file held is never written to a log.
 	s.log.InfoContext(ctx, "scenario imported from a collection",
 		"org_id", who.OrgID, "project_id", request.ProjectID, "scenario_id", created.ID,
-		"requests", len(analysis.Requests), "secrets", len(analysis.Secrets), "findings", len(analysis.Findings))
+		"format", string(request.Format), "requests", len(analysis.Requests), "secrets", len(analysis.Secrets), "findings", len(analysis.Findings))
 
 	return created, report, result, nil
 }

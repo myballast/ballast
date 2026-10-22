@@ -14,7 +14,7 @@ import (
 type Service struct {
 	endpoints   Repository
 	specs       SpecReader
-	collections CollectionReader
+	collections CollectionReaders
 	authz       Authorizer
 	clock       Clock
 	log         *slog.Logger
@@ -22,7 +22,7 @@ type Service struct {
 
 // NewService wires the service.
 func NewService(
-	endpoints Repository, specs SpecReader, collections CollectionReader, authz Authorizer, clock Clock, log *slog.Logger,
+	endpoints Repository, specs SpecReader, collections CollectionReaders, authz Authorizer, clock Clock, log *slog.Logger,
 ) *Service {
 	return &Service{endpoints: endpoints, specs: specs, collections: collections, authz: authz, clock: clock, log: log}
 }

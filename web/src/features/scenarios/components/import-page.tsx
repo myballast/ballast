@@ -4,21 +4,32 @@ import type { Project } from "@/features/projects/types";
 import { cn } from "@/lib/utils";
 
 import { OpenAPIImport } from "./openapi-import";
-import { PostmanImport } from "./postman-import";
+import { RequestsImport } from "./requests-import";
 
-export type ImportSource = "openapi" | "postman";
+export type ImportSource = "openapi" | "postman" | "har" | "curl";
 
 type Target = { id: string; name: string };
 
 const sources: { id: ImportSource; label: string }[] = [
   { id: "openapi", label: "OpenAPI" },
   { id: "postman", label: "Postman" },
+  { id: "har", label: "HAR" },
+  { id: "curl", label: "cURL" },
 ];
 
+const explanations: Record<ImportSource, string> = {
+  openapi:
+    "Upload an OpenAPI 3.x or Swagger 2.0 file, in JSON or YAML, and tick the endpoints to test. The requests are independent: a specification lists what exists, not the order a user goes through it.",
+  postman:
+    "Upload a Postman collection, and its environment if it has one. The requests keep the order of the collection. No token or password of the files is copied: each becomes a secret you create on an environment.",
+  har: "Upload the recording a browser exports from its network tab. API calls are ticked first, in the order they were made. Cookies are removed and no token is copied: each becomes a secret you create on an environment.",
+  curl: "Paste one or several cURL commands, as copied from a browser or a terminal. Nothing is run. Cookies are removed and no token or password is copied: each becomes a secret you create on an environment.",
+};
+
 // ImportPage frames the imports of a scenario's requests: from an OpenAPI
-// specification, which lists what exists, and from a Postman collection, which
-// is a journey. The scenario either makes is written as a graph, so it is read
-// only here and the requests are ordered later.
+// specification, which lists what exists, and from a Postman collection, a HAR
+// recording or cURL commands, which are journeys. The scenario any of them makes
+// is written as a graph, so it is read only here and the requests are ordered later.
 export function ImportPage({
   project,
   from,
@@ -39,9 +50,7 @@ export function ImportPage({
         </Link>
         <h1 className="text-3xl font-normal tracking-tight">Import requests</h1>
         <p className="max-w-xl text-sm text-muted-foreground">
-          {from === "openapi"
-            ? "Upload an OpenAPI 3.x or Swagger 2.0 file, in JSON or YAML, and tick the endpoints to test. The requests are independent: a specification lists what exists, not the order a user goes through it."
-            : "Upload a Postman collection, and its environment if it has one. The requests keep the order of the collection. No token or password of the files is copied: each becomes a secret you create on an environment."}
+          {explanations[from]}
         </p>
       </header>
 
@@ -66,8 +75,10 @@ export function ImportPage({
       {from === "openapi" ? (
         <OpenAPIImport projectId={project.id} />
       ) : (
-        <PostmanImport
+        <RequestsImport
+          key={from}
           projectId={project.id}
+          format={from}
           environments={environments}
           canManageEnvironments={canManageEnvironments}
         />

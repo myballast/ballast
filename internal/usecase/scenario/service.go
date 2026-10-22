@@ -16,7 +16,7 @@ type Service struct {
 	thresholds  Thresholds
 	inspector   ScriptInspector
 	specs       SpecReader
-	collections CollectionReader
+	collections CollectionReaders
 	generator   ScriptGenerator
 	authz       Authorizer
 	clock       Clock
@@ -29,7 +29,7 @@ func NewService(
 	thresholds Thresholds,
 	inspector ScriptInspector,
 	specs SpecReader,
-	collections CollectionReader,
+	collections CollectionReaders,
 	generator ScriptGenerator,
 	authz Authorizer,
 	clock Clock,

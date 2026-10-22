@@ -92,7 +92,7 @@ func (fixedNow) Now() time.Time { return time.Unix(0, 0).UTC() }
 func importHandler(reader importReader) (*handler.Scenario, *importScenarios) {
 	store := &importScenarios{}
 	service := scenario.NewService(
-		store, noThresholds{}, acceptingInspector{}, reader, importedCollections{}, importGenerator{}, everyone{}, fixedNow{}, discard())
+		store, noThresholds{}, acceptingInspector{}, reader, scenario.CollectionReaders{Postman: importedCollections{}}, importGenerator{}, everyone{}, fixedNow{}, discard())
 	return handler.NewScenario(service, discard()), store
 }
 

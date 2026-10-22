@@ -324,3 +324,49 @@ func TestAKeyThatIsRefusedAsASecretKeyIsRenamedAndSaid(t *testing.T) {
 		t.Errorf("Graph: %v", err)
 	}
 }
+
+func TestThePreviewSaysHowManyNodesTheVariablesTake(t *testing.T) {
+	collection := ImportedCollection{
+		Requests: []CollectionRequest{{
+			Position: 0, Name: "Me", Method: "GET", URL: "https://x.test/me",
+			Headers: []CollectionPair{{Name: "Authorization", Value: "Bearer ghp_a_token_that_looks_like_one_0123456789"}},
+		}},
+	}
+
+	preview, err := collection.Preview()
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if preview.VariableNodes != 1 {
+		t.Errorf("VariableNodes = %d, wanted the one secret", preview.VariableNodes)
+	}
+}
+
+func TestAValueTheReaderRemovedIsHeldByTheGuardOnceItIsLongEnough(t *testing.T) {
+	collection := ImportedCollection{
+		Removed: []string{"short", "a-removed-cookie-value-123"},
+		Requests: []CollectionRequest{
+			{Position: 0, Name: "A", Method: "GET", URL: "https://x.test/a-removed-cookie-value-123"},
+			{Position: 1, Name: "B", Method: "GET", URL: "https://x.test/short"},
+		},
+	}
+
+	analysis, err := AnalyseCollection(collection, []int{0, 1})
+	if err != nil {
+		t.Fatalf("AnalyseCollection: %v", err)
+	}
+	err = analysis.Check()
+	if !errors.Is(err, ErrInvalidCollection) || !strings.Contains(err.Error(), "request number 1") {
+		t.Fatalf("Check = %v, wanted a refusal naming the first request", err)
+	}
+
+	// A value of fewer than eight characters is not looked for: it would match
+	// inside ordinary words.
+	analysis, err = AnalyseCollection(collection, []int{1})
+	if err != nil {
+		t.Fatalf("AnalyseCollection: %v", err)
+	}
+	if err := analysis.Check(); err != nil {
+		t.Errorf("Check refused a short value: %v", err)
+	}
+}

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,10 +38,40 @@ type SpecReader interface {
 	Read(data []byte) (domain.ImportedSpec, error)
 }
 
-// CollectionReader reads the text of a Postman collection and, optionally, of an
-// environment file.
+// CollectionReader reads the text of a file of requests: a Postman collection
+// and its optional environment, a HAR file, or pasted cURL commands. As with a
+// specification, the text comes from an upload.
+//
+// The formats differ in how they are read and not in what comes out, so one
+// analysis serves them all. The second argument is the environment file, which
+// only Postman has.
 type CollectionReader interface {
 	Read(collection, environment []byte) (domain.ImportedCollection, error)
+}
+
+// CollectionReaders holds one reader per format. A format with no reader is
+// refused, not guessed.
+type CollectionReaders struct {
+	Postman CollectionReader
+	HAR     CollectionReader
+	Curl    CollectionReader
+}
+
+// For returns the reader of a format.
+func (r CollectionReaders) For(format domain.CollectionFormat) (CollectionReader, error) {
+	var reader CollectionReader
+	switch format {
+	case domain.FormatPostman:
+		reader = r.Postman
+	case domain.FormatHAR:
+		reader = r.HAR
+	case domain.FormatCurl:
+		reader = r.Curl
+	}
+	if reader == nil {
+		return nil, fmt.Errorf("%w: %q is not a format that can be imported", domain.ErrInvalidCollection, string(format))
+	}
+	return reader, nil
 }
 
 // Authorizer answers what the caller may do. Every question names a project.

@@ -16,6 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/youssefmahersi/ballast/internal/adapter/curl"
+	"github.com/youssefmahersi/ballast/internal/adapter/har"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
@@ -55,7 +57,7 @@ func newImporter(ctx context.Context, t *testing.T, db *postgres.DB, org uuid.UU
 			postgres.NewScenarioWriteRepository(db),
 			k6.NewScriptInspector(),
 			openapi.NewReader(),
-			postman.NewReader(),
+			scenario.CollectionReaders{Postman: postman.NewReader(), HAR: har.NewReader(), Curl: curl.NewReader()},
 			k6.NewGenerator(),
 			authz.NewService(postgres.NewMembershipRepository(db), log),
 			infra.SystemClock{},

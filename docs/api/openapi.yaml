@@ -1582,6 +1582,391 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/scenarios/import/har/preview:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [scenarios]
+      summary: Read a HAR file and list its requests
+      description: |
+        The first half of importing a HAR file, the recording a browser makes of its
+        requests. Every request is listed, in the order recorded, with the host it was
+        sent to and what the browser used it for (`kind`): the screen filters on them,
+        and only `api` — XHR and fetch calls — is ticked by default. Nothing is stored
+        and nothing is kept on the server: the import sends the file again.
+
+        The file is untrusted input and is bounded: at most 25 MB and 5000 requests. The
+        responses, most of the file, are skipped while reading and never kept.
+
+        The headers a browser sets for itself (`User-Agent`, `Sec-*`, `Referer`…) are left
+        out and cookies are removed; `findings` says how many.
+      operationId: previewHarImport
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HARPreviewRequest"
+      responses:
+        "200":
+          description: The requests of the file, in the order recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionPreviewResponse"
+        "400":
+          description: The body is not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            A file was refused, with the reason: too large, not JSON, not a HAR file, too many requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/import/har:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [scenarios]
+      summary: Create a graph scenario from chosen requests of a HAR file
+      description: |
+        The second half of importing a HAR file. The file is read again, under the
+        same limits as the preview, and a scenario with `mode: graph` is created with one
+        request per chosen request, in the order given. A scenario sends its load to one
+        target: a chosen request to another host than the first is left out and reported.
+
+        No cookie and no token of the file reaches the graph. The `Cookie` and
+        `Set-Cookie` headers are removed and their values are not kept; an
+        `Authorization` header, a token in the query or in a JSON or form body becomes a
+        variable the generated script reads from the environment at run time, and the
+        response lists the environment keys to create, without values. As a last step the
+        import looks for every secret value and every removed cookie value of the file in
+        everything it is about to store, and is refused with `422` if one is there.
+      operationId: importHarScenario
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportHARRequest"
+      responses:
+        "201":
+          description: Created, as version 1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportCollectionResponse"
+        "400":
+          description: The body is not valid JSON, or the name or the load is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another scenario of this project already uses that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            A file was refused, the choice is empty or names a request the file does not
+            have, none of the chosen requests can be made, or they need more nodes than a
+            scenario holds. When the generated script itself was refused, `findings` says why.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+                  findings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScriptFinding"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/import/curl/preview:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [scenarios]
+      summary: Read pasted cURL commands and list their requests
+      description: |
+        The first half of importing cURL commands, as copied from a browser or a
+        terminal: one or several, joined by newlines, `;` or `&&`. Nothing is stored.
+
+        Nothing is run: the text is cut into words as a shell would cut it, and
+        read as curl's options. No variable is expanded, no file it names is opened and no
+        address in it is fetched. `-u user:password` becomes `Authorization: Basic {{basic_auth}}`
+        and the secret to create, `BASIC_AUTH`, holds `user:password` encoded in base64.
+        Cookies (`-b`, `Cookie:`) are removed and their values are not kept.
+
+        The text is bounded: at most 256 KB and 200 commands. What has no equivalent in a
+        scenario — a proxy, a certificate, a multipart form, a file to upload — is named in
+        `findings`, never with its value.
+      operationId: previewCurlImport
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurlPreviewRequest"
+      responses:
+        "200":
+          description: The requests of the commands, in the order written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionPreviewResponse"
+        "400":
+          description: The body is not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The text was refused, with the reason: too long, too many commands, or no curl command with an address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/import/curl:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [scenarios]
+      summary: Create a graph scenario from pasted cURL commands
+      description: |
+        The second half of importing cURL commands. The text is read again, under the
+        same limits as the preview, and a scenario with `mode: graph` is created with one
+        request per chosen request, in the order given.
+
+        Nothing is run: the text is cut into words as a shell would cut it, and
+        read as curl's options. No variable is expanded, no file it names is opened and no
+        address in it is fetched. `-u user:password` becomes `Authorization: Basic {{basic_auth}}`
+        and the secret to create, `BASIC_AUTH`, holds `user:password` encoded in base64.
+        Cookies (`-b`, `Cookie:`) are removed and their values are not kept.
+
+        As a last step the import looks for every secret value of the text in everything it
+        is about to store, and is refused with `422` if one is there.
+      operationId: importCurlScenario
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportCurlRequest"
+      responses:
+        "201":
+          description: Created, as version 1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportCollectionResponse"
+        "400":
+          description: The body is not valid JSON, or the name or the load is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another scenario of this project already uses that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The text was refused, the choice is empty or names a request the commands do
+            not have, none of the chosen requests can be made, or they need more nodes than
+            a scenario holds. When the generated script itself was refused, `findings` says why.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+                  findings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScriptFinding"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/endpoints/import/har:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [endpoints]
+      summary: Add requests of a HAR file to the catalog
+      description: |
+        Reads the file under the same limits as the scenario import, and replaces
+        **what the source already had** with the chosen requests, in one transaction. The
+        source is named after the file.
+
+        The catalog keeps what is not a secret: no `Authorization`, `Cookie` or API-key
+        header, no header named like a secret, and no body that held one. A request with
+        the same method and path as an earlier one is kept once, and `findings` says so.
+      operationId: importHarToCatalog
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogHARImportRequest"
+      responses:
+        "201":
+          description: How many endpoints the source now has.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogCollectionImportResponse"
+        "400":
+          description: The body is not valid JSON, the source has no usable name, or the catalog would pass its limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The file was refused, the choice is empty or names a request the file does not
+            have, or none of the chosen requests can become an endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/endpoints/import/curl:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [endpoints]
+      summary: Add pasted cURL commands to the catalog
+      description: |
+        Reads the text under the same limits as the scenario import, and replaces
+        **what the source already had** with the chosen requests, in one transaction.
+
+        The catalog keeps what is not a secret: no `Authorization`, `Cookie` or API-key
+        header, no header named like a secret, and no body that held one.
+      operationId: importCurlToCatalog
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogCurlImportRequest"
+      responses:
+        "201":
+          description: How many endpoints the source now has.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogCollectionImportResponse"
+        "400":
+          description: The body is not valid JSON, the source has no usable name, or the catalog would pass its limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The text was refused, the choice is empty or names a request the commands do
+            not have, or none of the chosen requests can become an endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /projects/{projectId}/endpoints/import/openapi:
     parameters:
       - $ref: "#/components/parameters/ProjectID"
@@ -3534,7 +3919,7 @@ components:
 
     CollectionRequest:
       type: object
-      required: [position, folders, name, method, path, has_body, left_out, findings]
+      required: [position, folders, name, method, host, kind, path, has_body, left_out, findings]
       properties:
         position:
           type: integer
@@ -3545,6 +3930,15 @@ components:
           description: The folders the request sits in, outermost first.
         name: { type: string }
         method: { type: string }
+        host:
+          type: string
+          description: The host a HAR request was sent to. Empty for the other formats.
+        kind:
+          type: string
+          enum: ["", api, document, script, style, image, font, media, other]
+          description: |
+            What a browser used a HAR request for — `api` is a XHR or fetch call. Empty
+            for the other formats.
         path:
           type: string
           description: The template the request becomes, such as `/users/{id}`. Empty when it was left out.
@@ -3581,9 +3975,15 @@ components:
 
     CollectionPreviewResponse:
       type: object
-      required: [name, requests, secrets, findings]
+      required: [name, requests, secrets, findings, variable_nodes]
       properties:
         name: { type: string }
+        variable_nodes:
+          type: integer
+          description: |
+            How many nodes the variables of the requests would take at the start of a
+            scenario. A scenario holds at most 200 nodes, the end being one of them, so
+            this much room is left less for requests.
         requests:
           type: array
           items:
@@ -3644,6 +4044,74 @@ components:
           description: Names the collection. Importing a source that exists replaces what it had.
         collection: { type: string }
         environment: { type: string }
+        requests:
+          type: array
+          items: { type: integer }
+
+    HARPreviewRequest:
+      type: object
+      required: [har]
+      properties:
+        har:
+          type: string
+          description: The whole file as text. At most 25 MB.
+
+    ImportHARRequest:
+      type: object
+      required: [name, har, requests]
+      properties:
+        name: { type: string, maxLength: 120 }
+        har:
+          type: string
+          description: The whole file again. Nothing is kept between the preview and the import.
+        requests:
+          type: array
+          description: The positions to keep, in the order the requests should run. At least one.
+          items: { type: integer }
+
+    CatalogHARImportRequest:
+      type: object
+      required: [source, har, requests]
+      properties:
+        source:
+          type: string
+          maxLength: 120
+          description: Names the file. Importing a source that exists replaces what it had.
+        har: { type: string }
+        requests:
+          type: array
+          items: { type: integer }
+
+    CurlPreviewRequest:
+      type: object
+      required: [commands]
+      properties:
+        commands:
+          type: string
+          description: One or several curl commands as pasted. At most 256 KB and 200 commands.
+
+    ImportCurlRequest:
+      type: object
+      required: [name, commands, requests]
+      properties:
+        name: { type: string, maxLength: 120 }
+        commands:
+          type: string
+          description: The text again. Nothing is kept between the preview and the import.
+        requests:
+          type: array
+          description: The positions to keep, in the order the requests should run. At least one.
+          items: { type: integer }
+
+    CatalogCurlImportRequest:
+      type: object
+      required: [source, commands, requests]
+      properties:
+        source:
+          type: string
+          maxLength: 120
+          description: Names the commands. Importing a source that exists replaces what it had.
+        commands: { type: string }
         requests:
           type: array
           items: { type: integer }

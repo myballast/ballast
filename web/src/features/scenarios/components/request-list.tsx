@@ -70,10 +70,14 @@ export function RequestList({
                         className="mt-1 accent-brand"
                       />
                       <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="flex flex-wrap gap-x-2">
-                          <span className="font-medium">{request.name}</span>
-                          {request.left_out && <span className="text-xs text-muted-foreground">left out</span>}
-                        </span>
+                        {/* A request recorded or pasted is named by its method and path, which the
+                            next line already says. */}
+                        {(request.name !== `${request.method} ${request.path}` || request.left_out) && (
+                          <span className="flex flex-wrap gap-x-2">
+                            <span className="font-medium">{request.name}</span>
+                            {request.left_out && <span className="text-xs text-muted-foreground">left out</span>}
+                          </span>
+                        )}
                         <span className="data flex gap-2 break-all text-xs">
                           <span className="w-14 shrink-0 text-muted-foreground">{request.method}</span>
                           <span>{request.path || "—"}</span>

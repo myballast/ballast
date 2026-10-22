@@ -96,7 +96,7 @@ func newFixture(allowed bool) fixture {
 	}}}
 
 	return fixture{
-		service: NewService(repository, reader, &fakeCollections{}, decision(allowed), fixedClock{},
+		service: NewService(repository, reader, CollectionReaders{Postman: &fakeCollections{}}, decision(allowed), fixedClock{},
 			slog.New(slog.NewTextHandler(io.Discard, nil))),
 		repository: repository,
 		reader:     reader,
@@ -248,12 +248,12 @@ func collectionFixture(allowed bool) (fixture, *fakeCollections) {
 			{Position: 2, Name: "List", Method: "GET", URL: "{{baseUrl}}/orders"},
 		},
 	}}
-	f.service.collections = collections
+	f.service.collections = CollectionReaders{Postman: collections, HAR: collections, Curl: collections}
 	return f, collections
 }
 
 func (f fixture) collectionRequest(positions ...int) CollectionImport {
-	return CollectionImport{ProjectID: f.projectID, Source: "Shop", Collection: []byte("c"), Requests: positions}
+	return CollectionImport{ProjectID: f.projectID, Format: domain.FormatPostman, Source: "Shop", Collection: []byte("c"), Requests: positions}
 }
 
 func TestImportingACollectionKeepsEachMethodAndPathOnceAndSaysSo(t *testing.T) {
@@ -309,5 +309,19 @@ func TestImportingACollectionReadsNothingWithoutTheRightAndRefusesAChoiceOfNothi
 	}
 	if allowed.repository.replaceCalls != 0 {
 		t.Error("an empty choice reached the repository")
+	}
+}
+
+func TestAFormatWithoutAReaderIsRefusedBeforeAnythingIsStored(t *testing.T) {
+	f, collections := collectionFixture(true)
+	f.service.collections = CollectionReaders{Postman: collections}
+
+	request := f.collectionRequest(0)
+	request.Format = domain.FormatHAR
+	if _, err := f.service.ImportCollection(context.Background(), f.who, request); !errors.Is(err, domain.ErrInvalidCollection) {
+		t.Errorf("error = %v, wanted a refusal", err)
+	}
+	if collections.calls != 0 || len(f.repository.replaced) != 0 {
+		t.Errorf("read %d times, stored %d", collections.calls, len(f.repository.replaced))
 	}
 }

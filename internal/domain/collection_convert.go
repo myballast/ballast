@@ -75,6 +75,9 @@ type analyser struct {
 
 	host    string
 	hostSet bool
+	// anyHost turns the same-host rule off, for the preview of a collection that
+	// addresses several.
+	anyHost bool
 
 	// reported keeps a finding from being said twice.
 	reported map[string]bool
@@ -86,6 +89,13 @@ type analyser struct {
 // AnalyseCollection converts the chosen requests, named by position. A choice of
 // nothing, or of a position the collection does not have, is refused.
 func AnalyseCollection(collection ImportedCollection, chosen []int) (CollectionAnalysis, error) {
+	return analyseCollection(collection, chosen, false)
+}
+
+// analyseCollection is AnalyseCollection, with the choice of ignoring which host
+// a request addresses. Only the preview of a collection that has several hosts
+// ignores it, to list them all; what is imported never does.
+func analyseCollection(collection ImportedCollection, chosen []int, anyHost bool) (CollectionAnalysis, error) {
 	if len(chosen) == 0 {
 		return CollectionAnalysis{}, fmt.Errorf("%w: no request was chosen", ErrInvalidCollection)
 	}
@@ -96,6 +106,7 @@ func AnalyseCollection(collection ImportedCollection, chosen []int) (CollectionA
 	}
 
 	a := newAnalyser(collection)
+	a.anyHost = anyHost
 	analysis := CollectionAnalysis{}
 	alreadyChosen := map[int]bool{}
 
@@ -114,7 +125,12 @@ func AnalyseCollection(collection ImportedCollection, chosen []int) (CollectionA
 
 	analysis.Variables = a.variableNodes()
 	analysis.Secrets = a.book.secrets(a.used)
-	analysis.guarded = a.book.values
+	analysis.guarded = append(analysis.guarded, a.book.values...)
+	for _, removed := range collection.Removed {
+		if len(removed) >= minGuardedLength {
+			analysis.guarded = append(analysis.guarded, removed)
+		}
+	}
 	analysis.Duplicates = duplicatesIn(analysis.Requests)
 
 	analysis.Findings = append(analysis.Findings, collection.Findings...)
@@ -211,13 +227,16 @@ func (a *analyser) build(request CollectionRequest) (*Node, []Node) {
 	}
 
 	parts := splitCollectionURL(request.URL)
-	if !a.sameHost(parts.host) {
+	if !a.anyHost && !a.sameHost(parts.host) {
 		a.note("addresses another host (%s), and a scenario sends its load to one target only, so it was left out",
 			shorten(parts.host, 80))
 		return nil, nil
 	}
 	if parts.hasCredentials {
 		a.note("its address held a user and a password, which were not copied")
+	}
+	for _, note := range request.Notes {
+		a.note("%s", note)
 	}
 	if parts.droppedParams > 0 {
 		a.note("%d query parameters whose name is a variable were left out", parts.droppedParams)
