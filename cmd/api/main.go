@@ -24,6 +24,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
+	"github.com/youssefmahersi/ballast/internal/adapter/postman"
 	"github.com/youssefmahersi/ballast/internal/adapter/verifier"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
@@ -126,6 +127,7 @@ func serve(log *slog.Logger) error {
 		postgres.NewScenarioWriteRepository(db),
 		k6.NewScriptInspector(),
 		openapi.NewReader(),
+		postman.NewReader(),
 		k6.NewGenerator(),
 		permissions,
 		infra.SystemClock{},
@@ -135,6 +137,7 @@ func serve(log *slog.Logger) error {
 	catalogs := catalog.NewService(
 		postgres.NewCatalogRepository(db),
 		openapi.NewReader(),
+		postman.NewReader(),
 		permissions,
 		infra.SystemClock{},
 		log,

@@ -161,6 +161,18 @@ func (f *fakeSpecReader) Read([]byte) (domain.ImportedSpec, error) {
 	return f.spec, f.err
 }
 
+// fakeCollectionReader hands back the collection the test set up.
+type fakeCollectionReader struct {
+	collection domain.ImportedCollection
+	err        error
+	calls      int
+}
+
+func (f *fakeCollectionReader) Read(_, _ []byte) (domain.ImportedCollection, error) {
+	f.calls++
+	return f.collection, f.err
+}
+
 // fakeGenerator writes a script that is recognisable in an assertion.
 type fakeGenerator struct{}
 
@@ -201,6 +213,7 @@ func newFixture(report domain.ScriptReport, authz Authorizer) fixture {
 			scenarios, thresholds,
 			reportingInspector{report: report},
 			&fakeSpecReader{},
+			&fakeCollectionReader{},
 			fakeGenerator{},
 			authz,
 			fixedClock{at: time.Unix(0, 0).UTC()},

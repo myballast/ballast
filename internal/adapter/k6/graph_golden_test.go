@@ -54,6 +54,11 @@ func TestEveryKindOfNodeHasAReference(t *testing.T) {
 			ID: "call", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/orders",
 			Headers: map[string]string{"Authorization": "Bearer {{token}}"},
 		}),
+		"node_http_with_query_and_label": oneNode(domain.Node{
+			ID: "call", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/orders/{id}",
+			Group: "Orders", Label: "Read one order",
+			Query: []domain.QueryParam{{Name: "expand", Value: "items"}, {Name: "as", Value: "{{who}}"}},
+		}),
 		"node_assertion": oneNode(domain.Node{ID: "assert", Kind: domain.NodeAssertion, Expression: "status == 200"}),
 		"node_assertion_critical": oneNode(domain.Node{
 			ID: "assert", Kind: domain.NodeAssertion, Expression: "status == 200", Critical: true,

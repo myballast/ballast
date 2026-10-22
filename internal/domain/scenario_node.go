@@ -37,6 +37,10 @@ func (n Node) validate() error {
 		return fmt.Errorf("%w: %q is not a usable node id", ErrInvalidGraph, n.ID)
 	}
 
+	if err := n.validateLabels(); err != nil {
+		return err
+	}
+
 	switch n.Kind {
 	case NodeHTTPRequest:
 		return n.validateRequest()
@@ -57,7 +61,42 @@ func (n Node) validate() error {
 	}
 }
 
+// validateLabels bounds the text a node carries for people to read.
+func (n Node) validateLabels() error {
+	if len(n.Group) > maxNodeLabelLength || len(n.Label) > maxNodeLabelLength {
+		return fmt.Errorf("%w: the group or the label of the node %q is longer than %d characters",
+			ErrInvalidGraph, n.ID, maxNodeLabelLength)
+	}
+	return nil
+}
+
+// validateQuery checks a request's query parameters.
+func (n Node) validateQuery() error {
+	if len(n.Query) > maxQueryParams {
+		return fmt.Errorf("%w: the node %q has %d query parameters, more than the %d allowed",
+			ErrInvalidGraph, n.ID, len(n.Query), maxQueryParams)
+	}
+
+	for _, param := range n.Query {
+		if strings.TrimSpace(param.Name) == "" {
+			return fmt.Errorf("%w: the node %q has a query parameter with no name", ErrInvalidGraph, n.ID)
+		}
+		if len(param.Name) > maxNodeTextLength || len(param.Value) > maxNodeTextLength {
+			return fmt.Errorf("%w: a query parameter of the node %q is longer than %d characters",
+				ErrInvalidGraph, n.ID, maxNodeTextLength)
+		}
+		if _, err := ParseTemplate(param.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (n Node) validateRequest() error {
+	if err := n.validateQuery(); err != nil {
+		return err
+	}
+
 	if !httpMethods[n.Method] {
 		return fmt.Errorf("%w: the node %q uses the method %q", ErrInvalidGraph, n.ID, n.Method)
 	}

@@ -12,14 +12,15 @@ import (
 
 // Service orchestrates scenarios, their versions and their thresholds.
 type Service struct {
-	scenarios  Repository
-	thresholds Thresholds
-	inspector  ScriptInspector
-	specs      SpecReader
-	generator  ScriptGenerator
-	authz      Authorizer
-	clock      Clock
-	log        *slog.Logger
+	scenarios   Repository
+	thresholds  Thresholds
+	inspector   ScriptInspector
+	specs       SpecReader
+	collections CollectionReader
+	generator   ScriptGenerator
+	authz       Authorizer
+	clock       Clock
+	log         *slog.Logger
 }
 
 // NewService wires the service.
@@ -28,20 +29,22 @@ func NewService(
 	thresholds Thresholds,
 	inspector ScriptInspector,
 	specs SpecReader,
+	collections CollectionReader,
 	generator ScriptGenerator,
 	authz Authorizer,
 	clock Clock,
 	log *slog.Logger,
 ) *Service {
 	return &Service{
-		scenarios:  scenarios,
-		thresholds: thresholds,
-		inspector:  inspector,
-		specs:      specs,
-		generator:  generator,
-		authz:      authz,
-		clock:      clock,
-		log:        log,
+		scenarios:   scenarios,
+		thresholds:  thresholds,
+		inspector:   inspector,
+		specs:       specs,
+		collections: collections,
+		generator:   generator,
+		authz:       authz,
+		clock:       clock,
+		log:         log,
 	}
 }
 

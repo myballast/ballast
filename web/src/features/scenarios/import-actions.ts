@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { ApiError, apiPost } from "@/lib/api-client";
 
-import type { OpenAPIPreview, Scenario } from "./types";
+import type { CollectionPreview, DetectedSecret, ImportFinding, OpenAPIPreview, Scenario } from "./types";
 
 function path(projectId: string): string {
   return `/projects/${encodeURIComponent(projectId)}/scenarios/import/openapi`;
@@ -72,4 +72,52 @@ export async function importOpenAPI(
   // visit to the project: it has to hear about this before the browser lands.
   revalidatePath(`/projects/${projectId}`, "layout");
   redirect(`/projects/${projectId}/scenarios/${id}`);
+}
+
+export type CollectionPreviewResult = { preview: CollectionPreview } | { error: string };
+
+export type CollectionImportResult =
+  | { scenarioId: string; secrets: DetectedSecret[]; findings: ImportFinding[] }
+  | { error: string; nameTaken?: boolean };
+
+function postmanPath(projectId: string): string {
+  return `/projects/${encodeURIComponent(projectId)}/scenarios/import/postman`;
+}
+
+// previewPostman sends a collection, and an environment file when there is one,
+// and gets back the requests it describes. Nothing is stored. The files are text
+// read in the browser: no value in them is looked at here.
+export async function previewPostman(
+  projectId: string,
+  collection: string,
+  environment: string,
+): Promise<CollectionPreviewResult> {
+  try {
+    const preview = await apiPost<CollectionPreview>(`${postmanPath(projectId)}/preview`, { collection, environment });
+    return { preview };
+  } catch (error) {
+    return refusalOf(error, `/projects/${projectId}/scenarios/import`);
+  }
+}
+
+// importPostman builds the scenario from the chosen requests. It does not take the
+// browser anywhere: what comes back is the report and the secrets to create, which
+// the person reads before leaving.
+export async function importPostman(
+  projectId: string,
+  name: string,
+  collection: string,
+  environment: string,
+  requests: number[],
+): Promise<CollectionImportResult> {
+  try {
+    const result = await apiPost<{ scenario: Scenario; secrets: DetectedSecret[]; findings: ImportFinding[] }>(
+      postmanPath(projectId),
+      { name, collection, environment, requests },
+    );
+    revalidatePath(`/projects/${projectId}`, "layout");
+    return { scenarioId: result.scenario.id, secrets: result.secrets, findings: result.findings };
+  } catch (error) {
+    return refusalOf(error, `/projects/${projectId}/scenarios/import`);
+  }
 }

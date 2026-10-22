@@ -57,6 +57,28 @@ export async function importToCatalog(
   }
 }
 
+// importCollectionToCatalog adds the chosen requests of a Postman collection to
+// the project's catalog, replacing what the same source had before. The files are
+// sent again: nothing is kept on the server between the preview and this.
+export async function importCollectionToCatalog(
+  projectId: string,
+  source: string,
+  collection: string,
+  environment: string,
+  requests: number[],
+): Promise<CatalogOutcome & { count?: number; findings?: { request: string; message: string }[] }> {
+  try {
+    const result = await apiPost<{ count: number; findings: { request: string; message: string }[] }>(
+      `${path(projectId)}/import/postman`,
+      { source, collection, environment, requests },
+    );
+    revalidatePath(`/projects/${projectId}`, "layout");
+    return result;
+  } catch (error) {
+    return refusalOf(error, `/projects/${projectId}/scenarios/import`);
+  }
+}
+
 export async function deleteCatalogEndpoint(projectId: string, endpointId: string): Promise<CatalogOutcome> {
   try {
     await apiDelete(`${path(projectId)}/${encodeURIComponent(endpointId)}`);

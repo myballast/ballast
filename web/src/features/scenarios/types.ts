@@ -79,3 +79,39 @@ export type OpenAPIPreview = {
   schemes: OpenAPIScheme[];
   notes: string[];
 };
+
+// Mirror of dto.CollectionRequest: one request of an uploaded Postman collection.
+export type CollectionRequest = {
+  // How the request is named when chosen. Names repeat; positions do not.
+  position: number;
+  folders: string[];
+  name: string;
+  method: string;
+  // The template it becomes. Empty when it was left out.
+  path: string;
+  has_body: boolean;
+  left_out: boolean;
+  findings: string[];
+};
+
+// Mirror of dto.DetectedSecret. It holds no value: the person types it where it
+// belongs, on the environment.
+export type DetectedSecret = {
+  key: string;
+  variable: string;
+};
+
+// Mirror of dto.ImportFinding: one thing an import could not carry over.
+export type ImportFinding = {
+  // The name of the request; empty when the finding is about the collection.
+  request: string;
+  message: string;
+};
+
+// Mirror of dto.CollectionPreviewResponse.
+export type CollectionPreview = {
+  name: string;
+  requests: CollectionRequest[];
+  secrets: DetectedSecret[];
+  findings: ImportFinding[];
+};

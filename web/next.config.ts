@@ -6,13 +6,13 @@ const nextConfig: NextConfig = {
   // instead of the whole tree.
   output: "standalone",
 
-  // A server action receives the text of an uploaded OpenAPI specification,
-  // which the API accepts up to 5 MB. The default of 1 MB would refuse most
-  // real ones before the API ever saw them; the API still enforces its own
-  // limit on the file itself.
+  // A server action receives the text of uploaded files: a specification, or a
+  // Postman collection with its environment, each up to 5 MB. The default of
+  // 1 MB would refuse most real ones before the API ever saw them; the API still
+  // enforces its own limit on each file.
   experimental: {
     serverActions: {
-      bodySizeLimit: "12mb",
+      bodySizeLimit: "24mb",
     },
   },
 };

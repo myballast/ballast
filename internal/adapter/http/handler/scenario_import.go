@@ -16,6 +16,10 @@ import (
 // on its own, by the reader, and refused with a message that names its limit.
 const maxImportBody = 2*domain.MaxSpecBytes + 1024*1024
 
+// maxCollectionBody is the same room for two files: a collection and an
+// environment, each up to the limit on a file.
+const maxCollectionBody = 4*domain.MaxCollectionBytes + 1024*1024
+
 // PreviewOpenAPI handles POST /projects/{projectId}/scenarios/import/openapi/preview.
 func (h *Scenario) PreviewOpenAPI(w http.ResponseWriter, r *http.Request) {
 	who, projectID, ok := projectRequest(w, r)
@@ -24,7 +28,7 @@ func (h *Scenario) PreviewOpenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body dto.OpenAPIPreviewRequest
-	if !readImportBody(w, r, &body) {
+	if !readImportBody(w, r, &body, maxImportBody) {
 		return
 	}
 
@@ -45,7 +49,7 @@ func (h *Scenario) ImportOpenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body dto.ImportOpenAPIRequest
-	if !readImportBody(w, r, &body) {
+	if !readImportBody(w, r, &body, maxImportBody) {
 		return
 	}
 
@@ -77,14 +81,14 @@ func (h *Scenario) ImportOpenAPI(w http.ResponseWriter, r *http.Request) {
 // readImportBody decodes a request that carries a specification, and answers
 // the request itself when it cannot: 413 for a body past the limit, 400 for
 // anything that is not the JSON expected.
-func readImportBody(w http.ResponseWriter, r *http.Request, into any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxImportBody)
+func readImportBody(w http.ResponseWriter, r *http.Request, into any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 
 	if err := json.NewDecoder(r.Body).Decode(into); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge,
-				"the request is larger than Ballast reads; a specification can be at most 5 MB")
+				"the request is larger than Ballast reads; a file can be at most 5 MB")
 			return false
 		}
 		writeError(w, http.StatusBadRequest, "the request body is not valid JSON")

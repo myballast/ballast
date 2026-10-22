@@ -52,6 +52,11 @@ const (
 	maxNodesPerGraph  = 200
 	maxNodeIDLength   = 64
 	maxNodeTextLength = 2000
+	// maxNodeLabelLength bounds the group and the label of a node, which are
+	// shown on the canvas and written as one comment line.
+	maxNodeLabelLength = 200
+	// maxQueryParams is how many query parameters one request may carry.
+	maxQueryParams = 50
 )
 
 // Node is one step of a scenario.
@@ -72,6 +77,10 @@ type Node struct {
 	// Headers are sent with the request. Sorted before emission, so that two
 	// graphs that differ only in map order produce the same script.
 	Headers map[string]string `json:"headers,omitempty"`
+	// Query is the query string of the request, in the order it is written. It
+	// is kept apart from Path so that the request's name tag stays the path
+	// template: with a query in it, every page number would be its own metric.
+	Query []QueryParam `json:"query,omitempty"`
 
 	// Variable is the name an extract_variable writes, or a set_variable sets.
 	Variable string `json:"variable,omitempty"`
@@ -95,9 +104,23 @@ type Node struct {
 	// Seconds is how long a think_time waits.
 	Seconds float64 `json:"seconds,omitempty"`
 
+	// Group and Label say where a node came from and what its author called it:
+	// the folder of an imported collection, the name of a request in it. They
+	// are for people, shown on the canvas and written as a comment in the
+	// script; nothing is decided from them.
+	Group string `json:"group,omitempty"`
+	Label string `json:"label,omitempty"`
+
 	// Critical marks a step the scenario cannot continue without. The
 	// generator emits fail() after it.
 	Critical bool `json:"critical,omitempty"`
+}
+
+// QueryParam is one name and value of a query string. The value may hold
+// {{variables}}, like a header value; the name is plain text.
+type QueryParam struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // Edge joins two nodes. A condition has two outgoing edges, told apart by

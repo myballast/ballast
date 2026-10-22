@@ -26,7 +26,7 @@ export function EndpointsPage({
   const importLink = canEdit ? (
     <Link href={`/projects/${project.id}/scenarios/import`} className={buttonVariants({ variant: "outline" })}>
       <FileUp aria-hidden />
-      Import OpenAPI
+      Import requests
     </Link>
   ) : undefined;
 
@@ -50,7 +50,7 @@ export function EndpointsPage({
         <EmptyState
           icon={ListTree}
           title="No endpoint yet"
-          description="Import an OpenAPI specification and add its endpoints to the project."
+          description="Import an OpenAPI specification or a Postman collection and add its endpoints to the project."
           action={importLink}
         />
       ) : (

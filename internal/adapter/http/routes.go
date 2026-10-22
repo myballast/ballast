@@ -250,6 +250,14 @@ func Routes() []Route {
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
 		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/postman/preview",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/postman",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
 			Method: "POST", Path: "/projects/{projectId}/scenarios/import/openapi",
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
@@ -297,6 +305,10 @@ func Routes() []Route {
 		},
 		{
 			Method: "DELETE", Path: "/projects/{projectId}/endpoints",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/endpoints/import/postman",
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
 		{

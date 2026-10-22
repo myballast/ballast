@@ -236,3 +236,34 @@ export async function deleteSecret(projectId: string, environmentId: string, key
   refresh();
   return {};
 }
+
+export type SecretValuesResult = {
+  saved: string[];
+  failed: { key: string; error: string }[];
+};
+
+// setSecretValues stores several values at once, each under its key, for a person
+// who has just imported a collection and been told which keys it reads. An entry
+// with no value is skipped, not stored empty: leaving one out is how somebody says
+// they will do it later. Values go to the API and are never read back.
+export async function setSecretValues(
+  projectId: string,
+  environmentId: string,
+  entries: { key: string; value: string }[],
+): Promise<SecretValuesResult> {
+  const result: SecretValuesResult = { saved: [], failed: [] };
+
+  for (const { key, value } of entries) {
+    if (!value) continue;
+
+    try {
+      await apiPut(`${path(projectId, environmentId)}/secrets/${encodeURIComponent(key)}`, { value });
+      result.saved.push(key);
+    } catch (error) {
+      result.failed.push({ key, error: refusal(error, page(projectId, environmentId), cannotManage) });
+    }
+  }
+
+  refresh();
+  return result;
+}

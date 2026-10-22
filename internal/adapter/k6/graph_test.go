@@ -373,3 +373,101 @@ func TestAVariableInABodyIsSubstituted(t *testing.T) {
 		t.Errorf("the body arrived as %q, wanted the variable substituted", calls[0].Body)
 	}
 }
+
+// The query string is built from the parameters in the order given, each name
+// and value encoded, and it leaves the request's name tag alone.
+func TestQueryParametersAreEncodedInOrderAndStayOutOfTheTag(t *testing.T) {
+	node(t)
+
+	graph := domain.ScenarioGraph{
+		Start: "set",
+		Nodes: []domain.Node{
+			{ID: "set", Kind: domain.NodeSetVariable, Variable: "who", Value: "a b&c"},
+			{
+				ID: "call", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/search",
+				Query: []domain.QueryParam{
+					{Name: "page", Value: "2"},
+					{Name: "q name", Value: "x=y/z"},
+					{Name: "user", Value: "{{who}}"},
+				},
+			},
+			{ID: "done", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{{From: "set", To: "call"}, {From: "call", To: "done"}},
+	}
+
+	script, err := k6.GenerateScript(graph)
+	if err != nil {
+		t.Fatalf("GenerateScript: %v", err)
+	}
+	mustParse(t, script)
+
+	calls := runScript(t, script)
+	wanted := "http://target.test/search?page=2&q%20name=x%3Dy%2Fz&user=a%20b%26c"
+	if calls[0].URL != wanted {
+		t.Errorf("the address was %q, wanted %q", calls[0].URL, wanted)
+	}
+	if !strings.Contains(script, `tags: { name: "GET /search" }`) {
+		t.Errorf("the name tag should be the path alone:\n%s", script)
+	}
+}
+
+// The group and the label come from somebody else's file. They are written as
+// one comment line, so no line break in them can start code.
+func TestAHostileLabelCannotLeaveItsCommentLine(t *testing.T) {
+	node(t)
+
+	graph := oneNode(domain.Node{
+		ID: "call", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/items",
+		Group: "Folder\nfail('group escaped')",
+		Label: "Name fail('label escaped')\r\nfail('crlf escaped')",
+	})
+
+	script, err := k6.GenerateScript(graph)
+	if err != nil {
+		t.Fatalf("GenerateScript: %v", err)
+	}
+	mustParse(t, script)
+
+	// Running it would call fail() and throw if any of it had become code.
+	calls := runScript(t, script)
+	if len(calls) != 1 {
+		t.Fatalf("%d requests, wanted 1", len(calls))
+	}
+
+	commentLines := 0
+	for _, line := range strings.Split(script, "\n") {
+		if strings.Contains(line, "escaped") {
+			commentLines++
+			if !strings.HasPrefix(strings.TrimSpace(line), "//") {
+				t.Errorf("text from a label is outside a comment: %q", line)
+			}
+		}
+	}
+	if commentLines != 1 {
+		t.Errorf("the label was written on %d lines, wanted 1", commentLines)
+	}
+}
+
+func TestAGraphWithQueryAndLabelsIsStillDeterministic(t *testing.T) {
+	graph := oneNode(domain.Node{
+		ID: "call", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/items",
+		Group: "Orders", Label: "List",
+		Query: []domain.QueryParam{{Name: "b", Value: "1"}, {Name: "a", Value: "2"}},
+	})
+
+	first, err := k6.GenerateScript(graph)
+	if err != nil {
+		t.Fatalf("GenerateScript: %v", err)
+	}
+	for attempt := 0; attempt < 20; attempt++ {
+		again, _ := k6.GenerateScript(graph)
+		if again != first {
+			t.Fatalf("attempt %d differs", attempt)
+		}
+	}
+	// Given order, not sorted order: a collection's order means something.
+	if strings.Index(first, `"b"`) > strings.Index(first, `"a"`) {
+		t.Errorf("the query parameters were reordered:\n%s", first)
+	}
+}
