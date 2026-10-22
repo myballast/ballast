@@ -7,6 +7,7 @@ import { useCallback, useId, useState, useTransition } from "react";
 import { Time } from "@/components/time";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { launchDefaultRun } from "@/features/runs/actions";
 
 import type { Scenario } from "../types";
@@ -33,6 +34,7 @@ export function ScenarioWorkspace({
   canEdit,
   canRun,
   now,
+  endpoints,
   children,
 }: {
   projectId: string;
@@ -43,6 +45,8 @@ export function ScenarioWorkspace({
   canEdit: boolean;
   canRun: boolean;
   now: Date;
+  // The project's catalog, for whoever edits the script.
+  endpoints?: CatalogEndpoint[];
   children?: React.ReactNode;
 }) {
   const [dirty, setDirty] = useState(false);
@@ -170,6 +174,7 @@ export function ScenarioWorkspace({
               key={scenario.version}
               projectId={projectId}
               scenario={scenario}
+              endpoints={endpoints}
               onDirtyChange={onDirtyChange}
             />
           ) : (

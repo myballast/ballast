@@ -22,6 +22,7 @@ import (
 
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
+	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/adapter/verifier"
 	"github.com/youssefmahersi/ballast/internal/domain"
@@ -33,6 +34,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
+	"github.com/youssefmahersi/ballast/internal/usecase/catalog"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
 	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
@@ -123,6 +125,16 @@ func serve(log *slog.Logger) error {
 		postgres.NewScenarioWriteRepository(db),
 		postgres.NewScenarioWriteRepository(db),
 		k6.NewScriptInspector(),
+		openapi.NewReader(),
+		k6.NewGenerator(),
+		permissions,
+		infra.SystemClock{},
+		log,
+	)
+
+	catalogs := catalog.NewService(
+		postgres.NewCatalogRepository(db),
+		openapi.NewReader(),
 		permissions,
 		infra.SystemClock{},
 		log,
@@ -176,7 +188,7 @@ func serve(log *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, scenarios, environments, invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log),
+		Handler:           httpadapter.NewRouter(service, projects, scenarios, catalogs, environments, invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

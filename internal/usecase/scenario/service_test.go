@@ -146,6 +146,28 @@ func warning() domain.ScriptReport {
 	}}}
 }
 
+// fakeSpecReader hands back the specification the test set up, so the service is
+// tested rather than the reader. What the reader refuses is tested in
+// adapter/openapi.
+type fakeSpecReader struct {
+	spec domain.ImportedSpec
+	err  error
+	// calls counts how many times a file was read.
+	calls int
+}
+
+func (f *fakeSpecReader) Read([]byte) (domain.ImportedSpec, error) {
+	f.calls++
+	return f.spec, f.err
+}
+
+// fakeGenerator writes a script that is recognisable in an assertion.
+type fakeGenerator struct{}
+
+func (fakeGenerator) Generate(domain.ScenarioGraph) (string, error) {
+	return "// generated", nil
+}
+
 type allowAll struct{}
 
 func (allowAll) Can(context.Context, domain.Identity, domain.Permission, uuid.UUID) (bool, error) {
@@ -178,6 +200,8 @@ func newFixture(report domain.ScriptReport, authz Authorizer) fixture {
 		service: NewService(
 			scenarios, thresholds,
 			reportingInspector{report: report},
+			&fakeSpecReader{},
+			fakeGenerator{},
 			authz,
 			fixedClock{at: time.Unix(0, 0).UTC()},
 			slog.New(slog.NewTextHandler(io.Discard, nil)),

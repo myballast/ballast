@@ -324,3 +324,18 @@ func jsString(text string) string {
 	}
 	return string(encoded)
 }
+
+// Generator writes graph scenarios as k6 scripts. It holds no state; it exists
+// so that the usecase can depend on an interface it declares, with the function
+// above behind it.
+type Generator struct{}
+
+// NewGenerator returns a generator.
+func NewGenerator() Generator {
+	return Generator{}
+}
+
+// Generate writes the script of a graph.
+func (Generator) Generate(graph domain.ScenarioGraph) (string, error) {
+	return GenerateScript(graph)
+}

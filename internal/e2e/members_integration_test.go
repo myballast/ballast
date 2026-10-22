@@ -154,7 +154,7 @@ func newMembersWorld(ctx context.Context, t *testing.T) membersWorld {
 
 	web, _ := url.Parse("http://web.test")
 	w.api = httptest.NewServer(httpadapter.NewRouter(
-		nil, projects, nil, nil, invitations,
+		nil, projects, nil, nil, nil, invitations,
 		audit.NewService(journal, permissions, log),
 		auth.NewService(accounts, nil, infra.SystemClock{}, log),
 		permissions, w.sessions, db.Ping, web, log,

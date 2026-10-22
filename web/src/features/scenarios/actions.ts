@@ -34,7 +34,9 @@ export type ScenarioFormState = {
 
 type Fields = {
   name: string;
-  script: string;
+  // Left out for a scenario written as a graph: its script is generated, and
+  // the API refuses one sent for it.
+  script?: string;
   default_profile: ProfileKind;
   default_params?: ProfileParams;
 };
@@ -43,12 +45,14 @@ function fields(form: FormData): Fields | ScenarioFormState {
   const name = String(form.get("name") ?? "").trim();
   const script = String(form.get("script") ?? "");
   const profile = String(form.get("profile") ?? "smoke") as ProfileKind;
+  const generated = form.get("mode") === "graph";
 
   if (!name) return { name: "A scenario needs a name." };
-  if (!script.trim()) return { findings: [{ code: "empty", message: "The script is empty." }] };
+  if (!generated && !script.trim()) return { findings: [{ code: "empty", message: "The script is empty." }] };
   if (!profileKinds.includes(profile)) return { params: "Pick a profile." };
 
-  const result: Fields = { name, script, default_profile: profile };
+  const result: Fields = { name, default_profile: profile };
+  if (!generated) result.script = script;
   if (form.get("custom") === "on") {
     const whole = (field: string) => Number.parseInt(String(form.get(field) ?? ""), 10);
     const params = {
@@ -98,7 +102,7 @@ export async function createScenario(
   form: FormData,
 ): Promise<ScenarioFormState> {
   const body = fields(form);
-  if (!("script" in body)) return body;
+  if (!("default_profile" in body)) return body;
 
   let id: string;
   try {
@@ -123,7 +127,7 @@ export async function updateScenario(
   form: FormData,
 ): Promise<ScenarioFormState> {
   const body = fields(form);
-  if (!("script" in body)) return body;
+  if (!("default_profile" in body)) return body;
 
   try {
     await apiPatch<Scenario>(path(projectId, scenarioId), body);

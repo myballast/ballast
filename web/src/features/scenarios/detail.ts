@@ -1,3 +1,5 @@
+import { getCatalogOrNothing } from "@/features/endpoints/api";
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { getEnvironments } from "@/features/environments/api";
 import type { Environment } from "@/features/environments/types";
 import { getAccess, getProject } from "@/features/projects/api";
@@ -15,6 +17,9 @@ export type ScenarioPage = {
   // For the bar's target selector. Empty for somebody who cannot launch runs:
   // not asked for, rather than asked for and refused.
   environments: Environment[];
+  // The project's catalog, for the script editor. Empty for somebody who cannot
+  // write scenarios, who has no editor to offer it in.
+  endpoints: CatalogEndpoint[];
 };
 
 // loadScenarioPage reads everything the scenario page shows, at once.
@@ -26,5 +31,6 @@ export async function loadScenarioPage(projectId: string, scenarioId: string): P
     getThresholds(projectId, scenarioId),
   ]);
   const environments = can(access, "run_test") ? await getEnvironments(projectId) : [];
-  return { project, access, scenario, thresholds, environments };
+  const endpoints = can(access, "manage_scenarios") ? await getCatalogOrNothing(projectId) : [];
+  return { project, access, scenario, thresholds, environments, endpoints };
 }

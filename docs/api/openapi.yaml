@@ -44,6 +44,12 @@ tags:
       hard: it reads `__ENV.BASE_URL` and takes its load from the profile chosen
       at launch. Every version ever written is kept, because a run names the one
       it executed.
+  - name: endpoints
+    description: |
+      The endpoints a project knows about, read from the specifications somebody
+      imported. They let a scenario pick an endpoint instead of typing it. A
+      catalog never holds a credential: `Authorization`, `Cookie` and the
+      header of an API key are left out, whatever example the file gave them.
   - name: environments
     description: |
       Target environments: what a project is allowed to load, how hard, during
@@ -1444,6 +1450,166 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/endpoints:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [endpoints]
+      summary: List a project's catalog of endpoints
+      description: |
+        Tagged endpoints first, then by tag, path and method. `q` is looked for as
+        a plain substring, whatever the case, in the method, the path, the summary
+        and the tag: nothing in it is read as a pattern.
+      operationId: listCatalogEndpoints
+      x-ballast-permission: view_project
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: tag
+          in: query
+          description: Only the endpoints of this tag. An empty value means all.
+          schema: { type: string }
+        - name: source
+          in: query
+          description: Only the endpoints imported from this source.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [endpoints]
+      summary: Remove every endpoint a source brought
+      operationId: deleteCatalogSource
+      x-ballast-permission: manage_scenarios
+      parameters:
+        - name: source
+          in: query
+          required: true
+          schema: { type: string, maxLength: 120 }
+      responses:
+        "200":
+          description: How many endpoints were removed. Zero when the source had none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogRemovedResponse"
+        "400":
+          description: The source has no name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/endpoints/import/openapi:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [endpoints]
+      summary: Add endpoints of a specification to the catalog
+      description: |
+        Reads the file under the same limits as the scenario import, and replaces
+        **what the source already had** with the chosen endpoints, in one
+        transaction: endpoints of the same source that the file no longer has
+        disappear, and other sources are not touched. A choice of nothing is
+        refused rather than read as "empty the source"; removing a source has a
+        call of its own.
+
+        A catalog holds at most 5000 endpoints. An import that would pass it is
+        refused and the source keeps what it had.
+
+        No credential is kept: the same headers are left out as by the scenario
+        import, and the check is made again before anything is stored.
+      operationId: importOpenAPIToCatalog
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogImportRequest"
+      responses:
+        "201":
+          description: How many endpoints the source now has.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportResponse"
+        "400":
+          description: The body is not valid JSON, the source has no usable name, or the catalog would pass its limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The file was refused, the choice is empty, or it names an endpoint the
+            file does not have.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/endpoints/{endpointId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - name: endpointId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    delete:
+      tags: [endpoints]
+      summary: Remove one endpoint from the catalog
+      operationId: deleteCatalogEndpoint
+      x-ballast-permission: manage_scenarios
+      responses:
+        "204":
+          description: Removed.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /projects/{projectId}/scenarios:
     parameters:
       - $ref: "#/components/parameters/ProjectID"
@@ -1514,6 +1680,154 @@ paths:
                 $ref: "#/components/schemas/Error"
         "422":
           $ref: "#/components/responses/ScriptRefused"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/import/openapi/preview:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [scenarios]
+      summary: Read an OpenAPI specification and list its endpoints
+      description: |
+        The first half of importing a specification. The file is read and the
+        endpoints it describes are returned, tagged and ready to be ticked.
+        Nothing is stored and nothing is kept on the server: the import sends the
+        file again.
+
+        Accepts JSON or YAML, OpenAPI 3.x or Swagger 2.0. The file is untrusted
+        input and is bounded: at most 5 MB, at most 10000 `$ref` looked at, a
+        chain of `$ref` at most 10 deep. A `$ref` that leaves the file is refused
+        and never followed, and there is no import by address.
+
+        The authentication schemes the file declares are listed so that the
+        person importing knows what the requests will need. No value of any kind
+        is returned for them.
+      operationId: previewOpenAPIImport
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenAPIPreviewRequest"
+      responses:
+        "200":
+          description: The endpoints of the file, tagged ones first, then by path and method.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenAPIPreviewResponse"
+        "400":
+          description: The body is not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The file was refused, with the reason: too large, not a specification,
+            a `$ref` that leaves the file, circular or too many.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/import/openapi:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [scenarios]
+      summary: Create a graph scenario from chosen endpoints
+      description: |
+        The second half of importing a specification. The file is read again,
+        under the same limits as the preview, and a scenario with `mode: graph`
+        is created with one request per chosen endpoint, in the order given.
+
+        The requests are independent: a specification lists what exists, not the
+        journey a user takes, so no sequence is invented. The person orders them
+        afterwards.
+
+        Each request has the path template as written (`/users/{id}`, which is
+        also the `name` tag the request is measured under), the headers the file
+        gives a value for, and the example body when the file has one and it fits
+        in a node. Otherwise the body is left empty to fill in. A header that
+        carries a credential, such as `Authorization`, is never copied, and
+        neither is a header the file declares as an API key.
+
+        A name between braces that is not a usable variable name is rewritten
+        (`{user-id}` becomes `{user_id}`). The path parameters are not given a
+        value: the requests will need one each before they run.
+
+        The script is generated, stored, and read only afterwards, like any graph
+        scenario.
+      operationId: importOpenAPIScenario
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportOpenAPIRequest"
+      responses:
+        "201":
+          description: Created, as version 1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportOpenAPIResponse"
+        "400":
+          description: The body is not valid JSON, or the name or the load is refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another scenario of this project already uses that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The request is larger than Ballast reads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            The file was refused, or the choice is empty, names an endpoint the
+            file does not have, or holds no endpoint that can be a request. When
+            the generated script itself was refused, `findings` says why.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+                  findings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScriptFinding"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -2825,6 +3139,181 @@ components:
           $ref: "#/components/schemas/ProfileKind"
         default_params:
           $ref: "#/components/schemas/ProfileParams"
+
+    OpenAPIPreviewRequest:
+      type: object
+      required: [spec]
+      properties:
+        spec:
+          type: string
+          description: The whole file as text, JSON or YAML. At most 5 MB.
+
+    OpenAPIEndpoint:
+      type: object
+      required: [method, path, tag, summary, path_params, has_body, body_too_long]
+      properties:
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE, HEAD]
+        path:
+          type: string
+          description: The template as the file wrote it, such as `/users/{id}`.
+        tag:
+          type: string
+          description: The first tag of the operation, empty when it has none.
+        summary:
+          type: string
+        path_params:
+          type: array
+          items: { type: string }
+          description: The names between braces, as written.
+        has_body:
+          type: boolean
+          description: The file gives this request a body, with or without an example.
+        body_too_long:
+          type: boolean
+          description: An example exists but is too long to keep, so the body would be empty.
+
+    OpenAPIAuthScheme:
+      type: object
+      required: [name, type, detail]
+      description: |
+        A way of authenticating that the file declares. It says what requests will
+        need, and carries no value.
+      properties:
+        name: { type: string }
+        type:
+          type: string
+          description: "`apiKey`, `http`, `oauth2`, `openIdConnect`, or `basic` for a Swagger 2.0 file."
+        detail:
+          type: string
+          description: Where or how, such as `header X-API-Key` or `bearer`.
+
+    OpenAPIPreviewResponse:
+      type: object
+      required: [title, base_path, endpoints, schemes, notes]
+      properties:
+        title: { type: string }
+        base_path:
+          type: string
+          description: |
+            The prefix the file says its API is served under, empty when it says
+            none. The paths do not include it, so the environment's base URL
+            should end with it.
+        endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenAPIEndpoint"
+        schemes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenAPIAuthScheme"
+        notes:
+          type: array
+          items: { type: string }
+          description: Things worth knowing, such as operations that were left out.
+
+    OpenAPIEndpointRef:
+      type: object
+      required: [method, path]
+      properties:
+        method: { type: string }
+        path:
+          type: string
+          description: The template exactly as the preview returned it.
+
+    ImportOpenAPIRequest:
+      type: object
+      required: [name, spec, endpoints]
+      properties:
+        name: { type: string, maxLength: 120 }
+        spec:
+          type: string
+          description: The whole file again. Nothing is kept between the preview and the import.
+        endpoints:
+          type: array
+          description: The ones to keep, in the order the requests should run. At most 199.
+          items:
+            $ref: "#/components/schemas/OpenAPIEndpointRef"
+
+    ImportOpenAPIResponse:
+      type: object
+      required: [scenario, notes]
+      properties:
+        scenario:
+          $ref: "#/components/schemas/Scenario"
+        notes:
+          type: array
+          items: { type: string }
+          description: What could not be carried over from the file, for the chosen endpoints.
+
+    CatalogEndpoint:
+      type: object
+      required: [id, source, method, path, tag, summary, path_params, headers, content_type, body, body_too_long, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        source:
+          type: string
+          description: The file the endpoint was imported from.
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE, HEAD]
+        path:
+          type: string
+          description: The template as the file wrote it, such as `/users/{id}`.
+        tag: { type: string }
+        summary: { type: string }
+        path_params:
+          type: array
+          items: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: The headers the file gave a value for. Never a credential.
+        content_type: { type: string }
+        body:
+          type: string
+          description: The example body, empty when the file gave none or it was too long to keep.
+        body_too_long: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    CatalogListResponse:
+      type: object
+      required: [endpoints]
+      properties:
+        endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogEndpoint"
+
+    CatalogImportRequest:
+      type: object
+      required: [source, spec, endpoints]
+      properties:
+        source:
+          type: string
+          maxLength: 120
+          description: Names the file. Importing a source that exists replaces what it had.
+        spec:
+          type: string
+          description: The whole file as text. Nothing is kept between the preview and the import.
+        endpoints:
+          type: array
+          description: The ones to keep. At least one.
+          items:
+            $ref: "#/components/schemas/OpenAPIEndpointRef"
+
+    CatalogImportResponse:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer, description: How many endpoints the source now has. }
+
+    CatalogRemovedResponse:
+      type: object
+      required: [removed]
+      properties:
+        removed: { type: integer }
 
     UpdateScenarioRequest:
       type: object

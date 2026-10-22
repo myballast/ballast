@@ -13,6 +13,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
+	"github.com/youssefmahersi/ballast/internal/usecase/catalog"
 	"github.com/youssefmahersi/ballast/internal/usecase/environment"
 	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
@@ -49,6 +50,7 @@ func NewRouter(
 	runs *run.Service,
 	projects *project.Service,
 	scenarios *scenario.Service,
+	catalog *catalog.Service,
 	environments *environment.Service,
 	invitations *invitation.Service,
 	journal *audit.Service,
@@ -62,6 +64,7 @@ func NewRouter(
 	runHandler := handler.NewRun(runs, log)
 	projectHandler := handler.NewProject(projects, log)
 	scenarioHandler := handler.NewScenario(scenarios, log)
+	catalogHandler := handler.NewCatalog(catalog, log)
 	environmentHandler := handler.NewEnvironment(environments, log)
 	invitationHandler := handler.NewInvitation(invitations, sessions, log)
 	auditHandler := handler.NewAudit(journal, log)
@@ -129,6 +132,12 @@ func NewRouter(
 
 		"GET /projects/{projectId}/scenarios":                                          scenarioHandler.List,
 		"POST /projects/{projectId}/scenarios":                                         scenarioHandler.Create,
+		"POST /projects/{projectId}/scenarios/import/openapi/preview":                  scenarioHandler.PreviewOpenAPI,
+		"POST /projects/{projectId}/scenarios/import/openapi":                          scenarioHandler.ImportOpenAPI,
+		"GET /projects/{projectId}/endpoints":                                          catalogHandler.List,
+		"DELETE /projects/{projectId}/endpoints":                                       catalogHandler.DeleteSource,
+		"POST /projects/{projectId}/endpoints/import/openapi":                          catalogHandler.ImportOpenAPI,
+		"DELETE /projects/{projectId}/endpoints/{endpointId}":                          catalogHandler.Delete,
 		"GET /projects/{projectId}/scenarios/{scenarioId}":                             scenarioHandler.ByID,
 		"PATCH /projects/{projectId}/scenarios/{scenarioId}":                           scenarioHandler.Update,
 		"DELETE /projects/{projectId}/scenarios/{scenarioId}":                          scenarioHandler.Delete,

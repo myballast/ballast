@@ -146,6 +146,10 @@ func seedEveryTable(ctx context.Context, t *testing.T, db *postgres.DB, label st
 			{`INSERT INTO project_favorite (org_id, user_id, project_id) VALUES ($1, $2, $3)`,
 				[]any{org, user, project}},
 
+			{`INSERT INTO catalog_endpoint (org_id, project_id, source, method, path, imported_by)
+			  VALUES ($1, $2, 'shop.yaml', 'GET', '/users/{id}', $3)`,
+				[]any{org, project, user}},
+
 			{`INSERT INTO invitation (org_id, project_id, email, role, token_hash, expires_at)
 			  VALUES ($1, $2, $3, 'runner', $4, now() + interval '7 days')`,
 				[]any{org, project, "invited-" + label + "@example.test", label + "-token-hash"}},
@@ -197,7 +201,7 @@ func dropEverything(ctx context.Context, t *testing.T, db *postgres.DB, org uuid
 
 	tables := []string{
 		"run_log", "run_artifact", "run_threshold", "run_metric",
-		"environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
+		"catalog_endpoint", "environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
 		"environment", "membership",
 		"project_allowed_host", "project", "app_user", "organization",
 	}

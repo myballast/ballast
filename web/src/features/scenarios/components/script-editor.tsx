@@ -1,9 +1,13 @@
 "use client";
 
-import { FileUp } from "lucide-react";
-import { useRef } from "react";
+import { FileUp, ListPlus } from "lucide-react";
+import Link from "next/link";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { EndpointPicker } from "@/features/endpoints/components/endpoint-picker";
+import { insertAt, requestSnippet } from "@/features/endpoints/snippet";
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { cn } from "@/lib/utils";
 
 // ScriptEditor is a plain textarea in the monospace face, with line numbers in
@@ -13,22 +17,52 @@ import { cn } from "@/lib/utils";
 //
 // A .js file from the disk can replace the text. It is read here, in the
 // browser; it reaches the API only when the form is saved, like pasted text.
+//
+// With the project's endpoints, a request can be inserted at the cursor, from a
+// button or with Ctrl+Space.
 export function ScriptEditor({
   value,
   onChange,
   marked,
   readOnly = false,
   invalid = false,
+  endpoints,
+  importHref,
 }: {
   value: string;
   onChange?: (value: string) => void;
   marked?: Set<number>;
   readOnly?: boolean;
   invalid?: boolean;
+  // The project's catalog. Left out, the editor offers nothing to insert; empty,
+  // it says where to import some.
+  endpoints?: CatalogEndpoint[];
+  importHref?: string;
 }) {
   const gutter = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const [picking, setPicking] = useState(false);
   const count = Math.max(1, value.split("\n").length);
+  const canInsert = !readOnly && endpoints !== undefined && endpoints.length > 0;
+
+  // insert writes the request where the cursor was, and puts the cursor after
+  // it. The selection is read now, before the picker took the focus away.
+  function insert(endpoint: CatalogEndpoint) {
+    const area = textarea.current;
+    const start = area?.selectionStart ?? value.length;
+    const end = area?.selectionEnd ?? value.length;
+
+    const result = insertAt(value, start, end, requestSnippet(endpoint));
+    onChange?.(result.text);
+    setPicking(false);
+
+    // The textarea shows the new text only after this render.
+    setTimeout(() => {
+      area?.focus();
+      area?.setSelectionRange(result.cursor, result.cursor);
+    }, 0);
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -53,9 +87,16 @@ export function ScriptEditor({
           ))}
         </div>
         <textarea
+          ref={textarea}
           name="script"
           value={value}
           onChange={(event) => onChange?.(event.target.value)}
+          onKeyDown={(event) => {
+            if (canInsert && event.ctrlKey && event.code === "Space") {
+              event.preventDefault();
+              setPicking(true);
+            }
+          }}
           onScroll={(event) => {
             if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop;
           }}
@@ -71,8 +112,12 @@ export function ScriptEditor({
         />
       </div>
 
+      {picking && endpoints && (
+        <EndpointPicker endpoints={endpoints} onPick={insert} onClose={() => setPicking(false)} />
+      )}
+
       {!readOnly && (
-        <div>
+        <div className="flex flex-wrap items-center gap-2">
           <input
             ref={file}
             type="file"
@@ -89,6 +134,21 @@ export function ScriptEditor({
             <FileUp aria-hidden />
             Import a .js file
           </Button>
+          {canInsert && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setPicking(true)}>
+              <ListPlus aria-hidden />
+              Insert endpoint
+              <span className="data text-xs text-muted-foreground">Ctrl+Space</span>
+            </Button>
+          )}
+          {endpoints !== undefined && endpoints.length === 0 && importHref && (
+            <span className="text-xs text-muted-foreground">
+              No endpoint to insert yet.{" "}
+              <Link href={importHref} className="underline">
+                Import a specification
+              </Link>
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -15,6 +15,8 @@ type Service struct {
 	scenarios  Repository
 	thresholds Thresholds
 	inspector  ScriptInspector
+	specs      SpecReader
+	generator  ScriptGenerator
 	authz      Authorizer
 	clock      Clock
 	log        *slog.Logger
@@ -25,6 +27,8 @@ func NewService(
 	scenarios Repository,
 	thresholds Thresholds,
 	inspector ScriptInspector,
+	specs SpecReader,
+	generator ScriptGenerator,
 	authz Authorizer,
 	clock Clock,
 	log *slog.Logger,
@@ -33,6 +37,8 @@ func NewService(
 		scenarios:  scenarios,
 		thresholds: thresholds,
 		inspector:  inspector,
+		specs:      specs,
+		generator:  generator,
 		authz:      authz,
 		clock:      clock,
 		log:        log,
@@ -76,6 +82,10 @@ type NewScenario struct {
 	Script               string
 	DefaultProfile       domain.ProfileKind
 	DefaultProfileParams *domain.ProfileParams
+	// Graph is set when the scenario is written as a graph, in which case Script
+	// is the one generated from it. Nothing checks that the two agree: only code
+	// in this package sets both.
+	Graph *domain.ScenarioGraph
 }
 
 // Create stores a scenario and its first version.
@@ -99,6 +109,14 @@ func (s *Service) Create(
 		return domain.Scenario{}, domain.ScriptReport{}, err
 	}
 
+	mode := domain.ModeCode
+	if request.Graph != nil {
+		if err := request.Graph.Validate(); err != nil {
+			return domain.Scenario{}, domain.ScriptReport{}, err
+		}
+		mode = domain.ModeGraph
+	}
+
 	report := s.inspector.Inspect(request.Script)
 	if err := report.Err(); err != nil {
 		s.log.InfoContext(ctx, "scenario refused",
@@ -115,6 +133,8 @@ func (s *Service) Create(
 		Version:              1,
 		DefaultProfile:       profile,
 		DefaultProfileParams: params,
+		Mode:                 mode,
+		Graph:                request.Graph,
 	}, who, s.clock.Now())
 	if err != nil {
 		return domain.Scenario{}, report, err

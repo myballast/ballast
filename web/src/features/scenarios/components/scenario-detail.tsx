@@ -15,7 +15,7 @@ function Title({ children }: { children: React.ReactNode }) {
 // ScenarioDetail is one scenario: its bar and form for whoever may write
 // scenarios, the same content read-only for everyone else, and its thresholds.
 export function ScenarioDetail({ page }: { page: ScenarioPage }) {
-  const { project, access, scenario, thresholds, environments } = page;
+  const { project, access, scenario, thresholds, environments, endpoints } = page;
   const editable = can(access, "manage_scenarios");
 
   return (
@@ -30,6 +30,7 @@ export function ScenarioDetail({ page }: { page: ScenarioPage }) {
         canEdit={editable}
         canRun={can(access, "run_test")}
         now={new Date()}
+        endpoints={endpoints}
       >
         <p className="text-xs text-muted-foreground">
           Runs already recorded keep the version they executed.

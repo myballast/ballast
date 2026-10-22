@@ -17,6 +17,7 @@ import (
 var expectedTables = []string{
 	"app_user",
 	"audit_log",
+	"catalog_endpoint",
 	"environment",
 	"environment_lock",
 	"invitation",

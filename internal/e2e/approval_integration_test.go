@@ -191,7 +191,7 @@ func newApprovalWorld(ctx context.Context, t *testing.T) approvalWorld {
 
 	web, _ := url.Parse("http://web.test")
 	api := httptest.NewServer(httpadapter.NewRouter(
-		runs, projects, nil, environments, nil,
+		runs, projects, nil, nil, environments, nil,
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
 		auth.NewService(nil, nil, infra.SystemClock{}, log),
 		permissions, manager, db.Ping, web, log,

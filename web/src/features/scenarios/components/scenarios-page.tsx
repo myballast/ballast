@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { FileUp, ListTree, Plus } from "lucide-react";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -21,10 +21,16 @@ export function ScenariosPage({
 }) {
   // Hidden from whoever cannot write one; the API refuses them anyway.
   const create = can(access, "manage_scenarios") ? (
-    <Link href={`/projects/${project.id}/scenarios/new`} className={buttonVariants()}>
-      <Plus aria-hidden />
-      New scenario
-    </Link>
+    <div className="flex flex-wrap gap-2">
+      <Link href={`/projects/${project.id}/scenarios/import`} className={buttonVariants({ variant: "outline" })}>
+        <FileUp aria-hidden />
+        Import OpenAPI
+      </Link>
+      <Link href={`/projects/${project.id}/scenarios/new`} className={buttonVariants()}>
+        <Plus aria-hidden />
+        New scenario
+      </Link>
+    </div>
   ) : undefined;
 
   return (
@@ -40,7 +46,13 @@ export function ScenariosPage({
             a run always keeps the version it executed.
           </p>
         </div>
-        {scenarios.length > 0 && create}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href={`/projects/${project.id}/endpoints`} className={buttonVariants({ variant: "ghost" })}>
+            <ListTree aria-hidden />
+            Endpoints
+          </Link>
+          {scenarios.length > 0 && create}
+        </div>
       </header>
       <ScenarioList projectId={project.id} scenarios={scenarios} action={create} />
     </div>

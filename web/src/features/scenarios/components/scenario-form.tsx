@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { profileKinds, type ProfileKind, type ProfileParams } from "@/features/runs/types";
 
 import { createScenario, updateScenario, type ScenarioFormState } from "../actions";
@@ -50,10 +51,13 @@ function FieldError({ children }: { children?: string }) {
 export function ScenarioForm({
   projectId,
   scenario,
+  endpoints,
   onDirtyChange,
 }: {
   projectId: string;
   scenario?: Scenario;
+  // The project's catalog, offered to the script editor.
+  endpoints?: CatalogEndpoint[];
   // Told whenever the form starts or stops differing from what is saved, so that
   // the bar above it can say so and hold Run back.
   onDirtyChange?: (dirty: boolean) => void;
@@ -81,9 +85,12 @@ export function ScenarioForm({
   }, [dirty, onDirtyChange]);
 
   const findings = state.findings ?? [];
+  // A script Ballast generated from a graph is shown, not edited.
+  const generated = scenario?.mode === "graph";
 
   return (
     <form action={action} className="flex flex-col gap-6">
+      {scenario && <input type="hidden" name="mode" value={scenario.mode} />}
       <label className="flex max-w-xl flex-col gap-1.5 text-sm">
         Name
         <input
@@ -103,14 +110,29 @@ export function ScenarioForm({
         <span>Script</span>
         <p className="flex items-start gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
           <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            Do not write an <code className="data text-foreground">options</code> block: Ballast generates it from the
-            profile and the thresholds. Read the target from{" "}
-            <code className="data text-foreground">__ENV.BASE_URL</code>, and give each request a{" "}
-            <code className="data text-foreground">name</code> tag.
-          </span>
+          {generated ? (
+            <span>
+              Ballast generated this script from the scenario&apos;s graph, so it cannot be edited here. The name and
+              the default load can still change.
+            </span>
+          ) : (
+            <span>
+              Do not write an <code className="data text-foreground">options</code> block: Ballast generates it from
+              the profile and the thresholds. Read the target from{" "}
+              <code className="data text-foreground">__ENV.BASE_URL</code>, and give each request a{" "}
+              <code className="data text-foreground">name</code> tag.
+            </span>
+          )}
         </p>
-        <ScriptEditor value={script} onChange={setScript} marked={linesOf(findings)} invalid={findings.length > 0} />
+        <ScriptEditor
+          value={script}
+          onChange={setScript}
+          marked={linesOf(findings)}
+          invalid={findings.length > 0}
+          readOnly={generated}
+          endpoints={endpoints}
+          importHref={`/projects/${projectId}/scenarios/import`}
+        />
         <ScriptFindings findings={findings} kind="error" />
       </div>
 
