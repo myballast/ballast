@@ -28,7 +28,16 @@ const statusOwners = new Set(["src/components/status-badge.tsx", "src/styles/glo
 // The only file that may use the log-level tokens, besides globals.css.
 const logOwners = new Set(["src/features/runs/components/log-line.tsx", "src/styles/globals.css"]);
 
+// The only file that may use the syntax tokens of a JSON body, besides globals.css.
+const syntaxOwners = new Set(["src/features/builder/components/json-editor.tsx", "src/styles/globals.css"]);
+
 const rules = [
+  {
+    name: "JSON syntax colour outside the JSON editor",
+    pattern: /\bsyntax-(key|string|number|variable)\b/,
+    applies: (file) => !syntaxOwners.has(file),
+    fix: "a JSON body is drawn by <JsonEditor> in features/builder/components/json-editor.tsx",
+  },
   {
     name: "log-level colour outside a line of output",
     pattern: /\blog-(error|warn)\b/,

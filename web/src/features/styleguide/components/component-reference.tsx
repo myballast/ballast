@@ -163,6 +163,38 @@ const sampleGraph: ScenarioGraph = {
   ],
 };
 
+// A small catalog, for the request node's endpoint picker.
+const sampleCatalog = [
+  {
+    id: "c1",
+    source: "openapi",
+    method: "POST",
+    path: "/users/{user-id}/orders",
+    tag: "orders",
+    summary: "Create an order",
+    path_params: ["user-id"],
+    headers: {},
+    content_type: "application/json",
+    body: '{"sku":"{{sku}}","qty":1}',
+    body_too_long: false,
+    created_at: "2026-10-01T00:00:00Z",
+  },
+  {
+    id: "c2",
+    source: "openapi",
+    method: "GET",
+    path: "/products",
+    tag: "catalog",
+    summary: "List the products",
+    path_params: [],
+    headers: {},
+    content_type: "",
+    body: "",
+    body_too_long: false,
+    created_at: "2026-10-01T00:00:00Z",
+  },
+];
+
 const graphScenario = (name: string, graph: ScenarioGraph) => ({
   id: "g1",
   name,
@@ -921,6 +953,8 @@ export function ComponentReference() {
           canEdit
           canRun
           now={now}
+          endpoints={sampleCatalog}
+          secretKeys={{ e1: ["LOGIN_EMAIL", "CLIENT_SECRET"] }}
         />
         <p className="text-xs text-muted-foreground">Read-only, for a viewer.</p>
         <Builder

@@ -1,12 +1,12 @@
 import { can } from "@/lib/permissions";
-import type { ScenarioPage } from "@/features/scenarios/detail";
+import type { BuilderData } from "../load";
 
 import { Builder } from "./builder";
 
 // BuilderPage turns what the scenario page loads into what the builder takes: the
 // verified environments only — nothing else takes load — and what the caller may do.
-export function BuilderPage({ page }: { page: ScenarioPage }) {
-  const { project, access, scenario, environments } = page;
+export function BuilderPage({ page }: { page: BuilderData }) {
+  const { project, access, scenario, environments, endpoints, secretKeys } = page;
   if (!scenario.graph) return null;
 
   return (
@@ -18,6 +18,8 @@ export function BuilderPage({ page }: { page: ScenarioPage }) {
       canEdit={can(access, "manage_scenarios")}
       canRun={can(access, "run_test")}
       now={new Date()}
+      endpoints={can(access, "manage_scenarios") ? endpoints : undefined}
+      secretKeys={secretKeys}
     />
   );
 }

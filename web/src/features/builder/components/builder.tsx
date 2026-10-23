@@ -24,12 +24,16 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition
 
 import { Time } from "@/components/time";
 import { Button } from "@/components/ui/button";
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { launchDefaultRun } from "@/features/runs/actions";
 import { profileSummary, runBlockedReason } from "@/features/scenarios/workspace";
 import { useUnsavedGuard } from "@/features/scenarios/use-unsaved-guard";
 import type { GraphEdge, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/features/scenarios/types";
 
 import { saveGraph, validateGraph } from "../actions";
+import { fromEndpoint } from "../catalog-node";
+import { hasProblems, isCredentialHeader, requestProblems, summaryOfProblems } from "../request-validation";
+import { bindSecretBefore, unboundSecrets, variablesBefore } from "../variables";
 import {
   canonical,
   columnWidth,
@@ -71,6 +75,12 @@ export type BuilderProps = {
   canEdit: boolean;
   canRun: boolean;
   now: Date;
+  // The project's catalog, for somebody who may write scenarios; undefined for
+  // anyone else.
+  endpoints?: CatalogEndpoint[];
+  // The keys — never the values — of each verified environment's secrets, by
+  // environment id. Present only for somebody who may manage environments.
+  secretKeys?: Record<string, string[]>;
 };
 
 // Builder is the page that draws a scenario: the nodes to pick from on the left,
@@ -84,7 +94,17 @@ export function Builder(props: BuilderProps) {
   );
 }
 
-function BuilderView({ projectId, projectName, scenario, targets, canEdit, canRun, now }: BuilderProps) {
+function BuilderView({
+  projectId,
+  projectName,
+  scenario,
+  targets,
+  canEdit,
+  canRun,
+  now,
+  endpoints,
+  secretKeys,
+}: BuilderProps) {
   const readOnly = !canEdit;
   const flow = useReactFlow();
   const surface = useRef<HTMLDivElement>(null);
@@ -114,7 +134,20 @@ function BuilderView({ projectId, projectName, scenario, targets, canEdit, canRu
 
   const dirty = useMemo(() => canonical(graph) !== baseline, [graph, baseline]);
   const guard = useUnsavedGuard(dirty);
-  const problems = useMemo(() => issues(graph), [graph]);
+  // What is wrong with a node: how it is wired, or what a request holds. The
+  // API judges the graph at the end; this says it while somebody is still on it.
+  const { problems, blocking } = useMemo(() => {
+    const found = issues(graph);
+    let count = 0;
+    for (const node of graph.nodes) {
+      if (node.kind !== "http_request") continue;
+      const said = requestProblems(node);
+      if (!hasProblems(said)) continue;
+      count++;
+      found[node.id] = [found[node.id], summaryOfProblems(said)].filter(Boolean).join(". ");
+    }
+    return { problems: found, blocking: count };
+  }, [graph]);
   const empty = graph.nodes.length === 0;
 
   const selected = graph.nodes.filter((node) => box[node.id]?.selected);
@@ -318,6 +351,42 @@ function BuilderView({ projectId, projectName, scenario, targets, canEdit, canRu
     apply(connect(graph, { from: connection.source, to: connection.target, ...(when ? { when } : {}) }));
   }
 
+  // Choosing an endpoint of the catalog fills a request in, in one step to undo.
+  function pickEndpoint(node: GraphNode, endpoint: CatalogEndpoint) {
+    const filled = fromEndpoint(endpoint);
+
+    // The endpoint's headers replace the node's, except a credential the person
+    // has already pointed at a secret: losing Authorization: Bearer {{token}} to a
+    // pick would be a quiet way to send the next run unauthenticated.
+    const kept = Object.fromEntries(Object.entries(node.headers ?? {}).filter(([name]) => isCredentialHeader(name)));
+    const headers = { ...filled.headers, ...kept };
+
+    apply({
+      ...graph,
+      nodes: graph.nodes.map((n) =>
+        n.id === node.id ? { ...n, ...filled, headers: Object.keys(headers).length > 0 ? headers : undefined } : n,
+      ),
+    });
+    setRevision((r) => r + 1);
+  }
+
+  // Binding reads a secret into a new "Set variable" step just before the request,
+  // and writes {{variable}} where it was asked for, together: one step to undo. The
+  // step is placed above the request, out of the way of what is already drawn.
+  function bindSecret(node: GraphNode, key: string, patchFor: (variable: string) => Partial<GraphNode>) {
+    const id = nextId(graph.nodes);
+    const { graph: bound, variable } = bindSecretBefore(graph, node.id, key, id);
+    const patch = patchFor(variable);
+
+    const at = box[node.id]?.position ?? { x: 0, y: 0 };
+    const unselected = Object.fromEntries(Object.entries(box).map(([k, v]) => [k, v]));
+    apply(
+      { ...bound, nodes: bound.nodes.map((n) => (n.id === node.id ? { ...n, ...patch } : n)) },
+      { ...unselected, [id]: { position: { x: at.x, y: at.y - rowHeight } } },
+    );
+    setRevision((r) => r + 1);
+  }
+
   function drop(event: React.DragEvent) {
     event.preventDefault();
     const kind = event.dataTransfer.getData(dragType) as NodeKind;
@@ -416,7 +485,7 @@ function BuilderView({ projectId, projectName, scenario, targets, canEdit, canRu
                 <Button variant="outline" onClick={check} disabled={pending || empty}>
                   Validate
                 </Button>
-                <Button variant="outline" onClick={save} disabled={pending || !dirty || empty}>
+                <Button variant="outline" onClick={save} disabled={pending || !dirty || empty || blocking > 0}>
                   Save
                 </Button>
               </>
@@ -433,6 +502,12 @@ function BuilderView({ projectId, projectName, scenario, targets, canEdit, canRu
         {canRun && blocked && (
           <p id={reason} className="text-xs text-muted-foreground">
             {blocked}
+          </p>
+        )}
+        {canEdit && blocking > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {blocking === 1 ? "One request needs attention" : `${blocking} requests need attention`} before this can be saved:
+            each says what is wrong on the canvas.
           </p>
         )}
         {message && (
@@ -499,6 +574,15 @@ function BuilderView({ projectId, projectName, scenario, targets, canEdit, canRu
             onChange={(patch, field) => edit(current.id, patch, field)}
             onDelete={removeCurrent}
             onClose={() => setBox((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, { ...v, selected: false }])))}
+            request={{
+              endpoints,
+              endpointsHref: `/projects/${projectId}/endpoints`,
+              available: variablesBefore(graph, current.id),
+              unbound: unboundSecrets(secretKeys?.[environmentId] ?? [], graph),
+              script: scenario.script,
+              onPickEndpoint: (endpoint) => pickEndpoint(current, endpoint),
+              onBind: (key, patchFor) => bindSecret(current, key, patchFor),
+            }}
           />
         ) : (
           <aside aria-label="Node inspector" className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
