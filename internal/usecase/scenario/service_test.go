@@ -835,3 +835,75 @@ func TestValidatingAGraphWritesNothingAndIsGuarded(t *testing.T) {
 		t.Errorf("a caller without the right got %v", err)
 	}
 }
+
+// A scenario that starts as a graph: no script is asked for, the server writes
+// the one a run will execute from the graph it starts with.
+func TestCreatingAScenarioAsAGraphStartsFromTheStarterGraph(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, NewScenario{
+		ProjectID: f.projectID, Name: "canvas", Mode: domain.ModeGraph,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if created.Mode != domain.ModeGraph || created.Graph == nil {
+		t.Fatalf("the scenario is %q with graph %v", created.Mode, created.Graph)
+	}
+	if err := created.Graph.Validate(); err != nil {
+		t.Errorf("the stored graph is not valid: %v", err)
+	}
+	if created.Script != "// generated" {
+		t.Errorf("the script is %q, wanted the generated one", created.Script)
+	}
+	if created.Version != 1 {
+		t.Errorf("version %d", created.Version)
+	}
+}
+
+// A script sent with a graph scenario would be stored beside a graph that says
+// something else.
+func TestAGraphScenarioRefusesAScriptOfItsOwn(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	_, _, err := f.service.Create(context.Background(), f.who, NewScenario{
+		ProjectID: f.projectID, Name: "canvas", Mode: domain.ModeGraph,
+		Script: "export default function () {}",
+	})
+
+	if !errors.Is(err, domain.ErrInvalidScenario) {
+		t.Fatalf("got %v, wanted ErrInvalidScenario", err)
+	}
+	if f.scenarios.created != nil {
+		t.Error("a scenario was stored anyway")
+	}
+}
+
+func TestAnUnknownModeIsRefused(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	request := f.request()
+	request.Mode = "visual"
+	_, _, err := f.service.Create(context.Background(), f.who, request)
+
+	if !errors.Is(err, domain.ErrInvalidScenario) {
+		t.Fatalf("got %v, wanted ErrInvalidScenario", err)
+	}
+}
+
+// Without a mode a scenario is written as code, as it always was.
+func TestAScenarioWithoutAModeIsCode(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Mode != domain.ModeCode && created.Mode != "" {
+		t.Errorf("mode %q", created.Mode)
+	}
+	if created.Graph != nil {
+		t.Error("a code scenario holds a graph")
+	}
+}

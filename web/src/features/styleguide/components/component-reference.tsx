@@ -31,6 +31,7 @@ import type { Invitation, Member, RolesMatrix } from "@/features/members/types";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
 import { SecretList } from "@/features/environments/components/secret-list";
 import { Builder } from "@/features/builder/components/builder";
+import { NewScenarioPage } from "@/features/scenarios/components/new-scenario-page";
 import { ScenarioWorkspace } from "@/features/scenarios/components/scenario-workspace";
 import { ScenarioList } from "@/features/scenarios/components/scenario-list";
 import { ScriptEditor } from "@/features/scenarios/components/script-editor";
@@ -903,6 +904,10 @@ export function ComponentReference() {
           now={now}
         />
       </Section>
+      <Section title="New scenario: code or graph">
+        <NewScenarioPage project={project("storefront", "checkout")} endpoints={[]} start="graph" />
+      </Section>
+
       <Section title="Scenario builder">
         <p className="text-xs text-muted-foreground">
           Every kind of node, with one step left unwired to show its marker. Drag from the palette, press Enter on a

@@ -6,6 +6,7 @@ import { can } from "@/lib/permissions";
 
 export default async function NewScenarioRoute(props: PageProps<"/projects/[projectId]/scenarios/new">) {
   const { projectId } = await props.params;
+  const { mode } = await props.searchParams;
   const [project, access] = await Promise.all([getProject(projectId), getAccess(projectId)]);
 
   // Explained rather than offered: the API would refuse the form.
@@ -13,5 +14,11 @@ export default async function NewScenarioRoute(props: PageProps<"/projects/[proj
     return <NotAllowed>Writing a scenario takes the maintainer role on this project.</NotAllowed>;
   }
 
-  return <NewScenarioPage project={project} endpoints={await getCatalogOrNothing(projectId)} />;
+  return (
+    <NewScenarioPage
+      project={project}
+      endpoints={await getCatalogOrNothing(projectId)}
+      start={mode === "graph" ? "graph" : "code"}
+    />
+  );
 }

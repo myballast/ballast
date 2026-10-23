@@ -60,8 +60,12 @@ type ScriptFinding struct {
 
 // CreateScenarioRequest is the body that creates a scenario.
 type CreateScenarioRequest struct {
-	Name   string `json:"name"`
-	Script string `json:"script"`
+	Name string `json:"name"`
+	// Mode is "code" (the default) or "graph". A graph scenario starts from a
+	// single request and an end, and its script is generated: sending one is
+	// refused.
+	Mode   string `json:"mode,omitempty"`
+	Script string `json:"script,omitempty"`
 	// DefaultProfile defaults to smoke.
 	DefaultProfile string `json:"default_profile,omitempty"`
 	// DefaultParams defaults to the profile's own template.

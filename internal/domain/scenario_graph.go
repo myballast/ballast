@@ -309,3 +309,20 @@ func (g ScenarioGraph) validateReachability(byID map[string]Node) error {
 
 	return nil
 }
+
+// StarterGraph is where a scenario written as a graph begins when its author has
+// drawn nothing: one request and the end it leads to. A graph with no node
+// cannot be stored, so "blank" means the smallest graph that can be.
+//
+// A fresh value on every call, so that editing one scenario's graph in place can
+// never change the next one's starting point.
+func StarterGraph() ScenarioGraph {
+	return ScenarioGraph{
+		Start: "n1",
+		Nodes: []Node{
+			{ID: "n1", Kind: NodeHTTPRequest, Method: "GET", Path: "/"},
+			{ID: "n2", Kind: NodeEnd},
+		},
+		Edges: []Edge{{From: "n1", To: "n2"}},
+	}
+}

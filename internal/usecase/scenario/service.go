@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"reflect"
 	"slices"
@@ -90,6 +91,10 @@ type NewScenario struct {
 	// is the one generated from it. Nothing checks that the two agree: only code
 	// in this package sets both.
 	Graph *domain.ScenarioGraph
+	// Mode is how a scenario with no graph yet is to be written. Left empty it is
+	// code. "graph" with no Graph and no Script starts from domain.StarterGraph,
+	// and its script is generated here: the caller has none to give.
+	Mode domain.ScenarioMode
 }
 
 // Create stores a scenario and its first version.
@@ -114,11 +119,33 @@ func (s *Service) Create(
 	}
 
 	mode := domain.ModeCode
-	if request.Graph != nil {
+	switch {
+	case request.Graph != nil:
 		if err := request.Graph.Validate(); err != nil {
 			return domain.Scenario{}, domain.ScriptReport{}, err
 		}
 		mode = domain.ModeGraph
+
+	case request.Mode == domain.ModeGraph:
+		// Started as a graph from nothing. A script sent beside it would be stored
+		// next to a graph that says something else, so it is refused.
+		if request.Script != "" {
+			return domain.Scenario{}, domain.ScriptReport{}, fmt.Errorf(
+				"%w: a scenario written as a graph has a generated script, so none can be sent",
+				domain.ErrInvalidScenario)
+		}
+
+		starter := domain.StarterGraph()
+		script, err := s.scriptOf(starter)
+		if err != nil {
+			return domain.Scenario{}, domain.ScriptReport{}, err
+		}
+		request.Graph, request.Script = &starter, script
+		mode = domain.ModeGraph
+
+	case request.Mode != "" && request.Mode != domain.ModeCode:
+		return domain.Scenario{}, domain.ScriptReport{}, fmt.Errorf(
+			"%w: the mode %q is neither code nor graph", domain.ErrInvalidScenario, request.Mode)
 	}
 
 	report := s.inspector.Inspect(request.Script)

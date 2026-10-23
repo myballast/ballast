@@ -65,6 +65,7 @@ func (h *Scenario) Create(w http.ResponseWriter, r *http.Request) {
 		ProjectID:            projectID,
 		Name:                 body.Name,
 		Script:               body.Script,
+		Mode:                 domain.ScenarioMode(body.Mode),
 		DefaultProfile:       domain.ProfileKind(body.DefaultProfile),
 		DefaultProfileParams: paramsOf(body.DefaultParams),
 	})

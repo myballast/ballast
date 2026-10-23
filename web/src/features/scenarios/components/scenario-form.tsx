@@ -52,10 +52,14 @@ export function ScenarioForm({
   projectId,
   scenario,
   endpoints,
+  startAs = "code",
   onDirtyChange,
 }: {
   projectId: string;
   scenario?: Scenario;
+  // How a new scenario is written. A graph has no script to type: it is drawn on
+  // the canvas, which it opens on once created.
+  startAs?: "code" | "graph";
   // The project's catalog, offered to the script editor.
   endpoints?: CatalogEndpoint[];
   // Told whenever the form starts or stops differing from what is saved, so that
@@ -90,7 +94,7 @@ export function ScenarioForm({
 
   return (
     <form action={action} className="flex flex-col gap-6">
-      {scenario && <input type="hidden" name="mode" value={scenario.mode} />}
+      {(scenario || startAs === "graph") && <input type="hidden" name="mode" value={scenario?.mode ?? startAs} />}
       <label className="flex max-w-xl flex-col gap-1.5 text-sm">
         Name
         <input
@@ -106,6 +110,15 @@ export function ScenarioForm({
         <FieldError>{state.name}</FieldError>
       </label>
 
+      {scenario === undefined && startAs === "graph" ? (
+        <p className="flex max-w-xl items-start gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
+          <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            It starts from one request and its end, and opens on the canvas to be drawn from there. Ballast writes the
+            script from the graph, so there is none to type.
+          </span>
+        </p>
+      ) : (
       <div className="flex flex-col gap-2 text-sm">
         <span>Script</span>
         <p className="flex items-start gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
@@ -135,6 +148,7 @@ export function ScenarioForm({
         />
         <ScriptFindings findings={findings} kind="error" />
       </div>
+      )}
 
       <fieldset className="flex flex-col gap-1.5 text-sm">
         <legend className="pb-1.5">Default profile</legend>

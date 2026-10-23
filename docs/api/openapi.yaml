@@ -1678,7 +1678,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ImportCollectionResponse"
         "400":
-          description: The body is not valid JSON, or the name or the load is refused.
+          description: |
+            The body is not valid JSON, or the name or the load is refused, or the
+            `mode` is unknown, or a `script` was sent for a `graph` scenario.
           content:
             application/json:
               schema:
@@ -3798,12 +3800,22 @@ components:
 
     CreateScenarioRequest:
       type: object
-      required: [name, script]
+      required: [name]
       properties:
         name: { type: string, maxLength: 120 }
+        mode:
+          type: string
+          enum: [code, graph]
+          default: code
+          description: |
+            How the scenario is written. `graph` starts from one request and the
+            end it leads to, to be drawn on from there; its script is generated,
+            so none may be sent. There is no conversion from code to a graph.
         script:
           type: string
-          description: A k6 script reading `__ENV.BASE_URL`, exporting no options of its own.
+          description: |
+            A k6 script reading `__ENV.BASE_URL`, exporting no options of its own.
+            Required when `mode` is `code`; refused with `400` when it is `graph`.
         default_profile:
           $ref: "#/components/schemas/ProfileKind"
         default_params:

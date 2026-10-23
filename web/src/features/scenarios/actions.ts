@@ -37,6 +37,8 @@ type Fields = {
   // Left out for a scenario written as a graph: its script is generated, and
   // the API refuses one sent for it.
   script?: string;
+  // Only on creation: a scenario that starts as a graph says so, and has no script.
+  mode?: "graph";
   default_profile: ProfileKind;
   default_params?: ProfileParams;
 };
@@ -104,6 +106,9 @@ export async function createScenario(
   const body = fields(form);
   if (!("default_profile" in body)) return body;
 
+  const graph = form.get("mode") === "graph";
+  if (graph) body.mode = "graph";
+
   let id: string;
   try {
     ({ id } = await apiPost<Scenario>(path(projectId), body));
@@ -114,7 +119,8 @@ export async function createScenario(
   // The shell around the project names what exists, and it is drawn once per
   // visit to the project: it has to hear about this before the browser lands.
   revalidatePath(`/projects/${projectId}`, "layout");
-  redirect(page(projectId, id));
+  // A graph is drawn, not typed: it opens on the canvas.
+  redirect(graph ? `${page(projectId, id)}/builder` : page(projectId, id));
 }
 
 // updateScenario saves the form. A new script, profile or set of parameters
