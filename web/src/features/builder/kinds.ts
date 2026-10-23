@@ -1,0 +1,89 @@
+import type { GraphNode, NodeKind } from "../scenarios/types.ts";
+
+// What the palette offers and what a new node starts as. The icon is named, not
+// imported: this file is read by tests that load no component.
+export type KindInfo = {
+  kind: NodeKind;
+  label: string;
+  // One line for the palette's tooltip and the screen reader.
+  hint: string;
+  icon: "request" | "extract" | "set" | "condition" | "loop" | "wait" | "assert" | "end";
+};
+
+export const kindInfo: KindInfo[] = [
+  { kind: "http_request", label: "HTTP request", hint: "Call an endpoint of the target", icon: "request" },
+  { kind: "extract_variable", label: "Extract variable", hint: "Keep a value from the last response", icon: "extract" },
+  { kind: "set_variable", label: "Set variable", hint: "Give a variable a value or a secret", icon: "set" },
+  { kind: "condition", label: "Condition", hint: "Take one way or the other", icon: "condition" },
+  { kind: "loop", label: "Loop", hint: "Repeat a few steps", icon: "loop" },
+  { kind: "think_time", label: "Think time", hint: "Wait like a person would", icon: "wait" },
+  { kind: "assertion", label: "Assertion", hint: "Check something and fail if it is false", icon: "assert" },
+  { kind: "end", label: "End", hint: "Where a path of the scenario stops", icon: "end" },
+];
+
+export function infoOf(kind: NodeKind): KindInfo {
+  return kindInfo.find((info) => info.kind === kind) ?? kindInfo[0];
+}
+
+// The edge labels a kind sends out. A node that has none sends one plain edge,
+// and an end sends none.
+export function exits(kind: NodeKind): ("true" | "false" | "body" | "after")[] {
+  if (kind === "condition") return ["true", "false"];
+  if (kind === "loop") return ["body", "after"];
+  return [];
+}
+
+export function hasOneExit(kind: NodeKind): boolean {
+  return kind !== "end" && exits(kind).length === 0;
+}
+
+// A node a person has just added: valid on its own, so that adding one never
+// makes a sound graph refusable by what it holds, only by where it is wired.
+export function newNode(kind: NodeKind, id: string): GraphNode {
+  switch (kind) {
+    case "http_request":
+      return { id, kind, method: "GET", path: "/" };
+    case "extract_variable":
+      return { id, kind, variable: "value", from: "$.value" };
+    case "set_variable":
+      return { id, kind, variable: "value", value: "" };
+    case "condition":
+      return { id, kind, expression: "status == 200" };
+    case "loop":
+      return { id, kind, iterations: 3 };
+    case "think_time":
+      return { id, kind, seconds: 1 };
+    case "assertion":
+      return { id, kind, expression: "status == 200" };
+    case "end":
+      return { id, kind };
+  }
+}
+
+// What a node says on the canvas: a title and a line under it, from what it holds.
+export function describe(node: GraphNode): { title: string; sub: string } {
+  const label = node.label?.trim();
+
+  switch (node.kind) {
+    case "http_request":
+      return { title: label || `${node.method ?? "GET"} ${node.path ?? "/"}`, sub: label ? `${node.method} ${node.path}` : "" };
+    case "extract_variable":
+      return { title: label || `Extract ${node.variable ?? ""}`, sub: node.from ?? "" };
+    case "set_variable":
+      return {
+        title: label || `Set ${node.variable ?? ""}`,
+        // The name of a secret, never what it holds: the graph does not hold it.
+        sub: node.from_env ? `secret ${node.from_env}` : (node.value ?? ""),
+      };
+    case "condition":
+      return { title: label || "Condition", sub: node.expression ?? "" };
+    case "loop":
+      return { title: label || "Loop", sub: `${node.iterations ?? 0} times` };
+    case "think_time":
+      return { title: label || "Think time", sub: `${node.seconds ?? 0} s` };
+    case "assertion":
+      return { title: label || "Assertion", sub: node.expression ?? "" };
+    case "end":
+      return { title: label || "End", sub: "" };
+  }
+}

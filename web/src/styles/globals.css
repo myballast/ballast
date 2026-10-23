@@ -229,3 +229,38 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* The canvas of the scenario builder wears the application's tokens rather than
+   React Flow's own light and dark sets, so that it follows whichever theme is on. */
+:root .react-flow.builder-flow {
+  --xy-background-color: var(--background);
+  --xy-background-pattern-dots-color-default: var(--border);
+  --xy-edge-stroke-default: var(--muted-foreground);
+  --xy-edge-stroke-selected-default: var(--brand);
+  --xy-edge-label-color-default: var(--muted-foreground);
+  --xy-edge-label-background-color-default: var(--background);
+  --xy-handle-background-color-default: var(--muted-foreground);
+  --xy-handle-border-color-default: var(--background);
+  --xy-connectionline-stroke-default: var(--brand);
+  --xy-minimap-background-color-default: var(--card);
+  --xy-minimap-mask-background-color-default: color-mix(in oklch, var(--background) 70%, transparent);
+  --xy-minimap-mask-stroke-color-default: var(--border);
+  --xy-node-background-color-default: transparent;
+  --xy-node-border-default: none;
+  --xy-attribution-background-color-default: color-mix(in oklch, var(--background) 70%, transparent);
+}
+.react-flow.builder-flow .react-flow__node-step {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+}
+.react-flow.builder-flow .react-flow__edge-textbg,
+.react-flow.builder-flow .react-flow__edge-text {
+  font-size: 11px;
+}
+.react-flow.builder-flow .react-flow__minimap {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}

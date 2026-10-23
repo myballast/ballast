@@ -7,7 +7,8 @@ import { UserMenu } from "@/components/layout/user-menu";
 import { buildTrail } from "@/features/shell/trail";
 import type { ShellScope } from "@/features/shell/types";
 import { MetricCard } from "@/components/metric-card";
-import { EmptyState, ErrorState, LoadingState } from "@/components/states";
+import { ErrorStateSample } from "./error-state-sample";
+import { EmptyState, LoadingState } from "@/components/states";
 import {
   Skeleton,
   SkeletonCards,
@@ -29,6 +30,7 @@ import { PermissionsMatrix } from "@/features/members/components/permissions-mat
 import type { Invitation, Member, RolesMatrix } from "@/features/members/types";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
 import { SecretList } from "@/features/environments/components/secret-list";
+import { Builder } from "@/features/builder/components/builder";
 import { ScenarioWorkspace } from "@/features/scenarios/components/scenario-workspace";
 import { ScenarioList } from "@/features/scenarios/components/scenario-list";
 import { ScriptEditor } from "@/features/scenarios/components/script-editor";
@@ -52,6 +54,7 @@ import { RunHeader } from "@/features/runs/components/run-header";
 import { RunTabs } from "@/features/runs/components/run-tabs";
 import type { RunContext } from "@/features/runs/detail";
 import type { Run } from "@/features/runs/types";
+import type { ScenarioGraph } from "@/features/scenarios/types";
 import { RunsPage } from "@/features/runs/components/runs-page";
 import { RunsTable } from "@/features/runs/components/runs-table";
 import type { RunRow, RunsPage as RunsPageData } from "@/features/runs/list";
@@ -130,6 +133,48 @@ const shellPaths = [
   // A scenario the shell was drawn before: said by its kind, never by its id.
   "/projects/p1/scenarios/3f1c0a52-7d0e-4c6a-8f55-1b2a4d9e0c11",
 ];
+
+// A graph with every kind of node: two ways out of a condition and of a loop, and
+// one step left unwired so that its marker shows.
+const sampleGraph: ScenarioGraph = {
+  start: "n1",
+  nodes: [
+    { id: "n1", kind: "http_request", method: "POST", path: "/api/auth/login", headers: { "Content-Type": "application/json" }, body: '{"email":"{{email}}"}' },
+    { id: "n2", kind: "extract_variable", variable: "authToken", from: "$.data.token" },
+    { id: "n3", kind: "set_variable", variable: "email", from_env: "LOGIN_EMAIL" },
+    { id: "n4", kind: "condition", expression: "status == 200" },
+    { id: "n5", kind: "loop", iterations: 5 },
+    { id: "n6", kind: "think_time", seconds: 2 },
+    { id: "n7", kind: "assertion", expression: "status == 200" },
+    { id: "n8", kind: "end" },
+    { id: "n9", kind: "http_request", method: "GET", path: "/api/cart" },
+  ],
+  edges: [
+    { from: "n1", to: "n2" },
+    { from: "n2", to: "n3" },
+    { from: "n3", to: "n4" },
+    { from: "n4", to: "n5", when: "true" },
+    { from: "n4", to: "n8", when: "false" },
+    { from: "n5", to: "n6", when: "body" },
+    { from: "n5", to: "n7", when: "after" },
+    { from: "n6", to: "n5" },
+    { from: "n7", to: "n8" },
+  ],
+};
+
+const graphScenario = (name: string, graph: ScenarioGraph) => ({
+  id: "g1",
+  name,
+  version: 4,
+  default_profile: "load" as const,
+  default_params: { target_vus: 50, ramp_up_s: 30, plateau_s: 120, ramp_down_s: 30 },
+  created_at: "2026-10-01T09:00:00Z",
+  updated_at: "2026-10-18T11:58:00Z",
+  script: "// generated",
+  mode: "graph" as const,
+  graph,
+  warnings: [],
+});
 
 const scenario = (name: string, version: number) => ({
   id: name,
@@ -785,7 +830,7 @@ export function ComponentReference() {
           <SkeletonPanel height="h-24" />
           <Skeleton className="h-4 w-40" />
         </SkeletonPage>
-        <ErrorState onRetry={() => {}} />
+        <ErrorStateSample />
         <EmptyState title="No runs yet" description="Runs appear here once a scenario has been executed." />
       </Section>
 
@@ -854,6 +899,41 @@ export function ComponentReference() {
           }}
           targets={[]}
           canEdit={false}
+          canRun
+          now={now}
+        />
+      </Section>
+      <Section title="Scenario builder">
+        <p className="text-xs text-muted-foreground">
+          Every kind of node, with one step left unwired to show its marker. Drag from the palette, press Enter on a
+          palette entry, or select a node to edit it.
+        </p>
+        <Builder
+          projectId="checkout"
+          projectName="storefront"
+          scenario={graphScenario("checkout-flow", sampleGraph)}
+          targets={[{ id: "e1", name: "staging-eu" }]}
+          canEdit
+          canRun
+          now={now}
+        />
+        <p className="text-xs text-muted-foreground">Read-only, for a viewer.</p>
+        <Builder
+          projectId="checkout"
+          projectName="storefront"
+          scenario={graphScenario("checkout-flow", sampleGraph)}
+          targets={[]}
+          canEdit={false}
+          canRun={false}
+          now={now}
+        />
+        <p className="text-xs text-muted-foreground">Empty canvas.</p>
+        <Builder
+          projectId="checkout"
+          projectName="storefront"
+          scenario={graphScenario("new-flow", { start: "", nodes: [], edges: [] })}
+          targets={[{ id: "e1", name: "staging-eu" }]}
+          canEdit
           canRun
           now={now}
         />

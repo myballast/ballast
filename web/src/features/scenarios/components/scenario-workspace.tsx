@@ -104,6 +104,12 @@ export function ScenarioWorkspace({
             {own ? profileSummary(scenario.default_profile, scenario.default_params) : `${scenario.default_profile} template`}
           </span>
 
+          {scenario.mode === "graph" && (
+            <Link href={`/projects/${projectId}/scenarios/${scenario.id}/builder`} className="text-xs text-brand hover:underline">
+              Open in the builder
+            </Link>
+          )}
+
           {canRun && (
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">

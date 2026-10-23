@@ -23,6 +23,56 @@ export type ScriptFinding = {
   line?: number;
 };
 
+// The kinds of step a graph is made of. A closed set, as in the domain.
+export const nodeKinds = [
+  "http_request",
+  "extract_variable",
+  "set_variable",
+  "condition",
+  "loop",
+  "think_time",
+  "assertion",
+  "end",
+] as const;
+export type NodeKind = (typeof nodeKinds)[number];
+
+// Mirror of dto.GraphNode. One shape for every kind: what a kind does not use is
+// left out, and the API says which fields a kind requires.
+export type GraphNode = {
+  id: string;
+  kind: NodeKind;
+  method?: string;
+  path?: string;
+  body?: string;
+  headers?: Record<string, string>;
+  query?: { name: string; value: string }[];
+  variable?: string;
+  from?: string;
+  value?: string;
+  from_env?: string;
+  expression?: string;
+  iterations?: number;
+  seconds?: number;
+  group?: string;
+  label?: string;
+  critical?: boolean;
+};
+
+// Mirror of dto.GraphEdge. `when` labels the two ways out of a condition (true,
+// false) or of a loop (body, after).
+export type GraphEdge = {
+  from: string;
+  to: string;
+  when?: "true" | "false" | "body" | "after";
+};
+
+// Mirror of dto.ScenarioGraph.
+export type ScenarioGraph = {
+  start: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
+
 // Mirror of dto.Scenario: one scenario with its script, and the warnings
 // inspecting it raised. Errors never get this far: they refuse the script.
 export type Scenario = ScenarioSummary & {
@@ -30,6 +80,8 @@ export type Scenario = ScenarioSummary & {
   // "graph" means Ballast generated the script from a graph, and it is read
   // only: the API refuses a new script for it.
   mode: "code" | "graph";
+  // The graph of a scenario whose mode is "graph"; absent for one written as code.
+  graph?: ScenarioGraph;
   warnings: ScriptFinding[];
 };
 

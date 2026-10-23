@@ -3,6 +3,7 @@ package scenario
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"slices"
 
 	"github.com/google/uuid"
@@ -168,8 +169,11 @@ func (s *Service) ByID(
 
 // Update is what a caller wants changed. Anything left nil stays as it is.
 type Update struct {
-	Name                 *string
-	Script               *string
+	Name   *string
+	Script *string
+	// Graph replaces the graph of a scenario written as a graph. The script is
+	// generated from it here, never taken from the caller.
+	Graph                *domain.ScenarioGraph
 	DefaultProfile       *domain.ProfileKind
 	DefaultProfileParams *domain.ProfileParams
 }
@@ -204,11 +208,26 @@ func (s *Service) Update(
 	// to tell which one a run used — so the edit is refused here rather than
 	// merely hidden by the interface.
 	script := current.Script
+	graph := current.Graph
 	if update.Script != nil {
 		if current.Mode == domain.ModeGraph {
 			return domain.Scenario{}, domain.ScriptReport{}, domain.ErrScriptIsGenerated
 		}
 		script = *update.Script
+	}
+	if update.Graph != nil {
+		if current.Mode != domain.ModeGraph {
+			return domain.Scenario{}, domain.ScriptReport{}, domain.ErrNotAGraphScenario
+		}
+		if update.Script != nil {
+			return domain.Scenario{}, domain.ScriptReport{}, domain.ErrScriptIsGenerated
+		}
+
+		generated, err := s.scriptOf(*update.Graph)
+		if err != nil {
+			return domain.Scenario{}, domain.ScriptReport{}, err
+		}
+		script, graph = generated, update.Graph
 	}
 
 	profile := current.DefaultProfile
@@ -230,7 +249,10 @@ func (s *Service) Update(
 		return domain.Scenario{}, report, err
 	}
 
+	// The script is generated from the graph, so comparing the graphs is
+	// comparing what a run would execute.
 	unchanged := script == current.Script &&
+		reflect.DeepEqual(graph, current.Graph) &&
 		resolvedProfile == current.DefaultProfile &&
 		resolvedParams == current.DefaultProfileParams
 	if unchanged {
@@ -244,6 +266,10 @@ func (s *Service) Update(
 		Script:               script,
 		DefaultProfile:       resolvedProfile,
 		DefaultProfileParams: resolvedParams,
+		// A version freezes the mode and the graph with the script: a graph
+		// scenario whose version lost its graph is one the database refuses.
+		Mode:  current.Mode,
+		Graph: graph,
 	}, who, s.clock.Now())
 	if err != nil {
 		return domain.Scenario{}, report, err
@@ -254,6 +280,41 @@ func (s *Service) Update(
 		"version", updated.Version, "warnings", len(report.Warnings()))
 
 	return updated, report, nil
+}
+
+// ValidateGraph says whether a graph would be accepted by a save, and writes
+// nothing. It asks for the right to save, not the right to read: it exists for
+// the person about to save.
+func (s *Service) ValidateGraph(
+	ctx context.Context, who domain.Identity, projectID, id uuid.UUID, graph *domain.ScenarioGraph,
+) error {
+	current, err := s.read(ctx, who, domain.PermManageScenarios, projectID, id)
+	if err != nil {
+		return err
+	}
+	if current.Mode != domain.ModeGraph {
+		return domain.ErrNotAGraphScenario
+	}
+
+	_, err = s.scriptOf(*graph)
+	return err
+}
+
+// scriptOf validates a graph and writes the script a run would execute from it,
+// refusing what a stored script would be refused for.
+func (s *Service) scriptOf(graph domain.ScenarioGraph) (string, error) {
+	if err := graph.Validate(); err != nil {
+		return "", err
+	}
+
+	script, err := s.generator.Generate(graph)
+	if err != nil {
+		return "", err
+	}
+	if err := s.inspector.Inspect(script).Err(); err != nil {
+		return "", err
+	}
+	return script, nil
 }
 
 // Versions lists every version ever written, newest first.

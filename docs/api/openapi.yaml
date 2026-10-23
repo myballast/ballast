@@ -2464,6 +2464,11 @@ paths:
         version can still be read back.
 
         Renaming writes no version: a name is not something a run executed.
+
+        Sending a `graph` writes a new version holding the graph and the script
+        generated from it, or none when the graph is the one already stored. A
+        graph the generator could not write is refused with `422` and nothing is
+        stored.
       operationId: updateScenario
       x-ballast-permission: manage_scenarios
       requestBody:
@@ -2493,15 +2498,31 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           description: |
-            A `script` was sent for a scenario whose `mode` is `graph`. That
+            A `script` was sent for a scenario whose `mode` is `graph` (that
             script is generated from the graph, so an edit would be kept only
-            until the next save.
+            until the next save), or a `graph` was sent for a scenario written
+            as code.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          $ref: "#/components/responses/ScriptRefused"
+          description: |
+            The script was refused with its findings, or the graph is one no
+            script can be written from (`error` says why).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Error"
+                  - type: object
+                    required: [error, findings]
+                    properties:
+                      error: { type: string }
+                      findings:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ScriptFinding"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -2526,6 +2547,57 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           description: The scenario still holds runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/scenarios/{scenarioId}/graph/validate:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - $ref: "#/components/parameters/ScenarioID"
+
+    post:
+      tags: [scenarios]
+      summary: Check a graph without saving it
+      description: |
+        Answers whether a save of this graph would be accepted, with the same
+        checks and nothing written. It asks for the right to save, since it
+        exists for the person about to save. Refused with `409` on a scenario
+        written as code.
+      operationId: validateScenarioGraph
+      x-ballast-permission: manage_scenarios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateGraphRequest"
+      responses:
+        "204":
+          description: The graph would be accepted.
+        "400":
+          description: The body is not valid JSON or an id is not a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The scenario is written as code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The graph is refused; `error` says why.
           content:
             application/json:
               schema:
@@ -3712,6 +3784,12 @@ components:
                 How the scenario was written. `graph` means the script was
                 generated from a graph and is read only: sending a `script`
                 back is refused with `409`.
+            graph:
+              allOf:
+                - $ref: "#/components/schemas/ScenarioGraph"
+              description: |
+                The graph of a scenario whose `mode` is `graph`, as the canvas
+                edits it. Absent for a scenario written as code.
             warnings:
               type: array
               description: Worth reading before launching a run. Never a reason the request failed.
@@ -4126,6 +4204,77 @@ components:
           items:
             $ref: "#/components/schemas/ImportFinding"
 
+    GraphNode:
+      type: object
+      required: [id, kind]
+      description: |
+        One step of a graph scenario. One shape for every kind: the fields a kind
+        does not use are left out, and the server says which ones a kind requires.
+      properties:
+        id: { type: string, maxLength: 64 }
+        kind:
+          type: string
+          enum: [http_request, extract_variable, set_variable, condition, loop, think_time, assertion, end]
+        method: { type: string }
+        path: { type: string, description: "A template such as `/users/{id}`; it is also the request's name tag." }
+        body: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        query:
+          type: array
+          items:
+            type: object
+            required: [name, value]
+            properties:
+              name: { type: string }
+              value: { type: string }
+        variable: { type: string }
+        from: { type: string }
+        value: { type: string }
+        from_env: { type: string, description: "The key of a secret of the environment, read when the run starts." }
+        expression: { type: string }
+        iterations: { type: integer }
+        seconds: { type: number }
+        group: { type: string }
+        label: { type: string }
+        critical: { type: boolean }
+
+    GraphEdge:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        when:
+          type: string
+          enum: ["true", "false", "body", "after"]
+          description: Set on the two edges leaving a condition (`true`, `false`) or a loop (`body`, `after`).
+
+    ScenarioGraph:
+      type: object
+      required: [start, nodes, edges]
+      description: |
+        What the canvas, the imports and the text editor all produce. A graph ends
+        in `end` nodes and every node must be reachable from `start`.
+      properties:
+        start: { type: string }
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+
+    ValidateGraphRequest:
+      type: object
+      required: [graph]
+      properties:
+        graph:
+          $ref: "#/components/schemas/ScenarioGraph"
+
     UpdateScenarioRequest:
       type: object
       description: Anything left out stays as it is.
@@ -4136,6 +4285,14 @@ components:
           description: |
             Refused with `409` on a scenario whose `mode` is `graph`: that
             script is generated, and editing the graph is what changes it.
+        graph:
+          allOf:
+            - $ref: "#/components/schemas/ScenarioGraph"
+          description: |
+            Replaces the graph of a scenario whose `mode` is `graph`. The script
+            is generated from it and a **new version** holds both. Refused with
+            `409` on a scenario written as code (there is no conversion from code
+            to a graph) and when sent together with a `script`.
         default_profile:
           $ref: "#/components/schemas/ProfileKind"
         default_params:

@@ -5,6 +5,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -438,5 +439,64 @@ func TestThresholdsAreCountedPerScenario(t *testing.T) {
 	}
 	if n, ok := counts[none.ID]; ok {
 		t.Errorf("%s has an entry (%d) though it imposes nothing", none.Name, n)
+	}
+}
+
+// Reloading a graph scenario gives back the graph that was saved, and a past
+// version still holds the graph it was written with.
+func TestAGraphScenarioComesBackAsSaved(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := openDB(ctx, t)
+	who, project, _ := newScenarioWorld(ctx, t, db)
+	scenarios := postgres.NewScenarioWriteRepository(db)
+
+	graphWith := func(path string) *domain.ScenarioGraph {
+		return &domain.ScenarioGraph{
+			Start: "n1",
+			Nodes: []domain.Node{
+				{ID: "n1", Kind: domain.NodeHTTPRequest, Method: "GET", Path: path,
+					Headers: map[string]string{"Accept": "application/json"},
+					Query:   []domain.QueryParam{{Name: "page", Value: "1"}}},
+				{ID: "n2", Kind: domain.NodeEnd},
+			},
+			Edges: []domain.Edge{{From: "n1", To: "n2"}},
+		}
+	}
+
+	created, err := scenarios.Create(ctx, domain.Scenario{
+		ID: uuid.New(), ProjectID: project, Name: "canvas",
+		Script: "one", Version: 1, DefaultProfile: domain.ProfileSmoke,
+		DefaultProfileParams: domain.ProfileParams{TargetVUs: 1, PlateauS: 5},
+		Mode:                 domain.ModeGraph, Graph: graphWith("/a"),
+	}, who, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := scenarios.NewVersion(ctx, who.OrgID, created.ID, domain.ScenarioVersion{
+		ScenarioID: created.ID, Version: 2, Script: "two",
+		DefaultProfile:       domain.ProfileSmoke,
+		DefaultProfileParams: domain.ProfileParams{TargetVUs: 1, PlateauS: 5},
+		Mode:                 domain.ModeGraph, Graph: graphWith("/b"),
+	}, who, time.Now().UTC()); err != nil {
+		t.Fatalf("NewVersion: %v", err)
+	}
+
+	head, err := scenarios.ByID(ctx, who.OrgID, created.ID)
+	if err != nil {
+		t.Fatalf("ByID: %v", err)
+	}
+	if head.Mode != domain.ModeGraph || !reflect.DeepEqual(head.Graph, graphWith("/b")) {
+		t.Errorf("the head came back as %+v", head.Graph)
+	}
+
+	versions, err := scenarios.Versions(ctx, who.OrgID, created.ID)
+	if err != nil {
+		t.Fatalf("Versions: %v", err)
+	}
+	if len(versions) != 2 || !reflect.DeepEqual(versions[1].Graph, graphWith("/a")) {
+		t.Errorf("version 1 no longer holds the graph it was written with: %+v", versions)
 	}
 }

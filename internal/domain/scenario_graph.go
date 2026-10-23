@@ -128,7 +128,7 @@ type QueryParam struct {
 type Edge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
-	// When is "true" or "false" on the edges leaving a condition.
+	// When labels the edges leaving a condition ("true", "false") or a loop ("body", "after").
 	When string `json:"when,omitempty"`
 }
 

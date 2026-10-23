@@ -105,7 +105,7 @@ func (h *Scenario) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	update := scenario.Update{Name: body.Name, Script: body.Script}
+	update := scenario.Update{Name: body.Name, Script: body.Script, Graph: graphOf(body.Graph)}
 	if body.DefaultProfile != nil {
 		profile := domain.ProfileKind(*body.DefaultProfile)
 		update.DefaultProfile = &profile
@@ -121,6 +121,28 @@ func (h *Scenario) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, scenarioOf(updated, report))
+}
+
+// ValidateGraph handles asking whether a graph would be accepted. It writes
+// nothing.
+func (h *Scenario) ValidateGraph(w http.ResponseWriter, r *http.Request) {
+	who, projectID, id, ok := scenarioRequest(w, r)
+	if !ok {
+		return
+	}
+
+	var body dto.ValidateGraphRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "the request body is not valid JSON")
+		return
+	}
+
+	if err := h.scenarios.ValidateGraph(r.Context(), who, projectID, id, graphOf(&body.Graph)); err != nil {
+		h.writeScriptError(w, r, err, domain.ScriptReport{})
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Delete handles removing a scenario.
@@ -320,6 +342,7 @@ func scenarioOf(s domain.Scenario, report domain.ScriptReport) dto.Scenario {
 		ScenarioSummary: summaryOf(s),
 		Script:          s.Script,
 		Mode:            string(mode),
+		Graph:           graphDTO(s.Graph),
 		Warnings:        make([]dto.ScriptFinding, 0, len(warnings)),
 	}
 	for _, finding := range warnings {
@@ -398,6 +421,10 @@ func (h *Scenario) writeDomainError(w http.ResponseWriter, r *http.Request, err 
 
 	case errors.Is(err, domain.ErrAlreadyExists):
 		writeError(w, http.StatusConflict, "a scenario or threshold already uses that")
+
+	case errors.Is(err, domain.ErrNotAGraphScenario):
+		writeError(w, http.StatusConflict,
+			"this scenario is written as code; a graph cannot be stored on it")
 
 	case errors.Is(err, domain.ErrScriptIsGenerated):
 		writeError(w, http.StatusConflict,
