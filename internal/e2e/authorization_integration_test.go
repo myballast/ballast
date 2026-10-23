@@ -431,6 +431,93 @@ func TestARunOfAnotherProjectReadsAsAbsent(t *testing.T) {
 	}
 }
 
+// A project of another organization is indistinguishable from a project that
+// does not exist, on every route that takes a project in its path.
+//
+// This is the end-to-end half of the isolation the database tests prove row by
+// row: whatever the handler does, a person of organization A who is handed the
+// identifier of a project of organization B learns nothing from the answer.
+// The test compares the two answers rather than naming a code, because the
+// property is that they are the same one; today it is 403 for both.
+func TestAProjectOfAnotherOrganizationIsIndistinguishableFromNoProject(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	w := newWorld(ctx, t)
+
+	db, err := postgres.Open(ctx, dsn())
+	if err != nil {
+		t.Fatalf("open the database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	foreignOrg, foreignProject := uuid.New(), uuid.New()
+	if err := db.InTenantTx(ctx, foreignOrg, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO organization (id, name) VALUES ($1, 'another organization')`, foreignOrg); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO project (id, org_id, name, slug) VALUES ($1, $2, 'not yours', 'not-yours')`,
+			foreignProject, foreignOrg)
+		return err
+	}); err != nil {
+		t.Fatalf("seed another organization: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanup := context.WithoutCancel(ctx)
+		_ = db.InTenantTx(cleanup, foreignOrg, func(tx pgx.Tx) error {
+			for _, table := range []string{"project", "organization"} {
+				if _, err := tx.Exec(cleanup,
+					"DELETE FROM "+pgx.Identifier{table}.Sanitize()+" WHERE org_id = $1", foreignOrg); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	})
+
+	// The caller's own project answers on the same route: a refusal below is
+	// the isolation speaking, not a route that was never there.
+	own := "/projects/" + w.a.projectID.String()
+	if res := w.request(t, http.MethodGet, own, ""); res.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s on the caller's own project gave %d, want 200", own, res.StatusCode)
+	}
+
+	for _, route := range []struct{ method, suffix string }{
+		{http.MethodGet, ""},
+		{http.MethodGet, "/members"},
+		{http.MethodGet, "/usage"},
+		{http.MethodDelete, ""},
+	} {
+		name := route.method + " /projects/{id}" + route.suffix
+		t.Run(name, func(t *testing.T) {
+			foreign := w.request(t, route.method, "/projects/"+foreignProject.String()+route.suffix, "")
+			nothing := w.request(t, route.method, "/projects/"+uuid.New().String()+route.suffix, "")
+
+			if foreign.StatusCode < 400 || foreign.StatusCode >= 500 {
+				body, _ := io.ReadAll(foreign.Body)
+				t.Fatalf("a project of another organization answered %d: %s", foreign.StatusCode, body)
+			}
+			if foreign.StatusCode != nothing.StatusCode {
+				t.Errorf("a project of another organization answers %d, one that does not exist %d: "+
+					"the difference tells which identifiers are real", foreign.StatusCode, nothing.StatusCode)
+			}
+		})
+	}
+
+	// A refused request changed nothing.
+	var left int
+	if err := db.InTenantTx(ctx, foreignOrg, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM project WHERE id = $1`, foreignProject).Scan(&left)
+	}); err != nil {
+		t.Fatalf("count the project: %v", err)
+	}
+	if left != 1 {
+		t.Errorf("the other organization's project was deleted (%d left)", left)
+	}
+}
+
 // expectUnchanged checks that a refused request wrote nothing.
 func (w world) expectUnchanged(ctx context.Context, t *testing.T) {
 	t.Helper()
