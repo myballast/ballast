@@ -73,6 +73,8 @@ func (f *fakeScenarios) NewVersion(
 	found.Version = version.Version
 	found.DefaultProfile = version.DefaultProfile
 	found.DefaultProfileParams = version.DefaultProfileParams
+	found.Mode = version.Mode
+	found.Graph = version.Graph
 	found.UpdatedAt = at
 	f.byID[id] = found
 
@@ -458,6 +460,9 @@ func TestEveryOperationIsGuarded(t *testing.T) {
 			_, _, err := f.service.Update(context.Background(), f.who, f.projectID, id, Update{})
 			return err
 		},
+		"validate graph": func() error {
+			return f.service.ValidateGraph(context.Background(), f.who, f.projectID, id, oneRequestGraph("/a"))
+		},
 		"delete":   func() error { return f.service.Delete(context.Background(), f.who, f.projectID, id) },
 		"versions": func() error { _, err := f.service.Versions(context.Background(), f.who, f.projectID, id); return err },
 		"thresholds": func() error {
@@ -673,5 +678,232 @@ func TestAGraphScenarioCanStillBeRenamed(t *testing.T) {
 	}
 	if renamed.Name != name {
 		t.Errorf("the scenario is called %q, wanted %q", renamed.Name, name)
+	}
+}
+
+// oneRequestGraph is the smallest graph that validates.
+func oneRequestGraph(path string) *domain.ScenarioGraph {
+	return &domain.ScenarioGraph{
+		Start: "n1",
+		Nodes: []domain.Node{
+			{ID: "n1", Kind: domain.NodeHTTPRequest, Method: "GET", Path: path},
+			{ID: "n2", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{{From: "n1", To: "n2"}},
+	}
+}
+
+// graphFixture is a scenario that was created from a graph.
+func graphFixture(t *testing.T, authz Authorizer) (fixture, domain.Scenario) {
+	t.Helper()
+
+	f := newFixture(domain.ScriptReport{}, authz)
+	request := f.request()
+	request.Graph = oneRequestGraph("/a")
+	request.Script = "// generated"
+
+	created, _, err := f.service.Create(context.Background(), f.who, request)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	return f, created
+}
+
+// Saving a graph writes a version holding the graph and the script generated
+// from it, so a later run executes exactly what this version says.
+func TestSavingAGraphWritesAVersionWithItsScript(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+
+	next := oneRequestGraph("/b")
+	updated, _, err := f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{Graph: next})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if updated.Version != 2 || len(f.scenarios.versions) != 1 {
+		t.Fatalf("version %d, %d written", updated.Version, len(f.scenarios.versions))
+	}
+	written := f.scenarios.versions[0]
+	if written.Script != "// generated" {
+		t.Errorf("the version holds the script %q", written.Script)
+	}
+	if written.Mode != domain.ModeGraph || written.Graph == nil || written.Graph.Nodes[0].Path != "/b" {
+		t.Errorf("the version does not hold the new graph: %+v", written)
+	}
+}
+
+// Saving what is already stored is not a change.
+func TestSavingTheSameGraphWritesNoVersion(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+
+	_, _, err := f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{Graph: oneRequestGraph("/a")})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(f.scenarios.versions) != 0 {
+		t.Errorf("%d version(s) were written for no change", len(f.scenarios.versions))
+	}
+}
+
+// A graph the generator could not write is refused before anything is stored.
+func TestAnInvalidGraphIsRefusedOnSave(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+
+	broken := &domain.ScenarioGraph{Start: "missing", Nodes: oneRequestGraph("/a").Nodes}
+	_, _, err := f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{Graph: broken})
+
+	if !errors.Is(err, domain.ErrInvalidGraph) {
+		t.Fatalf("got %v, wanted ErrInvalidGraph", err)
+	}
+	if len(f.scenarios.versions) != 0 {
+		t.Error("a version was written for a broken graph")
+	}
+}
+
+// There is no conversion from code to a graph: that was decided on purpose.
+func TestAGraphCannotBeSavedOnACodeScenario(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, _, err = f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{Graph: oneRequestGraph("/a")})
+
+	if !errors.Is(err, domain.ErrNotAGraphScenario) {
+		t.Fatalf("got %v, wanted ErrNotAGraphScenario", err)
+	}
+}
+
+// A graph and a script sent together would leave the choice of which one wins
+// to the order of two lines of code.
+func TestAGraphAndAScriptCannotBeSentTogether(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+
+	script := "export default function () {}"
+	_, _, err := f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{Graph: oneRequestGraph("/b"), Script: &script})
+
+	if !errors.Is(err, domain.ErrScriptIsGenerated) {
+		t.Fatalf("got %v, wanted ErrScriptIsGenerated", err)
+	}
+}
+
+// Changing only the suggested load of a graph scenario must keep its graph: the
+// database refuses a graph scenario whose version has none.
+func TestChangingTheLoadOfAGraphScenarioKeepsItsGraph(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+
+	profile := domain.ProfileLoad
+	_, _, err := f.service.Update(context.Background(), f.who, f.projectID, created.ID,
+		Update{DefaultProfile: &profile})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	written := f.scenarios.versions[0]
+	if written.Mode != domain.ModeGraph || written.Graph == nil {
+		t.Errorf("the version lost its graph: %+v", written)
+	}
+}
+
+// Validating writes nothing, and asks for the same right as saving.
+func TestValidatingAGraphWritesNothingAndIsGuarded(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+
+	if err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID,
+		oneRequestGraph("/b")); err != nil {
+		t.Fatalf("ValidateGraph: %v", err)
+	}
+	if len(f.scenarios.versions) != 0 {
+		t.Error("validating wrote a version")
+	}
+
+	err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID,
+		&domain.ScenarioGraph{Start: "x"})
+	if !errors.Is(err, domain.ErrInvalidGraph) {
+		t.Errorf("got %v, wanted ErrInvalidGraph", err)
+	}
+
+	denied := newFixture(domain.ScriptReport{}, refuseAll{})
+	if err := denied.service.ValidateGraph(context.Background(), denied.who, denied.projectID,
+		created.ID, oneRequestGraph("/b")); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("a caller without the right got %v", err)
+	}
+}
+
+// A scenario that starts as a graph: no script is asked for, the server writes
+// the one a run will execute from the graph it starts with.
+func TestCreatingAScenarioAsAGraphStartsFromTheStarterGraph(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, NewScenario{
+		ProjectID: f.projectID, Name: "canvas", Mode: domain.ModeGraph,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if created.Mode != domain.ModeGraph || created.Graph == nil {
+		t.Fatalf("the scenario is %q with graph %v", created.Mode, created.Graph)
+	}
+	if err := created.Graph.Validate(); err != nil {
+		t.Errorf("the stored graph is not valid: %v", err)
+	}
+	if created.Script != "// generated" {
+		t.Errorf("the script is %q, wanted the generated one", created.Script)
+	}
+	if created.Version != 1 {
+		t.Errorf("version %d", created.Version)
+	}
+}
+
+// A script sent with a graph scenario would be stored beside a graph that says
+// something else.
+func TestAGraphScenarioRefusesAScriptOfItsOwn(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	_, _, err := f.service.Create(context.Background(), f.who, NewScenario{
+		ProjectID: f.projectID, Name: "canvas", Mode: domain.ModeGraph,
+		Script: "export default function () {}",
+	})
+
+	if !errors.Is(err, domain.ErrInvalidScenario) {
+		t.Fatalf("got %v, wanted ErrInvalidScenario", err)
+	}
+	if f.scenarios.created != nil {
+		t.Error("a scenario was stored anyway")
+	}
+}
+
+func TestAnUnknownModeIsRefused(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	request := f.request()
+	request.Mode = "visual"
+	_, _, err := f.service.Create(context.Background(), f.who, request)
+
+	if !errors.Is(err, domain.ErrInvalidScenario) {
+		t.Fatalf("got %v, wanted ErrInvalidScenario", err)
+	}
+}
+
+// Without a mode a scenario is written as code, as it always was.
+func TestAScenarioWithoutAModeIsCode(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+
+	created, _, err := f.service.Create(context.Background(), f.who, f.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Mode != domain.ModeCode && created.Mode != "" {
+		t.Errorf("mode %q", created.Mode)
+	}
+	if created.Graph != nil {
+		t.Error("a code scenario holds a graph")
 	}
 }

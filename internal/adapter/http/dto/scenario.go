@@ -38,6 +38,9 @@ type Scenario struct {
 	// sending one back is refused: it is here so an interface can say so before
 	// somebody types into a field that will not save.
 	Mode string `json:"mode"`
+	// Graph is the graph of a scenario whose mode is "graph", and absent for
+	// one written as code.
+	Graph *ScenarioGraph `json:"graph,omitempty"`
 	// Warnings are worth reading before launching a run. Anything that would
 	// refuse the script is an error on the request that tried to store it, not a
 	// warning here.
@@ -57,8 +60,12 @@ type ScriptFinding struct {
 
 // CreateScenarioRequest is the body that creates a scenario.
 type CreateScenarioRequest struct {
-	Name   string `json:"name"`
-	Script string `json:"script"`
+	Name string `json:"name"`
+	// Mode is "code" (the default) or "graph". A graph scenario starts from a
+	// single request and an end, and its script is generated: sending one is
+	// refused.
+	Mode   string `json:"mode,omitempty"`
+	Script string `json:"script,omitempty"`
 	// DefaultProfile defaults to smoke.
 	DefaultProfile string `json:"default_profile,omitempty"`
 	// DefaultParams defaults to the profile's own template.
@@ -74,6 +81,14 @@ type UpdateScenarioRequest struct {
 	Script         *string        `json:"script,omitempty"`
 	DefaultProfile *string        `json:"default_profile,omitempty"`
 	DefaultParams  *ProfileParams `json:"default_params,omitempty"`
+	// Graph replaces the graph of a scenario whose mode is "graph"; the script
+	// is generated from it. Sending it together with a script is refused.
+	Graph *ScenarioGraph `json:"graph,omitempty"`
+}
+
+// ValidateGraphRequest is the body that asks whether a graph would be accepted.
+type ValidateGraphRequest struct {
+	Graph ScenarioGraph `json:"graph"`
 }
 
 // ScenarioVersion is one version of a script, kept for good.
@@ -117,4 +132,47 @@ type CreateThresholdRequest struct {
 type UpdateThresholdRequest struct {
 	Metric     *string `json:"metric,omitempty"`
 	Expression *string `json:"expression,omitempty"`
+}
+
+// GraphQueryParam is one name and value of a request's query string.
+type GraphQueryParam struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// GraphNode is one step of a graph scenario. One shape for every kind: the
+// fields a kind does not use stay absent.
+type GraphNode struct {
+	ID         string            `json:"id"`
+	Kind       string            `json:"kind"`
+	Method     string            `json:"method,omitempty"`
+	Path       string            `json:"path,omitempty"`
+	Body       string            `json:"body,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Query      []GraphQueryParam `json:"query,omitempty"`
+	Variable   string            `json:"variable,omitempty"`
+	From       string            `json:"from,omitempty"`
+	Value      string            `json:"value,omitempty"`
+	FromEnv    string            `json:"from_env,omitempty"`
+	Expression string            `json:"expression,omitempty"`
+	Iterations int               `json:"iterations,omitempty"`
+	Seconds    float64           `json:"seconds,omitempty"`
+	Group      string            `json:"group,omitempty"`
+	Label      string            `json:"label,omitempty"`
+	Critical   bool              `json:"critical,omitempty"`
+}
+
+// GraphEdge joins two nodes. When is "true" or "false" on the edges leaving a
+// condition.
+type GraphEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	When string `json:"when,omitempty"`
+}
+
+// ScenarioGraph is the graph of a scenario written as a graph.
+type ScenarioGraph struct {
+	Start string      `json:"start"`
+	Nodes []GraphNode `json:"nodes"`
+	Edges []GraphEdge `json:"edges"`
 }

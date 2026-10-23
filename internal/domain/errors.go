@@ -110,3 +110,8 @@ var ErrInvalidRunFilter = errors.New("invalid run filter")
 // and in the meantime the graph and the code would say different things with
 // nothing to tell which one a run executed.
 var ErrScriptIsGenerated = errors.New("the script of this scenario is generated from its graph")
+
+// ErrNotAGraphScenario reports an attempt to store a graph on a scenario written
+// as code. There is no conversion from code to a graph, on purpose: a script
+// cannot be read back into nodes without guessing.
+var ErrNotAGraphScenario = errors.New("this scenario is written as code, not as a graph")

@@ -299,3 +299,28 @@ func TestANodeWithLabelsAndAQueryIsAccepted(t *testing.T) {
 		t.Fatalf("Validate: %v", err)
 	}
 }
+
+// A new graph scenario starts from this, so it has to be a graph the server
+// would accept: the person editing it has not drawn anything yet.
+func TestTheStarterGraphIsValid(t *testing.T) {
+	graph := StarterGraph()
+
+	if err := graph.Validate(); err != nil {
+		t.Fatalf("the starter graph is refused: %v", err)
+	}
+	if len(graph.Nodes) < 2 || graph.Nodes[0].Kind != NodeHTTPRequest || graph.Nodes[len(graph.Nodes)-1].Kind != NodeEnd {
+		t.Errorf("the starter graph is not a request followed by an end: %+v", graph.Nodes)
+	}
+}
+
+// Each caller gets its own: a graph edited in place must not change the next
+// scenario's starting point.
+func TestTheStarterGraphIsNotShared(t *testing.T) {
+	first := StarterGraph()
+	first.Nodes[0].Path = "/changed"
+	first.Nodes[0].Headers = map[string]string{"X": "y"}
+
+	if second := StarterGraph(); second.Nodes[0].Path == "/changed" || second.Nodes[0].Headers != nil {
+		t.Error("two calls share the same nodes")
+	}
+}
