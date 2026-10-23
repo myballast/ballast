@@ -24,6 +24,10 @@
   --color-log-warn: var(--log-warn);
   --color-log-warn-text: var(--log-warn-text);
   --color-log-warn-bg: var(--log-warn-bg);
+  --color-syntax-key: var(--syntax-key);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-variable: var(--syntax-variable);
   --color-series-a: var(--series-a);
   --color-series-b: var(--series-b);
   --spacing-sidebar: var(--sidebar-width);
@@ -94,6 +98,13 @@
   --border: rgb(22 22 30 / 10%);
   --input: rgb(22 22 30 / 14%);
   --ring: #8b5cf6;
+  /* The colours of a JSON body in the request editor: violet, blue and orange,
+     never the status colours. Only features/builder/components/json-editor.tsx
+     uses them (npm run lint holds it to that). */
+  --syntax-key: #6d3fe0;
+  --syntax-string: #2f6fc4;
+  --syntax-number: #b4570f;
+  --syntax-variable: #5b36b8;
   /* Two series compared on one chart: blue and orange, never green and red. */
   --series-a: #2f7ae5;
   --series-b: #d0691f;
@@ -172,6 +183,10 @@
   --border: rgb(255 255 255 / 7%);
   --input: rgb(255 255 255 / 10%);
   --ring: #a78bfa;
+  --syntax-key: #b79cfb;
+  --syntax-string: #7fb0f7;
+  --syntax-number: #f0a068;
+  --syntax-variable: #d9ccff;
   /* Series comparisons use blue and orange, never the status colours. */
   --series-a: #5b9cf8;
   --series-b: #e8843c;

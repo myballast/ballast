@@ -134,7 +134,7 @@ func completeGraph() domain.ScenarioGraph {
 				ID: "orders", Kind: domain.NodeHTTPRequest,
 				Method:  "GET",
 				Path:    "/users/{user}/orders",
-				Headers: map[string]string{"Authorization": "Bearer placeholder"},
+				Headers: map[string]string{"Authorization": "Bearer {{token}}"},
 			},
 			{ID: "ok", Kind: domain.NodeAssertion, Expression: "status == 200"},
 			{ID: "done", Kind: domain.NodeEnd},

@@ -22,7 +22,7 @@ export default function () {
   vars["token"] = res ? res.json("access_token") : null;
   sleep(0.5);
   res = http.request("GET", BASE_URL + "/users/" + encodeURIComponent(vars["user"]) + "/orders", null, {
-    headers: { "Authorization": "Bearer placeholder" },
+    headers: { "Authorization": "Bearer " + vars["token"] },
     tags: { name: "GET /users/{user}/orders" },
   });
   const passed_ok = (vars["status"] === 200);

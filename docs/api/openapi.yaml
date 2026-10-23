@@ -2511,7 +2511,11 @@ paths:
         "422":
           description: |
             The script was refused with its findings, or the graph is one no
-            script can be written from (`error` says why).
+            script can be written from (`error` says why). Among the reasons: a
+            header that carries a credential (`Authorization`,
+            `Proxy-Authorization`, `Cookie`, `Set-Cookie`) whose value reads no
+            `{{variable}}`. A graph is stored in the clear, so a token cannot be
+            typed into one; it is read from a secret of the environment at run time.
           content:
             application/json:
               schema:
@@ -2599,7 +2603,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: The graph is refused; `error` says why.
+          description: |
+            The graph is refused; `error` says why, including a credential header
+            that is typed in rather than read from a variable.
           content:
             application/json:
               schema:

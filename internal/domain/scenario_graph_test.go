@@ -324,3 +324,49 @@ func TestTheStarterGraphIsNotShared(t *testing.T) {
 		t.Error("two calls share the same nodes")
 	}
 }
+
+// A graph is stored in the clear, and so is the script written from it. A header
+// that carries a credential may therefore only be a reference to a variable,
+// which a secret fills at run time: a token typed into the node would sit in the
+// database and in every version of the script after it.
+func TestACredentialHeaderMustReadAVariable(t *testing.T) {
+	with := func(name, value string) ScenarioGraph {
+		graph := validGraph()
+		graph.Nodes[0].Headers = map[string]string{name: value}
+		return graph
+	}
+
+	refused := map[string]ScenarioGraph{
+		"a bearer token typed in":    with("Authorization", "Bearer abc.def.ghi"),
+		"the name in another case":   with("authorization", "Basic dXNlcjpwYXNz"),
+		"a cookie typed in":          with("Cookie", "session=abc123"),
+		"a proxy credential":         with("Proxy-Authorization", "Basic abc"),
+		"an empty credential header": with("Authorization", ""),
+		"only a single brace":        with("Authorization", "Bearer {token}"),
+	}
+	for name, graph := range refused {
+		t.Run("refused: "+name, func(t *testing.T) {
+			err := graph.Validate()
+			if !errors.Is(err, ErrInvalidGraph) {
+				t.Fatalf("got %v, wanted ErrInvalidGraph", err)
+			}
+			if strings.Contains(err.Error(), "abc") || strings.Contains(err.Error(), "dXNl") {
+				t.Errorf("the message repeats the credential: %v", err)
+			}
+		})
+	}
+
+	accepted := map[string]ScenarioGraph{
+		"a bearer variable":        with("Authorization", "Bearer {{token}}"),
+		"a basic variable":         with("Authorization", "Basic {{basic_auth}}"),
+		"the whole value":          with("Cookie", "{{session}}"),
+		"a header that is not one": with("X-Request-Id", "abc-123"),
+	}
+	for name, graph := range accepted {
+		t.Run("accepted: "+name, func(t *testing.T) {
+			if err := graph.Validate(); err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+		})
+	}
+}

@@ -123,12 +123,35 @@ func (n Node) validateRequest() error {
 			return fmt.Errorf("%w: the header %q of the node %q is longer than %d characters",
 				ErrInvalidGraph, header, n.ID, maxNodeTextLength)
 		}
-		if _, err := ParseTemplate(value); err != nil {
+		parts, err := ParseTemplate(value)
+		if err != nil {
 			return err
+		}
+
+		// A credential is a reference to a variable, never a value. A graph and the
+		// script written from it are stored in the clear, so a token typed into a
+		// header would stay in the database, in every version after it, and in the
+		// script anybody who can read the scenario can read. The message names the
+		// header and never repeats what was typed.
+		if IsCredentialHeader(header) && !readsAVariable(parts) {
+			return fmt.Errorf(
+				"%w: the header %q of the node %q must read a variable, such as Bearer {{token}}, "+
+					"filled from a secret of the environment: a value typed here would be stored in the clear",
+				ErrInvalidGraph, header, n.ID)
 		}
 	}
 
 	return nil
+}
+
+// readsAVariable reports whether a parsed value reads at least one variable.
+func readsAVariable(parts []TemplatePart) bool {
+	for _, part := range parts {
+		if part.Variable != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (n Node) validateExtract() error {
