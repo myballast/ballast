@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Matches the application role created by deploy/postgres/init/01-app-role.sql.
+// Matches the application role created by ops/sql/00-app-role.sql.
 const defaultDSN = "postgres://ballast_app:ballast_app@127.0.0.1:5432/ballast?sslmode=disable"
 
 func dsn() string {

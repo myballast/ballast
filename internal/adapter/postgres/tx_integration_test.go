@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Matches the application role created by deploy/postgres/init/01-app-role.sql.
+// Matches the application role created by ops/sql/00-app-role.sql.
 const defaultTenantTestDSN = "postgres://ballast_app:ballast_app@127.0.0.1:5432/ballast?sslmode=disable"
 
 // A pool of exactly one connection, so that "the same physical connection" is a

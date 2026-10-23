@@ -47,8 +47,11 @@ jobs:
 
       # The repository's own compose.yaml, not a services: block: service
       # containers start before the checkout and therefore cannot run
-      # deploy/postgres/init/01-app-role.sql. CI would then connect as a
-      # superuser, and every Row-Level Security assertion would pass vacuously.
+      # ops/sql/00-app-role.sql, through deploy/postgres/init. CI would then
+      # connect as a superuser, and every Row-Level Security assertion would pass
+      # vacuously. This is also the script production runs, so the role the
+      # tests exercise (TestApplicationRoleIsLeastPrivileged and the isolation
+      # suite) is the role that will be deployed.
       - run: make up
 
       # Acceptance criterion of #3: the schema must be reversible, not
