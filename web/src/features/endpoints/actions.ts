@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 
 import { ApiError, apiDelete, apiPost } from "@/lib/api-client";
 
+import { filesOf, readRequestsForm } from "../scenarios/requests-body";
+
 function path(projectId: string): string {
   return `/projects/${encodeURIComponent(projectId)}/endpoints`;
 }
@@ -57,25 +59,25 @@ export async function importToCatalog(
   }
 }
 
-// importCollectionToCatalog adds the chosen requests of a Postman collection to
-// the project's catalog, replacing what the same source had before. The files are
-// sent again: nothing is kept on the server between the preview and this.
-export async function importCollectionToCatalog(
-  projectId: string,
-  source: string,
-  collection: string,
-  environment: string,
-  requests: number[],
+// importRequestsToCatalog adds the chosen requests of a Postman collection, a HAR
+// file or some cURL commands to the project's catalog, replacing what the same
+// source had before. The text is sent again: nothing is kept on the server
+// between the preview and this. The source name travels in the form's `name`.
+export async function importRequestsToCatalog(
+  form: FormData,
 ): Promise<CatalogOutcome & { count?: number; findings?: { request: string; message: string }[] }> {
+  const request = readRequestsForm(form);
+  if (!request) return { error: "The request could not be read. Reload the page and try again." };
+
   try {
     const result = await apiPost<{ count: number; findings: { request: string; message: string }[] }>(
-      `${path(projectId)}/import/postman`,
-      { source, collection, environment, requests },
+      `${path(request.projectId)}/import/${request.format}`,
+      { source: request.name, requests: request.requests, ...filesOf(request.format, request.text, request.environment) },
     );
-    revalidatePath(`/projects/${projectId}`, "layout");
+    revalidatePath(`/projects/${request.projectId}`, "layout");
     return result;
   } catch (error) {
-    return refusalOf(error, `/projects/${projectId}/scenarios/import`);
+    return refusalOf(error, `/projects/${request.projectId}/scenarios/import`);
   }
 }
 

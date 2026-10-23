@@ -16,6 +16,29 @@ const (
 	MaxCollectionDepth = 10
 	// MaxCollectionRequests is how many requests one collection may hold.
 	MaxCollectionRequests = 5000
+
+	// MaxHARBytes is the largest HAR file accepted. A browser records every
+	// response body in the file, so a few hundred requests are often tens of
+	// megabytes; the bodies are skipped while reading and never kept.
+	MaxHARBytes = 25 * 1024 * 1024
+	// MaxHAREntries is how many requests one HAR file may hold.
+	MaxHAREntries = 5000
+	// MaxCurlBytes is the longest text of cURL commands accepted.
+	MaxCurlBytes = 256 * 1024
+	// MaxCurlCommands is how many commands one pasted text may hold.
+	MaxCurlCommands = 200
+)
+
+// CollectionFormat is what a file of requests was exported from. The formats
+// differ in how they are read; once read, they are the same
+// ImportedCollection and go through the same analysis.
+type CollectionFormat string
+
+// The formats of requests that can be imported.
+const (
+	FormatPostman CollectionFormat = "postman"
+	FormatHAR     CollectionFormat = "har"
+	FormatCurl    CollectionFormat = "curl"
 )
 
 // CollectionPair is one name and value: a header, or a field of a form body.
@@ -70,6 +93,15 @@ type CollectionRequest struct {
 	Body          CollectionBody
 	Auth          *CollectionAuth
 	Scripts       []CollectionScript
+	// Host is the host the request addresses, when the reader knows it. A HAR
+	// file holds absolute addresses, and the choice screen filters on them.
+	Host string
+	// Kind says what the browser used the request for: api, document, script,
+	// style, image, font, media or other. Empty for a format that does not say.
+	Kind string
+	// Notes are things the reader changed in this request, such as a cookie it
+	// removed. They become findings tied to the request.
+	Notes []string
 }
 
 // CollectionVariable is a variable of the collection or of an environment file.
@@ -97,4 +129,13 @@ type ImportedCollection struct {
 	Variables []CollectionVariable
 	// Findings are what the reader itself left out, such as a script on a folder.
 	Findings []ImportFinding
+	// ManyHosts is true when the requests legitimately address several hosts and
+	// the person picks one, as in a HAR recorded on a page that calls its API and
+	// its analytics. The preview then lists every request; an import still sends
+	// its load to one target only.
+	ManyHosts bool
+	// Removed are values the reader took out of the file on purpose, such as the
+	// cookies of a HAR. They are never put in a graph; the final check refuses an
+	// import that still holds one, wherever it turned up.
+	Removed []string
 }

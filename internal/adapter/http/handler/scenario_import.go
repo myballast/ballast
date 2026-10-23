@@ -20,6 +20,13 @@ const maxImportBody = 2*domain.MaxSpecBytes + 1024*1024
 // environment, each up to the limit on a file.
 const maxCollectionBody = 4*domain.MaxCollectionBytes + 1024*1024
 
+// maxHARBody is the room for one HAR file, which is nothing but quotes and so
+// grows more than most text when it is carried as a JSON string.
+const maxHARBody = 2*domain.MaxHARBytes + 1024*1024
+
+// maxCurlBody is the room for the pasted text of some cURL commands.
+const maxCurlBody = 4*domain.MaxCurlBytes + 64*1024
+
 // PreviewOpenAPI handles POST /projects/{projectId}/scenarios/import/openapi/preview.
 func (h *Scenario) PreviewOpenAPI(w http.ResponseWriter, r *http.Request) {
 	who, projectID, ok := projectRequest(w, r)

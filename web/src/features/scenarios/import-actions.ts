@@ -5,7 +5,15 @@ import { redirect } from "next/navigation";
 
 import { ApiError, apiPost } from "@/lib/api-client";
 
-import type { CollectionPreview, DetectedSecret, ImportFinding, OpenAPIPreview, Scenario } from "./types";
+import { filesOf, readRequestsForm } from "./requests-body";
+import type {
+  CollectionPreview,
+  DetectedSecret,
+  ImportFinding,
+  OpenAPIPreview,
+  RequestsFormat,
+  Scenario,
+} from "./types";
 
 function path(projectId: string): string {
   return `/projects/${encodeURIComponent(projectId)}/scenarios/import/openapi`;
@@ -80,44 +88,50 @@ export type CollectionImportResult =
   | { scenarioId: string; secrets: DetectedSecret[]; findings: ImportFinding[] }
   | { error: string; nameTaken?: boolean };
 
-function postmanPath(projectId: string): string {
-  return `/projects/${encodeURIComponent(projectId)}/scenarios/import/postman`;
+function formatPath(projectId: string, format: RequestsFormat): string {
+  return `/projects/${encodeURIComponent(projectId)}/scenarios/import/${format}`;
 }
 
-// previewPostman sends a collection, and an environment file when there is one,
+const unreadable = { error: "The request could not be read. Reload the page and try again." };
+
+// previewRequests sends a file of requests, and an environment file for Postman,
 // and gets back the requests it describes. Nothing is stored. The files are text
-// read in the browser: no value in them is looked at here.
-export async function previewPostman(
-  projectId: string,
-  collection: string,
-  environment: string,
-): Promise<CollectionPreviewResult> {
+// read in the browser: no value in them is looked at here. It takes a FormData
+// (see requestsForm) because a server action refuses a long string argument.
+export async function previewRequests(form: FormData): Promise<CollectionPreviewResult> {
+  const request = readRequestsForm(form);
+  if (!request) return unreadable;
+
   try {
-    const preview = await apiPost<CollectionPreview>(`${postmanPath(projectId)}/preview`, { collection, environment });
+    const preview = await apiPost<CollectionPreview>(
+      `${formatPath(request.projectId, request.format)}/preview`,
+      filesOf(request.format, request.text, request.environment),
+    );
     return { preview };
   } catch (error) {
-    return refusalOf(error, `/projects/${projectId}/scenarios/import`);
+    return refusalOf(error, `/projects/${request.projectId}/scenarios/import`);
   }
 }
 
-// importPostman builds the scenario from the chosen requests. It does not take the
-// browser anywhere: what comes back is the report and the secrets to create, which
-// the person reads before leaving.
-export async function importPostman(
-  projectId: string,
-  name: string,
-  collection: string,
-  environment: string,
-  requests: number[],
-): Promise<CollectionImportResult> {
+// importRequests builds the scenario from the chosen requests. It does not take
+// the browser anywhere: what comes back is the report and the secrets to create,
+// which the person reads before leaving.
+export async function importRequests(form: FormData): Promise<CollectionImportResult> {
+  const request = readRequestsForm(form);
+  if (!request) return unreadable;
+
   try {
     const result = await apiPost<{ scenario: Scenario; secrets: DetectedSecret[]; findings: ImportFinding[] }>(
-      postmanPath(projectId),
-      { name, collection, environment, requests },
+      formatPath(request.projectId, request.format),
+      {
+        name: request.name,
+        requests: request.requests,
+        ...filesOf(request.format, request.text, request.environment),
+      },
     );
-    revalidatePath(`/projects/${projectId}`, "layout");
+    revalidatePath(`/projects/${request.projectId}`, "layout");
     return { scenarioId: result.scenario.id, secrets: result.secrets, findings: result.findings };
   } catch (error) {
-    return refusalOf(error, `/projects/${projectId}/scenarios/import`);
+    return refusalOf(error, `/projects/${request.projectId}/scenarios/import`);
   }
 }

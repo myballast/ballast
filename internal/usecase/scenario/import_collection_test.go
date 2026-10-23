@@ -34,20 +34,20 @@ func shopCollection() domain.ImportedCollection {
 func collectionFixture(authz Authorizer) (fixture, *fakeCollectionReader) {
 	f := newFixture(domain.ScriptReport{}, authz)
 	reader := &fakeCollectionReader{collection: shopCollection()}
-	f.service.collections = reader
+	f.service.collections = CollectionReaders{Postman: reader, HAR: reader, Curl: reader}
 	return f, reader
 }
 
 func (f fixture) collectionRequest(positions ...int) CollectionImport {
 	return CollectionImport{
-		ProjectID: f.projectID, Name: "shop", Collection: []byte("the file"), Requests: positions,
+		ProjectID: f.projectID, Format: domain.FormatPostman, Name: "shop", Collection: []byte("the file"), Requests: positions,
 	}
 }
 
 func TestPreviewListsEachRequestWithWhatBecameOfIt(t *testing.T) {
 	f, _ := collectionFixture(allowAll{})
 
-	preview, err := f.service.PreviewCollection(context.Background(), f.who, f.projectID, []byte("c"), nil)
+	preview, err := f.service.PreviewCollection(context.Background(), f.who, f.projectID, domain.FormatPostman, []byte("c"), nil)
 	if err != nil {
 		t.Fatalf("PreviewCollection: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestPreviewListsEachRequestWithWhatBecameOfIt(t *testing.T) {
 func TestCollectionPreviewAndImportReadNothingForSomebodyWhoCannotCreateScenarios(t *testing.T) {
 	f, reader := collectionFixture(refuseAll{})
 
-	if _, err := f.service.PreviewCollection(context.Background(), f.who, f.projectID, []byte("c"), nil); !errors.Is(err, domain.ErrForbidden) {
+	if _, err := f.service.PreviewCollection(context.Background(), f.who, f.projectID, domain.FormatPostman, []byte("c"), nil); !errors.Is(err, domain.ErrForbidden) {
 		t.Errorf("preview error = %v", err)
 	}
 	if _, _, _, err := f.service.ImportCollection(context.Background(), f.who, f.collectionRequest(0)); !errors.Is(err, domain.ErrForbidden) {
@@ -120,7 +120,7 @@ func TestTheTokenOfAFileIsNeverInTheLogs(t *testing.T) {
 	for _, request := range []CollectionImport{f.collectionRequest(0, 1), f.collectionRequest(7)} {
 		_, _, _, _ = f.service.ImportCollection(context.Background(), f.who, request)
 	}
-	_, _ = f.service.PreviewCollection(context.Background(), f.who, f.projectID, []byte("c"), nil)
+	_, _ = f.service.PreviewCollection(context.Background(), f.who, f.projectID, domain.FormatPostman, []byte("c"), nil)
 
 	if logs.Len() == 0 {
 		t.Fatal("nothing was logged, so this test proves nothing")
@@ -161,5 +161,47 @@ func TestACollectionOfRequestsThatCannotBeMadeStoresNothing(t *testing.T) {
 	_, _, _, err := f.service.ImportCollection(context.Background(), f.who, f.collectionRequest(0))
 	if !errors.Is(err, domain.ErrInvalidCollection) || f.scenarios.created != nil {
 		t.Fatalf("error = %v, stored = %v", err, f.scenarios.created)
+	}
+}
+
+func TestEachFormatIsReadByItsOwnReader(t *testing.T) {
+	f := newFixture(domain.ScriptReport{}, allowAll{})
+	postman := &fakeCollectionReader{collection: shopCollection()}
+	har := &fakeCollectionReader{collection: shopCollection()}
+	curl := &fakeCollectionReader{collection: shopCollection()}
+	f.service.collections = CollectionReaders{Postman: postman, HAR: har, Curl: curl}
+
+	for format, reader := range map[domain.CollectionFormat]*fakeCollectionReader{
+		domain.FormatPostman: postman, domain.FormatHAR: har, domain.FormatCurl: curl,
+	} {
+		if _, err := f.service.PreviewCollection(context.Background(), f.who, f.projectID, format, []byte("c"), nil); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		if reader.calls != 1 {
+			t.Errorf("%s: its reader was called %d times", format, reader.calls)
+		}
+	}
+	if postman.calls != 1 || har.calls != 1 || curl.calls != 1 {
+		t.Errorf("calls = %d %d %d, wanted one each", postman.calls, har.calls, curl.calls)
+	}
+}
+
+func TestAFormatWithoutAReaderIsRefusedBeforeAnythingIsRead(t *testing.T) {
+	f, reader := collectionFixture(allowAll{})
+
+	for _, format := range []domain.CollectionFormat{"", "xml"} {
+		_, err := f.service.PreviewCollection(context.Background(), f.who, f.projectID, format, []byte("c"), nil)
+		if !errors.Is(err, domain.ErrInvalidCollection) {
+			t.Errorf("preview %q: error = %v", format, err)
+		}
+
+		request := f.collectionRequest(0)
+		request.Format = format
+		if _, _, _, err := f.service.ImportCollection(context.Background(), f.who, request); !errors.Is(err, domain.ErrInvalidCollection) {
+			t.Errorf("import %q: error = %v", format, err)
+		}
+	}
+	if reader.calls != 0 || f.scenarios.created != nil {
+		t.Errorf("read %d times, stored %v", reader.calls, f.scenarios.created)
 	}
 }

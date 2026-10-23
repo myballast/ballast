@@ -11,6 +11,12 @@ export const maxCatalogEndpoints = 5000;
 // The largest specification the API reads. Mirrors domain.MaxSpecBytes.
 export const maxSpecBytes = 5 * 1024 * 1024;
 
+// The largest HAR file the API reads. Mirrors domain.MaxHARBytes.
+export const maxHARBytes = 25 * 1024 * 1024;
+
+// The longest text of cURL commands the API reads. Mirrors domain.MaxCurlBytes.
+export const maxCurlBytes = 256 * 1024;
+
 export const untaggedLabel = "Untagged";
 
 // What the grouping and the search read of an endpoint, so that they serve the

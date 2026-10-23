@@ -72,6 +72,7 @@ func TestAnImportedCollectionRunsWithItsSecretsFromTheEnvironment(t *testing.T) 
 
 	imported, _, result, err := imports.service.ImportCollection(ctx, imports.who, scenario.CollectionImport{
 		ProjectID:  imports.projectID,
+		Format:     domain.FormatPostman,
 		Name:       "shop collection",
 		Collection: []byte(tokenCollection),
 		Requests:   []int{0, 1},
@@ -156,6 +157,102 @@ func TestAnImportedCollectionRunsWithItsSecretsFromTheEnvironment(t *testing.T) 
 	for _, secret := range []string{collectionToken, collectionPassword} {
 		if strings.Contains(finished.ErrorMessage, secret) {
 			t.Errorf("the run's error message carries %q", secret)
+		}
+	}
+}
+
+// A recording from a browser, with a cookie and a token in it, is a scenario that
+// runs: the target receives the token from the environment, and no cookie at all.
+func TestAnImportedRecordingRunsWithItsTokenFromTheEnvironmentAndNoCookie(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	const sessionCookie = "sess-a-session-cookie-that-must-never-be-sent-1"
+	const token = "ghp_a_recorded_token_that_must_stay_secret_1"
+
+	var mu sync.Mutex
+	var cookies, authorizations []string
+	target := newTarget(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		cookies = append(cookies, r.Header.Get("Cookie"))
+		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	db, err := postgres.Open(ctx, dsn())
+	if err != nil {
+		t.Fatalf("open the database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	org, _, environment := seed(ctx, t, db, target, nil)
+	imports := newImporter(ctx, t, db, org)
+
+	recording := fmt.Sprintf(`{"log": {"entries": [
+	  {"_resourceType": "xhr", "request": {"method": "GET", "url": "https://elsewhere.example.com/api/me?page=2",
+	    "headers": [{"name": "Cookie", "value": "sid=%s"}, {"name": "Authorization", "value": "Bearer %s"},
+	                {"name": "User-Agent", "value": "Mozilla/5.0"}]},
+	   "response": {"content": {"mimeType": "application/json"}}}]}}`, sessionCookie, token)
+
+	imported, _, result, err := imports.service.ImportCollection(ctx, imports.who, scenario.CollectionImport{
+		ProjectID:  imports.projectID,
+		Format:     domain.FormatHAR,
+		Name:       "recorded",
+		Collection: []byte(recording),
+		Requests:   []int{0},
+	})
+	if err != nil {
+		t.Fatalf("ImportCollection: %v", err)
+	}
+
+	var storedGraph, storedScript string
+	if err := db.InTenantTx(ctx, org, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT graph::text, script FROM scenario WHERE org_id = $1 AND id = $2`, org, imported.ID,
+		).Scan(&storedGraph, &storedScript)
+	}); err != nil {
+		t.Fatalf("read the stored scenario: %v", err)
+	}
+	for _, secret := range []string{sessionCookie, token} {
+		if strings.Contains(storedGraph, secret) || strings.Contains(storedScript, secret) {
+			t.Fatalf("a secret of the recording is stored in the scenario: %q", secret)
+		}
+	}
+
+	if len(result.Secrets) != 1 {
+		t.Fatalf("secrets listed = %+v, wanted the token only", result.Secrets)
+	}
+	if _, err := postgres.NewSecretRepository(db, cipher(t)).
+		Put(ctx, org, environment, result.Secrets[0].Key, token, time.Now().UTC()); err != nil {
+		t.Fatalf("store the secret: %v", err)
+	}
+
+	s := build(t, db, org)
+	status, queued := s.enqueue(t, fmt.Sprintf(
+		`{"scenario_id":%q,"environment_id":%q,"profile":"smoke","params":{"target_vus":1,"plateau_s":2}}`,
+		imported.ID, environment))
+	if status != http.StatusAccepted {
+		t.Fatalf("POST /runs returned %d", status)
+	}
+	s.processOne(ctx, t)
+
+	finished := s.get(t, queued.ID)
+	if finished.Status != string(domain.StatusPassed) {
+		t.Fatalf("the run ended as %s: %s", finished.Status, finished.ErrorMessage)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(authorizations) == 0 {
+		t.Fatal("the target received nothing")
+	}
+	for index, header := range authorizations {
+		if header != "Bearer "+token {
+			t.Errorf("request %d: Authorization = %q", index, header)
+		}
+		if cookies[index] != "" {
+			t.Errorf("request %d: the target received a Cookie, %q", index, cookies[index])
 		}
 	}
 }

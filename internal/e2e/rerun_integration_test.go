@@ -99,7 +99,7 @@ func TestARerunExecutesWhatTheRunFroze(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	scenarios := scenario.NewService(
 		postgres.NewScenarioWriteRepository(db), postgres.NewScenarioWriteRepository(db),
-		k6.NewScriptInspector(), openapi.NewReader(), postman.NewReader(), k6.NewGenerator(),
+		k6.NewScriptInspector(), openapi.NewReader(), scenario.CollectionReaders{Postman: postman.NewReader()}, k6.NewGenerator(),
 		authz.NewService(postgres.NewMembershipRepository(db), log),
 		infra.SystemClock{}, log,
 	)

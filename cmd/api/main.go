@@ -20,6 +20,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/youssefmahersi/ballast/internal/adapter/curl"
+	"github.com/youssefmahersi/ballast/internal/adapter/har"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
@@ -127,7 +129,7 @@ func serve(log *slog.Logger) error {
 		postgres.NewScenarioWriteRepository(db),
 		k6.NewScriptInspector(),
 		openapi.NewReader(),
-		postman.NewReader(),
+		scenario.CollectionReaders{Postman: postman.NewReader(), HAR: har.NewReader(), Curl: curl.NewReader()},
 		k6.NewGenerator(),
 		permissions,
 		infra.SystemClock{},
@@ -137,7 +139,7 @@ func serve(log *slog.Logger) error {
 	catalogs := catalog.NewService(
 		postgres.NewCatalogRepository(db),
 		openapi.NewReader(),
-		postman.NewReader(),
+		catalog.CollectionReaders{Postman: postman.NewReader(), HAR: har.NewReader(), Curl: curl.NewReader()},
 		permissions,
 		infra.SystemClock{},
 		log,

@@ -13,6 +13,7 @@ import (
 // project's catalog.
 type CollectionImport struct {
 	ProjectID uuid.UUID
+	Format    domain.CollectionFormat
 	// Source names the collection. Importing a source that exists replaces what
 	// it had.
 	Source string
@@ -51,7 +52,11 @@ func (s *Service) ImportCollection(
 		return CollectionResult{}, fmt.Errorf("%w: no request was chosen", domain.ErrInvalidCollection)
 	}
 
-	collection, err := s.collections.Read(request.Collection, request.Environment)
+	reader, err := s.collections.For(request.Format)
+	if err != nil {
+		return CollectionResult{}, err
+	}
+	collection, err := reader.Read(request.Collection, request.Environment)
 	if err != nil {
 		return CollectionResult{}, err
 	}

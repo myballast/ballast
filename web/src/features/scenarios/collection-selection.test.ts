@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chosenPositions, firstChoice, groupByFolder, groupFindings, toggleGroup } from "./collection-selection.ts";
+import { chosenPositions, firstChoice, groupByFolder, groupFindings, limitFor, toggleGroup } from "./collection-selection.ts";
 import type { CollectionRequest } from "./types.ts";
 
 function request(position: number, name: string, folders: string[] = [], overrides: Partial<CollectionRequest> = {}): CollectionRequest {
@@ -10,6 +10,8 @@ function request(position: number, name: string, folders: string[] = [], overrid
     folders,
     name,
     method: "GET",
+    host: "",
+    kind: "",
     path: `/${name.toLowerCase()}`,
     has_body: false,
     left_out: false,
@@ -87,4 +89,11 @@ test("findings are gathered by request, in the order they appear, without repeat
     { request: "Login", messages: ["has tests of 3 lines, which are not converted", "uses basic authentication"] },
     { request: "List", messages: ["has a formdata body"] },
   ]);
+});
+
+test("the variables of a scenario take nodes from the requests it can hold", () => {
+  assert.equal(limitFor(true), 199);
+  assert.equal(limitFor(true, 3), 196);
+  assert.equal(limitFor(true, 500), 0);
+  assert.equal(limitFor(false, 3), 5000);
 });

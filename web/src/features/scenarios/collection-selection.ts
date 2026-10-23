@@ -20,13 +20,13 @@ function matchesSearch(request: CollectionRequest, search: string): boolean {
 // groupByFolder gathers the requests that match the search under their folder,
 // in the order the collection runs them. Unlike the endpoints of a specification
 // they are not sorted: a collection has a journey, and its order means something.
-export function groupByFolder(requests: CollectionRequest[], search: string): RequestGroup[] {
+export function groupByFolder(requests: CollectionRequest[], search: string, noFolder = rootLabel): RequestGroup[] {
   const groups: RequestGroup[] = [];
 
   for (const request of requests) {
     if (!matchesSearch(request, search)) continue;
 
-    const label = request.folders.length === 0 ? rootLabel : request.folders.join(" / ");
+    const label = request.folders.length === 0 ? noFolder : request.folders.join(" / ");
     // Consecutive requests of the same folder make one group; the same folder
     // met again later is a group of its own, so that the order is not rewritten.
     const last = groups[groups.length - 1];
@@ -73,9 +73,10 @@ export function toggleGroup(chosen: ReadonlySet<number>, group: RequestGroup): S
   return next;
 }
 
-// limitFor is how many requests the chosen destination takes.
-export function limitFor(makeScenario: boolean): number {
-  return makeScenario ? maxChosenEndpoints : maxCatalogEndpoints;
+// limitFor is how many requests the chosen destination takes. A scenario starts
+// with a node for each variable the requests need, and those leave less room.
+export function limitFor(makeScenario: boolean, variableNodes = 0): number {
+  return makeScenario ? Math.max(0, maxChosenEndpoints - variableNodes) : maxCatalogEndpoints;
 }
 
 export type FindingGroup = {

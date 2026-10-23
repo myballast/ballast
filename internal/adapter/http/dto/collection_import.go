@@ -19,6 +19,11 @@ type CollectionRequest struct {
 	Folders []string `json:"folders"`
 	Name    string   `json:"name"`
 	Method  string   `json:"method"`
+	// Host is the host a HAR request was sent to, empty for other formats.
+	Host string `json:"host"`
+	// Kind is what a browser used a HAR request for — api, document, script,
+	// style, image, font, media or other — empty for other formats.
+	Kind string `json:"kind"`
 	// Path is the template the request becomes, empty when it was left out.
 	Path    string `json:"path"`
 	HasBody bool   `json:"has_body"`
@@ -51,6 +56,9 @@ type CollectionPreviewResponse struct {
 	// Secrets are the keys to create if every request were imported.
 	Secrets  []DetectedSecret `json:"secrets"`
 	Findings []ImportFinding  `json:"findings"`
+	// VariableNodes is how many nodes the variables would take at the start of a
+	// scenario, which leaves that much less room for requests.
+	VariableNodes int `json:"variable_nodes"`
 }
 
 // ImportCollectionRequest builds a scenario from some requests of a collection.
@@ -85,4 +93,47 @@ type CatalogCollectionImportRequest struct {
 type CatalogCollectionImportResponse struct {
 	Count    int             `json:"count"`
 	Findings []ImportFinding `json:"findings"`
+}
+
+// HARPreviewRequest carries the text of a HAR file.
+type HARPreviewRequest struct {
+	// HAR is the whole file as text. At most 25 MB.
+	HAR string `json:"har"`
+}
+
+// ImportHARRequest builds a scenario from some requests of a HAR file.
+type ImportHARRequest struct {
+	Name string `json:"name"`
+	HAR  string `json:"har"`
+	// Requests are the positions to keep, in the order they should run.
+	Requests []int `json:"requests"`
+}
+
+// CatalogHARImportRequest adds requests of a HAR file to the catalog.
+type CatalogHARImportRequest struct {
+	// Source names the file. Importing a source that exists replaces what it had.
+	Source   string `json:"source"`
+	HAR      string `json:"har"`
+	Requests []int  `json:"requests"`
+}
+
+// CurlPreviewRequest carries pasted cURL commands.
+type CurlPreviewRequest struct {
+	// Commands is the pasted text: one or several curl commands. At most 256 KB.
+	Commands string `json:"commands"`
+}
+
+// ImportCurlRequest builds a scenario from the commands.
+type ImportCurlRequest struct {
+	Name     string `json:"name"`
+	Commands string `json:"commands"`
+	// Requests are the positions to keep, in the order they should run.
+	Requests []int `json:"requests"`
+}
+
+// CatalogCurlImportRequest adds requests of the commands to the catalog.
+type CatalogCurlImportRequest struct {
+	Source   string `json:"source"`
+	Commands string `json:"commands"`
+	Requests []int  `json:"requests"`
 }

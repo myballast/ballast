@@ -258,6 +258,22 @@ func Routes() []Route {
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
 		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/har/preview",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/har",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/curl/preview",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/scenarios/import/curl",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
 			Method: "POST", Path: "/projects/{projectId}/scenarios/import/openapi",
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
@@ -309,6 +325,14 @@ func Routes() []Route {
 		},
 		{
 			Method: "POST", Path: "/projects/{projectId}/endpoints/import/postman",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/endpoints/import/har",
+			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/endpoints/import/curl",
 			Scope: ScopePath, Permission: domain.PermManageScenarios, ProjectParam: "projectId",
 		},
 		{
