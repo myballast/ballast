@@ -1,7 +1,13 @@
 # The HTTP API.
 #
 # Built the same way as the egress proxy, and for the same reason: what ships is
-# one static binary and nothing it could be talked into running.
+# static binaries and nothing they could be talked into running.
+#
+# There are two. /api is the service. /migrate applies the schema and exits; the
+# platform runs it before it starts a new version (see docs/migrations.md). It
+# lives in this image because a pre-deploy command runs in the service's own
+# image, and it is a binary rather than a tool because this image has no shell
+# and no checkout to read the migrations from: they are embedded in it.
 
 FROM golang:1.23-alpine AS build
 
@@ -14,12 +20,14 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
+COPY migrations ./migrations
 
 # Static, so the image below can hold nothing but this binary. The time zone
 # database travels inside it -- cmd/api imports time/tzdata -- because an
 # allowed window is resolved in its own zone and there is no /usr/share/zoneinfo
 # in a scratch image.
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /api ./cmd/api
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /migrate ./cmd/migrate
 
 # Scratch, not alpine: no shell, no package manager, no tooling. Debugging a
 # container is done from its logs and its endpoints.
@@ -31,6 +39,7 @@ FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 COPY --from=build /api /api
+COPY --from=build /migrate /migrate
 
 # Not root, and not a user that exists in any image: there is no /etc/passwd
 # here for it to be in.
