@@ -24,42 +24,34 @@ services:
       timeout: 3s
       retries: 30
 
-  # MinIO is commented out, not removed.
+  # Object storage for a run's artifacts, S3-compatible. The code only speaks S3
+  # (internal/adapter/storage/s3), so this can be replaced by R2, a Railway
+  # bucket or anything else that answers the same protocol.
   #
-  # Its container images are no longer publicly available: every tag is refused
-  # on both quay.io and Docker Hub, and quay.io answers "Requires
-  # authentication" for the whole repository rather than for one tag. So this is
-  # not a version that moved, it is public access that went away.
+  # The official images are gone: quay.io/minio/minio and minio/minio on Docker
+  # Hub both refuse every tag. This is Chainguard's build, the one MinIO image
+  # still pullable without an account. It only publishes `latest`, so it is
+  # pinned by digest: a development database that changes under you is a bad
+  # morning, and a new MinIO release is not a reason to have one.
   #
-  # Nothing in the code talks to object storage yet — internal/adapter/storage/s3
-  # holds a doc comment and nothing else — so starting it bought a 167 MB
-  # download and no capability. Leaving it in stopped `make up` from working on
-  # any machine that did not already have the image cached, which is every fresh
-  # machine and every continuous integration runner.
+  # No healthcheck, on purpose: the image holds the minio binary and nothing
+  # else — no shell, no curl, no mc. Whoever needs it ready (the integration
+  # tests) waits for it, see internal/adapter/storage/s3.
   #
-  # It comes back with the ticket that archives a run's artifacts, which is the
-  # first thing that needs it. That is also the moment to decide whether it is
-  # still MinIO: SeaweedFS, Garage and LocalStack are all reachable today, and
-  # picking one now would be choosing a dependency before any code needs it.
-  #
-  # minio:
-  #   image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-  #   command: server /data --console-address ":9001"
-  #   environment:
-  #     MINIO_ROOT_USER: ballast
-  #     MINIO_ROOT_PASSWORD: ballastballast
-  #   ports:
-  #     - "9000:9000"
-  #     - "9001:9001"
-  #   volumes:
-  #     - miniodata:/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "mc ready local || exit 1"]
-  #     interval: 2s
-  #     timeout: 3s
-  #     retries: 30
-
+  # Both ports are published on the loopback only. Credentials are for
+  # development; production has its own, and neither port is reachable there.
+  minio:
+    image: chainguard/minio:latest@sha256:268d68a2a3b6fc65f905a61f84d7eab6345ce6bff14f551e2b028ec31e6a1341
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ballast
+      MINIO_ROOT_PASSWORD: ballastballast
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - miniodata:/data
 
 volumes:
   pgdata:
-  # miniodata:
+  miniodata:

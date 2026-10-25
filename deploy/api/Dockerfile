@@ -3,11 +3,13 @@
 # Built the same way as the egress proxy, and for the same reason: what ships is
 # static binaries and nothing they could be talked into running.
 #
-# There are two. /api is the service. /migrate applies the schema and exits; the
+# There are three. /api is the service. /migrate applies the schema and exits; the
 # platform runs it before it starts a new version (see docs/migrations.md). It
 # lives in this image because a pre-deploy command runs in the service's own
 # image, and it is a binary rather than a tool because this image has no shell
 # and no checkout to read the migrations from: they are embedded in it.
+# /storagecheck proves the object store answers to the application's own
+# credentials from where the API runs (see ops/storage/README.md).
 
 FROM golang:1.23-alpine AS build
 
@@ -28,6 +30,7 @@ COPY migrations ./migrations
 # in a scratch image.
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /api ./cmd/api
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /migrate ./cmd/migrate
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /storagecheck ./cmd/storagecheck
 
 # Scratch, not alpine: no shell, no package manager, no tooling. Debugging a
 # container is done from its logs and its endpoints.
@@ -40,6 +43,7 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 
 COPY --from=build /api /api
 COPY --from=build /migrate /migrate
+COPY --from=build /storagecheck /storagecheck
 
 # Not root, and not a user that exists in any image: there is no /etc/passwd
 # here for it to be in.

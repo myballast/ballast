@@ -73,6 +73,21 @@ seed: ## Load the development organization, project, scenario and environment
 	docker compose exec -T -e PGOPTIONS=--client-min-messages=warning postgres \
 		psql -q -v ON_ERROR_STOP=1 -U ballast -d ballast < deploy/seed/dev.sql
 
+## --- Object storage -------------------------------------------------------
+
+# Development defaults only, matching the minio service of compose.yaml: a value
+# from the shell or from .env wins. These are the store's administrator, which is
+# what creating a bucket takes; the application's own credentials cannot.
+storage-check: export BALLAST_S3_ENDPOINT ?= 127.0.0.1:9000
+storage-check: export BALLAST_S3_BUCKET ?= ballast
+storage-check: export BALLAST_S3_ACCESS_KEY ?= ballast
+storage-check: export BALLAST_S3_SECRET_KEY ?= ballastballast
+storage-check: export BALLAST_S3_USE_SSL ?= false
+
+.PHONY: storage-check
+storage-check: ## Create the development bucket, then write, read and remove an object
+	go run ./cmd/storagecheck -create-bucket
+
 ## --- Quality --------------------------------------------------------------
 
 .PHONY: test
