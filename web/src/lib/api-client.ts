@@ -7,10 +7,10 @@ import { cookies } from "next/headers";
 // API on its behalf; page scripts never see it, since it is HttpOnly.
 const baseURL = process.env.BALLAST_API_URL ?? "http://localhost:8080";
 
-// Where the browser itself reaches the API. Only sign-in needs it: the
-// browser has to be sent to the API's /auth/{provider}/login, which redirects
-// it on to the identity provider.
-export const publicAPIURL = process.env.BALLAST_API_PUBLIC_URL ?? baseURL;
+// Where this server reaches the API, for the route handlers that relay to it. The
+// browser never gets an address of the API: it signs in through this front end,
+// so that the session cookie is set on the host that reads it.
+export const apiBaseURL = baseURL;
 
 // Must match session.CookieName in internal/adapter/http/session.
 export const sessionCookie = "ballast_session";

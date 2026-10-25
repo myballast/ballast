@@ -21,6 +21,14 @@ info:
     `HttpOnly`, so browser scripts cannot read it; the front end's server
     forwards it. A request without a valid session gets `401`.
 
+    **Origin.** A request that carries an `Origin` header comes from a browser
+    page, and is answered `403` for every route unless the origin is the front
+    end's or the API's own; the front end's origin also gets the CORS headers
+    (`Access-Control-Allow-Origin`, `Allow-Credentials`). A request with no
+    `Origin` — the front end's server, a command line — is left to
+    authentication. The session is also bound to the environment that issued it:
+    a cookie from another environment is a `401`.
+
     **Tenancy.** The organization a request acts for is the one in the session.
     It is never read from the request itself. Identifiers that belong to another
     organization behave exactly like identifiers that do not exist.

@@ -22,6 +22,7 @@ import (
 
 	"github.com/youssefmahersi/ballast/internal/adapter/curl"
 	"github.com/youssefmahersi/ballast/internal/adapter/har"
+	"github.com/youssefmahersi/ballast/internal/adapter/http/middleware"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
 	"github.com/youssefmahersi/ballast/internal/adapter/openapi"
@@ -175,7 +176,7 @@ func serve(log *slog.Logger) error {
 
 	journalReader := audit.NewService(journal, permissions, log)
 
-	sessions, err := session.NewManager(cfg.SessionSecret, cfg.SessionTTL, infra.SystemClock{})
+	sessions, err := session.NewManager(cfg.SessionSecret, middleware.OriginOf(cfg.PublicURL), cfg.SessionTTL, infra.SystemClock{})
 	if err != nil {
 		return err
 	}
@@ -192,8 +193,9 @@ func serve(log *slog.Logger) error {
 	}
 
 	server := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           httpadapter.NewRouter(service, projects, scenarios, catalogs, environments, invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log),
+		Addr: cfg.Addr,
+		Handler: originGuard(cfg, log)(httpadapter.NewRouter(service, projects, scenarios, catalogs, environments,
+			invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -216,6 +218,17 @@ func serve(log *slog.Logger) error {
 
 // providers builds the identity providers that have credentials. Each one's
 // callback is on this API, at the address browsers reach it by.
+// originGuard lets through the front end's origin and this API's own. Under
+// the usual setup they are the same: the browser only ever talks to the front
+// end, which relays what concerns the API.
+func originGuard(cfg config.API, log *slog.Logger) func(http.Handler) http.Handler {
+	allowed := []string{middleware.OriginOf(cfg.WebURL)}
+	if own := middleware.OriginOf(cfg.PublicURL); own != allowed[0] {
+		allowed = append(allowed, own)
+	}
+	return middleware.OriginGuard(allowed, log)
+}
+
 func providers(cfg config.API) map[string]auth.IdentityProvider {
 	callback := func(name string) string {
 		return cfg.PublicURL.JoinPath("auth", name, "callback").String()

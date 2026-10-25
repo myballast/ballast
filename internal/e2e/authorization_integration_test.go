@@ -201,7 +201,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 	)
 
 	sessions, err := session.NewManager(
-		[]byte(strings.Repeat("a", session.MinSecretLength)), time.Hour, infra.SystemClock{})
+		[]byte(strings.Repeat("a", session.MinSecretLength)), "https://ballast.test", time.Hour, infra.SystemClock{})
 	if err != nil {
 		t.Fatalf("session manager: %v", err)
 	}

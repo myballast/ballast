@@ -264,7 +264,7 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 		log,
 	)
 
-	sessions, err := session.NewManager([]byte(strings.Repeat("e", session.MinSecretLength)), time.Hour, infra.SystemClock{})
+	sessions, err := session.NewManager([]byte(strings.Repeat("e", session.MinSecretLength)), "https://ballast.test", time.Hour, infra.SystemClock{})
 	if err != nil {
 		t.Fatalf("session manager: %v", err)
 	}

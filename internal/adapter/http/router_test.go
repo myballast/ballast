@@ -22,7 +22,7 @@ import (
 // purpose; reaching one would panic and fail the test.
 func TestEveryProtectedRouteRequiresASession(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	sessions, err := session.NewManager([]byte(strings.Repeat("k", 32)), time.Hour, infra.SystemClock{})
+	sessions, err := session.NewManager([]byte(strings.Repeat("k", 32)), "https://ballast.test", time.Hour, infra.SystemClock{})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}

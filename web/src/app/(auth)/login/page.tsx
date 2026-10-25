@@ -1,4 +1,5 @@
-import { getProviders, safeNext } from "@/features/auth/api";
+import { getProviders } from "@/features/auth/api";
+import { safeNext } from "@/features/auth/login-url";
 import { SignIn } from "@/features/auth/components/sign-in";
 
 export default async function LoginPage(props: PageProps<"/login">) {

@@ -14,6 +14,9 @@ import (
 	"github.com/youssefmahersi/ballast/internal/domain"
 )
 
+// audience is the origin of the environment the managers below belong to.
+const audience = "https://staging.example.test"
+
 var (
 	secret = []byte("0123456789abcdef0123456789abcdef")
 	now    = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
@@ -27,7 +30,7 @@ func (c fixedClock) Now() time.Time { return c.at }
 func manager(t *testing.T, at time.Time) *session.Manager {
 	t.Helper()
 
-	m, err := session.NewManager(secret, 12*time.Hour, fixedClock{at: at})
+	m, err := session.NewManager(secret, audience, 12*time.Hour, fixedClock{at: at})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
@@ -102,7 +105,7 @@ func TestTokenCarriesNoPermission(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 
-	allowed := map[string]bool{"iss": true, "sub": true, "org": true, "iat": true, "exp": true}
+	allowed := map[string]bool{"iss": true, "sub": true, "aud": true, "org": true, "iat": true, "exp": true}
 	for name := range claims {
 		if !allowed[name] {
 			t.Errorf("the token carries an unexpected claim %q", name)
@@ -124,6 +127,7 @@ func TestVerifyRefuses(t *testing.T) {
 	claims := func() jwt.MapClaims {
 		return jwt.MapClaims{
 			"iss": "ballast",
+			"aud": audience,
 			"sub": who.UserID.String(),
 			"org": who.OrgID.String(),
 			"iat": now.Unix(),
@@ -154,6 +158,8 @@ func TestVerifyRefuses(t *testing.T) {
 		"another HMAC alg": {forged(jwt.SigningMethodHS512, secret, claims()), m},
 		"no expiry":        {forged(jwt.SigningMethodHS256, secret, without("exp")), m},
 		"another issuer":   {forged(jwt.SigningMethodHS256, secret, with("iss", "someone-else")), m},
+		"no audience":      {forged(jwt.SigningMethodHS256, secret, without("aud")), m},
+		"another audience": {forged(jwt.SigningMethodHS256, secret, with("aud", "https://production.example.test")), m},
 		"no organization":  {forged(jwt.SigningMethodHS256, secret, without("org")), m},
 		"bad organization": {forged(jwt.SigningMethodHS256, secret, with("org", "not-a-uuid")), m},
 		"nil organization": {forged(jwt.SigningMethodHS256, secret, with("org", uuid.Nil.String())), m},
@@ -173,7 +179,7 @@ func TestVerifyRefuses(t *testing.T) {
 
 // A short key can be brute-forced offline from any one token.
 func TestManagerRefusesAShortSecret(t *testing.T) {
-	if _, err := session.NewManager([]byte("too-short"), time.Hour, fixedClock{at: now}); err == nil {
+	if _, err := session.NewManager([]byte("too-short"), audience, time.Hour, fixedClock{at: now}); err == nil {
 		t.Error("a 9-byte secret was accepted")
 	}
 }
@@ -200,5 +206,44 @@ func TestIdentityTravelsThroughTheContext(t *testing.T) {
 	got, ok := session.FromContext(session.WithIdentity(r.Context(), who))
 	if !ok || got != who {
 		t.Errorf("FromContext returned %+v, %v", got, ok)
+	}
+}
+
+// A cookie stolen from one environment opens nothing in another. The secrets
+// differ between environments, and that alone is enough; this is the second
+// lock, for the day two of them are given the same one by mistake.
+func TestASessionOfAnotherEnvironmentIsRefusedEvenWithTheSameSecret(t *testing.T) {
+	staging := manager(t, now)
+	production, err := session.NewManager(secret, "https://production.example.test", 12*time.Hour, fixedClock{at: now})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	stolen := issue(t, staging)
+
+	if _, err := production.Verify(requestWith(stolen)); !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Errorf("a staging session opened production: %v", err)
+	}
+	if _, err := staging.Verify(requestWith(stolen)); err != nil {
+		t.Errorf("a staging session no longer opens staging: %v", err)
+	}
+}
+
+// An audience compared loosely is an audience that matches a neighbour.
+func TestTheAudienceIsAnOriginNotAPrefix(t *testing.T) {
+	staging := manager(t, now)
+	lookalike, err := session.NewManager(secret, audience+".evil.test", 12*time.Hour, fixedClock{at: now})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	if _, err := lookalike.Verify(requestWith(issue(t, staging))); err == nil {
+		t.Error("a session was accepted by an environment whose origin only starts the same")
+	}
+}
+
+func TestManagerRefusesNoAudience(t *testing.T) {
+	if _, err := session.NewManager(secret, "", time.Hour, fixedClock{at: now}); err == nil {
+		t.Error("a manager with no audience was accepted: its sessions would open every environment")
 	}
 }

@@ -36,29 +36,41 @@ type Clock interface {
 
 // Manager issues and verifies sessions.
 type Manager struct {
-	secret []byte
-	ttl    time.Duration
-	clock  Clock
-	parser *jwt.Parser
+	secret   []byte
+	audience string
+	ttl      time.Duration
+	clock    Clock
+	parser   *jwt.Parser
 }
 
 // NewManager returns a manager signing with secret. Sessions last ttl and are
 // not renewed: signing in again is the way to extend one.
-func NewManager(secret []byte, ttl time.Duration, clock Clock) (*Manager, error) {
+//
+// audience is the origin of the environment these sessions are for. It is in
+// every token and checked on every request, so that a cookie from one
+// environment opens nothing in another even if the two were ever given the same
+// secret. It has no default: a manager without one would accept every
+// environment's sessions.
+func NewManager(secret []byte, audience string, ttl time.Duration, clock Clock) (*Manager, error) {
 	if len(secret) < MinSecretLength {
 		return nil, fmt.Errorf("the session secret must be at least %d bytes, got %d", MinSecretLength, len(secret))
 	}
+	if audience == "" {
+		return nil, fmt.Errorf("the session needs an audience: the origin of the environment it is for")
+	}
 
 	return &Manager{
-		secret: secret,
-		ttl:    ttl,
-		clock:  clock,
+		secret:   secret,
+		audience: audience,
+		ttl:      ttl,
+		clock:    clock,
 		// One algorithm, an issuer, and an expiry that must be present: a
 		// token that leaves any of these out is refused rather than trusted
 		// by default.
 		parser: jwt.NewParser(
 			jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 			jwt.WithIssuer(issuer),
+			jwt.WithAudience(audience),
 			jwt.WithExpirationRequired(),
 			jwt.WithTimeFunc(clock.Now),
 		),
@@ -78,6 +90,7 @@ func (m *Manager) Issue(w http.ResponseWriter, who domain.Identity) error {
 		Org: who.OrgID.String(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
+			Audience:  jwt.ClaimStrings{m.audience},
 			Subject:   who.UserID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.ttl)),
