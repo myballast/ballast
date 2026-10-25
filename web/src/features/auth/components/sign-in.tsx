@@ -1,6 +1,6 @@
 import { buttonVariants } from "@/components/ui/button";
 
-import { loginURL } from "../api";
+import { loginURL } from "../login-url";
 
 const labels: Record<string, string> = {
   github: "Continue with GitHub",

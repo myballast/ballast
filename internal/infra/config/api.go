@@ -61,6 +61,10 @@ func LoadAPI() (API, error) {
 		return API{}, err
 	}
 
+	if err := refuseDevelopmentSetup(cfg.PublicURL, cfg.WebURL, secret); err != nil {
+		return API{}, err
+	}
+
 	if cfg.GitHub, err = oauthClient("BALLAST_GITHUB"); err != nil {
 		return API{}, err
 	}

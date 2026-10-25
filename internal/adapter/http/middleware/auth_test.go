@@ -22,7 +22,7 @@ func (c fixedClock) Now() time.Time { return c.at }
 func setup(t *testing.T) (*session.Manager, http.Handler, *domain.Identity) {
 	t.Helper()
 
-	m, err := session.NewManager([]byte("0123456789abcdef0123456789abcdef"), time.Hour, fixedClock{at: time.Now()})
+	m, err := session.NewManager([]byte("0123456789abcdef0123456789abcdef"), "https://ballast.test", time.Hour, fixedClock{at: time.Now()})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}

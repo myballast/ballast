@@ -145,6 +145,9 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("BALLAST_SECRET_KEY: %w. Generate one with: openssl rand -base64 32", err)
 	}
+	if err := refuseDevelopmentKey(cfg.DatabaseURL, key); err != nil {
+		return Config{}, err
+	}
 	cfg.SecretKey = key
 
 	return cfg, nil

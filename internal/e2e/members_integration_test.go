@@ -141,7 +141,7 @@ func newMembersWorld(ctx context.Context, t *testing.T) membersWorld {
 	journal := postgres.NewAuditRepository(db)
 
 	w.sessions, err = session.NewManager(
-		[]byte(strings.Repeat("m", session.MinSecretLength)), time.Hour, infra.SystemClock{})
+		[]byte(strings.Repeat("m", session.MinSecretLength)), "https://ballast.test", time.Hour, infra.SystemClock{})
 	if err != nil {
 		t.Fatalf("session manager: %v", err)
 	}

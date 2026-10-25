@@ -75,7 +75,7 @@ func newRig(t *testing.T) rig {
 	provider := &fakeProvider{authorizeURL: "https://provider.test/authorize"}
 	accounts := &fakeAccounts{}
 
-	sessions, err := session.NewManager([]byte("0123456789abcdef0123456789abcdef"), time.Hour, clock)
+	sessions, err := session.NewManager([]byte("0123456789abcdef0123456789abcdef"), "https://ballast.test", time.Hour, clock)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
