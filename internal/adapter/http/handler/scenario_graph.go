@@ -31,7 +31,7 @@ func graphDTO(graph *domain.ScenarioGraph) *dto.ScenarioGraph {
 			ID: node.ID, Kind: string(node.Kind),
 			Method: node.Method, Path: node.Path, Body: node.Body,
 			Headers: node.Headers, Query: query,
-			Variable: node.Variable, From: node.From, Value: node.Value, FromEnv: node.FromEnv,
+			Variable: node.Variable, Source: string(node.Source), From: node.From, Value: node.Value, FromEnv: node.FromEnv,
 			Expression: node.Expression, Iterations: node.Iterations, Seconds: node.Seconds,
 			Group: node.Group, Label: node.Label, Critical: node.Critical,
 		})
@@ -63,7 +63,7 @@ func graphOf(graph *dto.ScenarioGraph) *domain.ScenarioGraph {
 			ID: node.ID, Kind: domain.NodeKind(node.Kind),
 			Method: node.Method, Path: node.Path, Body: node.Body,
 			Headers: node.Headers, Query: query,
-			Variable: node.Variable, From: node.From, Value: node.Value, FromEnv: node.FromEnv,
+			Variable: node.Variable, Source: domain.ExtractSource(node.Source), From: node.From, Value: node.Value, FromEnv: node.FromEnv,
 			Expression: node.Expression, Iterations: node.Iterations, Seconds: node.Seconds,
 			Group: node.Group, Label: node.Label, Critical: node.Critical,
 		})

@@ -16,7 +16,15 @@ export default function () {
     headers: {},
     tags: { name: "GET /items" },
   });
-  vars["count"] = res ? res.json("count") : null;
+  vars["count"] = null;
+  try {
+    vars["count"] = res.json("count");
+  } catch (error) {
+    vars["count"] = null;
+  }
+  if (vars["count"] === null || vars["count"] === undefined || vars["count"] === "") {
+    fail("could not extract the variable \"count\" from the response body (count)");
+  }
   if ((vars["count"] > 0)) {
     res = http.request("GET", BASE_URL + "/items/" + encodeURIComponent(vars["count"]), null, {
       headers: {},

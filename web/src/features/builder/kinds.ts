@@ -44,7 +44,7 @@ export function newNode(kind: NodeKind, id: string): GraphNode {
     case "http_request":
       return { id, kind, method: "GET", path: "/" };
     case "extract_variable":
-      return { id, kind, variable: "value", from: "$.value" };
+      return { id, kind, variable: "value", source: "body", from: "value" };
     case "set_variable":
       return { id, kind, variable: "value", value: "" };
     case "condition":
@@ -68,7 +68,7 @@ export function describe(node: GraphNode): { title: string; sub: string } {
     case "http_request":
       return { title: label || `${node.method ?? "GET"} ${node.path ?? "/"}`, sub: label ? `${node.method} ${node.path}` : "" };
     case "extract_variable":
-      return { title: label || `Extract ${node.variable ?? ""}`, sub: node.from ?? "" };
+      return { title: label || `Extract ${node.variable ?? ""}`, sub: extractSource(node) };
     case "set_variable":
       return {
         title: label || `Set ${node.variable ?? ""}`,
@@ -86,4 +86,12 @@ export function describe(node: GraphNode): { title: string; sub: string } {
     case "end":
       return { title: label || "End", sub: "" };
   }
+}
+
+// Where an extraction reads, in a few words: "body · data.token", "header · X-Id",
+// "status".
+export function extractSource(node: GraphNode): string {
+  const source = node.source ?? "body";
+  if (source === "status") return "status";
+  return `${source} · ${(node.from ?? "").replace(/^\$\./, "")}`;
 }

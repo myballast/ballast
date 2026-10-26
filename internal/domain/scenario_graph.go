@@ -84,7 +84,12 @@ type Node struct {
 
 	// Variable is the name an extract_variable writes, or a set_variable sets.
 	Variable string `json:"variable,omitempty"`
-	// From is where an extract_variable reads: a JSON path in the response.
+	// Source is where an extract_variable reads in the response: its body, one of
+	// its headers, or its status. Empty means the body, which is what every graph
+	// stored before there was a choice did.
+	Source ExtractSource `json:"source,omitempty"`
+	// From says what to read from that source: a path in the JSON body, or the
+	// name of a header. It is empty for the status, which has nothing to choose.
 	From string `json:"from,omitempty"`
 	// Value is what a set_variable stores.
 	Value string `json:"value,omitempty"`

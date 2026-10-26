@@ -12,6 +12,14 @@ const BASE_URL = __ENV.BASE_URL;
 export default function () {
   const vars = {};
   let res = null;
-  vars["token"] = res ? res.json("access_token") : null;
+  vars["token"] = null;
+  try {
+    vars["token"] = res.json("access_token");
+  } catch (error) {
+    vars["token"] = null;
+  }
+  if (vars["token"] === null || vars["token"] === undefined || vars["token"] === "") {
+    fail("could not extract the variable \"token\" from the response body (access_token)");
+  }
   return;
 }

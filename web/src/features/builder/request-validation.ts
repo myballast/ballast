@@ -273,3 +273,26 @@ export function summaryOfProblems(problems: RequestProblems): string | undefined
   if (problems.bodyText) return "The body needs attention";
   return undefined;
 }
+
+const headerToken = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+
+// extractProblem is what is wrong with an extraction, in a sentence, or nothing:
+// the variable has a usable name, and the source has what it needs — a path in the
+// body, the name of a header, and for the status nothing at all.
+export function extractProblem(node: GraphNode): string | undefined {
+  if (!variableName.test(node.variable ?? "")) return "The variable needs a name made of letters, digits and _, not starting with a digit.";
+
+  const from = (node.from ?? "").trim();
+  switch (node.source ?? "body") {
+    case "body":
+      if (from.replace(/^\$\./, "") === "" || from === "$") return "Give a path in the body, such as data.token.";
+      if (from.length > maxText) return `The path is longer than ${maxText} characters.`;
+      return undefined;
+    case "header":
+      if (from === "") return "Give the name of a header, such as X-Request-Id.";
+      if (!headerToken.test(from)) return "That is not a header name.";
+      return undefined;
+    default:
+      return from === "" ? undefined : "The status takes no path.";
+  }
+}

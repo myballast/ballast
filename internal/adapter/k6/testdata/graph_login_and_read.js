@@ -19,7 +19,15 @@ export default function () {
   if (res.status >= 400) {
     fail("POST /login returned " + res.status);
   }
-  vars["token"] = res ? res.json("access_token") : null;
+  vars["token"] = null;
+  try {
+    vars["token"] = res.json("access_token");
+  } catch (error) {
+    vars["token"] = null;
+  }
+  if (vars["token"] === null || vars["token"] === undefined || vars["token"] === "") {
+    fail("could not extract the variable \"token\" from the response body (access_token)");
+  }
   sleep(0.5);
   res = http.request("GET", BASE_URL + "/users/" + encodeURIComponent(vars["user"]) + "/orders", null, {
     headers: { "Authorization": "Bearer " + vars["token"] },

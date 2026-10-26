@@ -95,23 +95,38 @@ export function bindSecretBefore(
   };
 }
 
-// undefinedNames: the variables a request reads that no node before it writes.
-// Not an error — a variable can come from an earlier loop or a script — but
-// something to say before a run reads "undefined" into an address.
-export function undefinedNames(node: GraphNode, available: Available[]): string[] {
-  const known = new Set(available.map((v) => v.name));
+// variablesRead is every variable a node reads, once each, in the order it meets
+// them: the {name} of a path, the {{name}} of a header, a query value, a body or a
+// "Set variable" value, and the names in a condition or an assertion.
+export function variablesRead(node: GraphNode): string[] {
   const read = new Set<string>();
 
   for (const match of (node.path ?? "").matchAll(/\{([A-Za-z0-9_]*)\}/g)) read.add(match[1]);
 
   const texts = [
     node.body ?? "",
+    node.kind === "set_variable" ? (node.value ?? "") : "",
     ...Object.values(node.headers ?? {}),
     ...(node.query ?? []).map((q) => q.value),
   ];
   for (const text of texts) for (const match of text.matchAll(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g)) read.add(match[1]);
 
-  return [...read].filter((name) => name && !known.has(name));
+  // An expression has no literal but numbers and quoted text, so every name left
+  // once the quoted text is taken out is a variable.
+  if (node.kind === "condition" || node.kind === "assertion") {
+    const bare = (node.expression ?? "").replace(/"[^"]*"/g, " ");
+    for (const match of bare.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) read.add(match[0]);
+  }
+
+  return [...read].filter(Boolean);
+}
+
+// undefinedNames: the variables a node reads that no node before it writes. Not an
+// error — a value can come from an earlier pass of a loop, or from a script — but
+// something to say before a run reads "undefined" into an address.
+export function undefinedNames(node: GraphNode, available: Available[]): string[] {
+  const known = new Set(available.map((v) => v.name));
+  return variablesRead(node).filter((name) => !known.has(name));
 }
 
 // What typing {{ offers. The caret is inside an open {{ when the nearest one

@@ -120,8 +120,7 @@ func (w *scriptWriter) node(node domain.Node) error {
 		return w.request(node)
 
 	case domain.NodeExtractVariable:
-		w.line("vars[%s] = res ? res.json(%s) : null;",
-			jsString(node.Variable), jsString(node.From))
+		w.extract(node)
 
 	case domain.NodeSetVariable:
 		return w.setVariable(node)
@@ -140,6 +139,69 @@ func (w *scriptWriter) node(node domain.Node) error {
 	}
 
 	return nil
+}
+
+// extract reads one value out of the last response, and stops the iteration when
+// it is not there.
+//
+// Stopping is the point. A variable left empty would go into the next request as
+// the text "null" or nothing at all, and the run would measure a call nobody meant
+// to make — with a status that looks like the target's fault. fail() ends the
+// iteration with a message that names the variable and where it was looked for,
+// and never what the response held, which may be a token.
+//
+// The variable is set to null first, and each source only overwrites it when it
+// finds something: a body that is not JSON, or no response at all, is the same
+// "not found" as a missing key.
+func (w *scriptWriter) extract(node domain.Node) {
+	name := jsString(node.Variable)
+	var where string
+
+	w.line("vars[%s] = null;", name)
+
+	switch node.Where() {
+	case domain.ExtractFromHeader:
+		// k6 spells a header as the server did, so the name is compared in lower
+		// case on both sides.
+		wanted := strings.TrimSpace(node.From)
+		w.line("if (res) {")
+		w.indent++
+		w.line("for (const name in res.headers) {")
+		w.indent++
+		w.line("if (name.toLowerCase() === %s) {", jsString(strings.ToLower(wanted)))
+		w.indent++
+		w.line("vars[%s] = res.headers[name];", name)
+		w.indent--
+		w.line("}")
+		w.indent--
+		w.line("}")
+		w.indent--
+		w.line("}")
+		where = "header " + wanted
+
+	case domain.ExtractFromStatus:
+		w.line("vars[%s] = res ? res.status : null;", name)
+		where = "status"
+
+	default:
+		path := node.BodyPath()
+		w.line("try {")
+		w.indent++
+		w.line("vars[%s] = res.json(%s);", name, jsString(path))
+		w.indent--
+		w.line("} catch (error) {")
+		w.indent++
+		w.line("vars[%s] = null;", name)
+		w.indent--
+		w.line("}")
+		where = "body (" + path + ")"
+	}
+
+	w.line("if (vars[%s] === null || vars[%s] === undefined || vars[%s] === \"\") {", name, name, name)
+	w.indent++
+	w.line("fail(%s);", jsString(fmt.Sprintf("could not extract the variable \"%s\" from the response %s", node.Variable, where)))
+	w.indent--
+	w.line("}")
 }
 
 // request writes one HTTP call.
@@ -333,6 +395,13 @@ func textExpression(text string) (string, error) {
 			continue
 		}
 		pieces = append(pieces, "vars["+jsString(part.Variable)+"]")
+	}
+
+	// A value that is a variable and nothing else is made text: the status or a
+	// number read from a body is a number, and a header or a body must be a string.
+	// Beside a literal the + does it already.
+	if len(parts) == 1 && parts[0].Variable != "" {
+		return `"" + ` + pieces[0], nil
 	}
 
 	return strings.Join(pieces, " + "), nil

@@ -47,6 +47,8 @@ export type GraphNode = {
   headers?: Record<string, string>;
   query?: { name: string; value: string }[];
   variable?: string;
+  // Where an extract_variable reads in the response; the body when left out.
+  source?: "body" | "header" | "status";
   from?: string;
   value?: string;
   from_env?: string;

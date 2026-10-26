@@ -207,14 +207,42 @@ type call struct {
 	Headers map[string]string `json:"headers"`
 }
 
+// reply is what the stubbed server answers: the same for every request.
+type reply struct {
+	Status  int               `json:"status"`
+	Body    any               `json:"body"`
+	Headers map[string]string `json:"headers"`
+}
+
+// outcome is what running the script did: the requests it made, and what stopped
+// it early, if anything did.
+type outcome struct {
+	Calls   []call `json:"calls"`
+	Failure string `json:"failure"`
+}
+
 // runScript executes the generated script with k6 replaced by stubs, and
-// returns the requests it made.
+// returns the requests it made. A script that stops itself with fail() is a test
+// failure here: the ones that mean to are run with runScriptAgainst.
 //
 // The imports are stripped and the module's own default function is called, so
 // what runs is exactly the body this generator wrote. If a value escaped into
 // code, it runs here — and either it throws, or it shows up somewhere the test
 // does not expect it.
 func runScript(t *testing.T, script string) []call {
+	t.Helper()
+
+	result := runScriptAgainst(t, script, reply{Status: 200})
+	if result.Failure != "" {
+		t.Fatalf("the script stopped itself: %s", result.Failure)
+	}
+	return result.Calls
+}
+
+// runScriptAgainst runs the script with the stub answering as given, and says what
+// it did and why it stopped. fail() in the stub throws, as it does in k6, which
+// ends the iteration.
+func runScriptAgainst(t *testing.T, script string, answer reply) outcome {
 	t.Helper()
 
 	var body strings.Builder
@@ -226,8 +254,14 @@ func runScript(t *testing.T, script string) []call {
 		body.WriteString("\n")
 	}
 
+	encoded, err := json.Marshal(answer)
+	if err != nil {
+		t.Fatalf("encode the stubbed answer: %v", err)
+	}
+
 	harness := `const calls = [];
 const __ENV = { BASE_URL: "http://target.test", API_TOKEN: "s3cr3t-value" };
+const answer = ` + string(encoded) + `;
 const http = {
   request(method, url, requestBody, params) {
     calls.push({
@@ -236,7 +270,15 @@ const http = {
       body: requestBody === null ? "" : String(requestBody),
       headers: (params && params.headers) || {},
     });
-    return { status: 200, json: () => null };
+    // json() throws on a body that is not JSON, as k6's does.
+    return {
+      status: answer.status,
+      headers: answer.headers || {},
+      json: (selector) => {
+        if (answer.body === undefined || answer.body === null) throw new Error("not JSON");
+        return String(selector).split(".").reduce((at, key) => (at == null ? undefined : at[key]), answer.body);
+      },
+    };
   },
 };
 const check = () => true;
@@ -244,8 +286,9 @@ const fail = (message) => { throw new Error("fail() was called: " + message); };
 const sleep = () => {};
 
 ` + body.String() + `
-scenario();
-console.log(JSON.stringify(calls));
+let failure = "";
+try { scenario(); } catch (error) { failure = String(error.message); }
+console.log(JSON.stringify({ calls, failure }));
 `
 
 	path := filepath.Join(t.TempDir(), "harness.mjs")
@@ -258,12 +301,11 @@ console.log(JSON.stringify(calls));
 		t.Fatalf("running the generated script failed: %v\n%s", err, output)
 	}
 
-	var made []call
-	if err := json.Unmarshal([]byte(lastLine(string(output))), &made); err != nil {
+	var result outcome
+	if err := json.Unmarshal([]byte(lastLine(string(output))), &result); err != nil {
 		t.Fatalf("read what the script did: %v\n%s", err, output)
 	}
-
-	return made
+	return result
 }
 
 // lastLine is where the harness prints its result, after anything the script
@@ -469,5 +511,171 @@ func TestAGraphWithQueryAndLabelsIsStillDeterministic(t *testing.T) {
 	// Given order, not sorted order: a collection's order means something.
 	if strings.Index(first, `"b"`) > strings.Index(first, `"a"`) {
 		t.Errorf("the query parameters were reordered:\n%s", first)
+	}
+}
+
+// extractThenCall reads one value from a response and uses it in the next request,
+// which is what an extraction is for.
+func extractThenCall(extract domain.Node) domain.ScenarioGraph {
+	extract.ID, extract.Kind = "take", domain.NodeExtractVariable
+	return domain.ScenarioGraph{
+		Start: "first",
+		Nodes: []domain.Node{
+			{ID: "first", Kind: domain.NodeHTTPRequest, Method: "POST", Path: "/login"},
+			extract,
+			{
+				ID: "second", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/me",
+				Headers: map[string]string{"X-Seen": "{{seen}}"},
+			},
+			{ID: "done", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{
+			{From: "first", To: "take"}, {From: "take", To: "second"}, {From: "second", To: "done"},
+		},
+	}
+}
+
+func generate(t *testing.T, graph domain.ScenarioGraph) string {
+	t.Helper()
+	if err := graph.Validate(); err != nil {
+		t.Fatalf("the graph was refused: %v", err)
+	}
+	script, err := k6.GenerateScript(graph)
+	if err != nil {
+		t.Fatalf("GenerateScript: %v", err)
+	}
+	return script
+}
+
+// The value read from the response is the one the next request carries.
+func TestAnExtractedValueReachesTheNextRequest(t *testing.T) {
+	node(t)
+
+	cases := map[string]struct {
+		extract domain.Node
+		answer  reply
+		wanted  string
+	}{
+		"from the body": {
+			domain.Node{Variable: "seen", From: "data.session.token"},
+			reply{Status: 200, Body: map[string]any{"data": map[string]any{"session": map[string]any{"token": "abc"}}}},
+			"abc",
+		},
+		"from the body, written as JSONPath": {
+			domain.Node{Variable: "seen", From: "$.data.token"},
+			reply{Status: 200, Body: map[string]any{"data": map[string]any{"token": "xyz"}}},
+			"xyz",
+		},
+		"a number is kept, zero included": {
+			domain.Node{Variable: "seen", From: "count"},
+			reply{Status: 200, Body: map[string]any{"count": 0}},
+			"0",
+		},
+		"from a header, whatever its case": {
+			domain.Node{Variable: "seen", Source: domain.ExtractFromHeader, From: "x-request-id"},
+			reply{Status: 200, Headers: map[string]string{"X-Request-Id": "req-7"}},
+			"req-7",
+		},
+		"from the status": {
+			domain.Node{Variable: "seen", Source: domain.ExtractFromStatus},
+			reply{Status: 201},
+			"201",
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := runScriptAgainst(t, generate(t, extractThenCall(c.extract)), c.answer)
+
+			if result.Failure != "" {
+				t.Fatalf("the script stopped: %s", result.Failure)
+			}
+			if len(result.Calls) != 2 {
+				t.Fatalf("%d request(s) were made, wanted 2", len(result.Calls))
+			}
+			if got := result.Calls[1].Headers["X-Seen"]; got != c.wanted {
+				t.Errorf("the next request carried %q, wanted %q", got, c.wanted)
+			}
+		})
+	}
+}
+
+// When the value is not there the iteration stops, with the variable's name, and
+// nothing is sent with an empty value in its place.
+func TestAFailedExtractionStopsTheIteration(t *testing.T) {
+	node(t)
+
+	cases := map[string]struct {
+		extract domain.Node
+		answer  reply
+	}{
+		"a path the body does not have": {
+			domain.Node{Variable: "seen", From: "data.token"},
+			reply{Status: 200, Body: map[string]any{"data": map[string]any{}}},
+		},
+		"a body that is not JSON": {
+			domain.Node{Variable: "seen", From: "data.token"},
+			reply{Status: 200},
+		},
+		"a null value": {
+			domain.Node{Variable: "seen", From: "token"},
+			reply{Status: 200, Body: map[string]any{"token": nil}},
+		},
+		"an empty value": {
+			domain.Node{Variable: "seen", From: "token"},
+			reply{Status: 200, Body: map[string]any{"token": ""}},
+		},
+		"a header the response does not have": {
+			domain.Node{Variable: "seen", Source: domain.ExtractFromHeader, From: "X-Missing"},
+			reply{Status: 200, Headers: map[string]string{"X-Other": "1"}},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := runScriptAgainst(t, generate(t, extractThenCall(c.extract)), c.answer)
+
+			if !strings.Contains(result.Failure, "fail() was called") {
+				t.Fatalf("the script did not stop itself: %q", result.Failure)
+			}
+			if !strings.Contains(result.Failure, `"seen"`) {
+				t.Errorf("the failure does not name the variable: %q", result.Failure)
+			}
+			if len(result.Calls) != 1 {
+				t.Errorf("%d request(s) were made, wanted only the first: the next must not go out empty", len(result.Calls))
+			}
+		})
+	}
+}
+
+// What the response held is never in the failure: it may be a token.
+func TestAFailedExtractionDoesNotRepeatTheResponse(t *testing.T) {
+	node(t)
+
+	graph := extractThenCall(domain.Node{Variable: "seen", From: "missing"})
+	result := runScriptAgainst(t, generate(t, graph), reply{
+		Status: 200, Body: map[string]any{"token": "do-not-repeat-me"}, Headers: map[string]string{"Set-Cookie": "sid=do-not-repeat-me"},
+	})
+
+	if result.Failure == "" || strings.Contains(result.Failure, "do-not-repeat-me") {
+		t.Errorf("the failure is %q", result.Failure)
+	}
+}
+
+// A path typed with quotes or template syntax stays text, like everything else.
+func TestAnExtractionPathIsNeverCode(t *testing.T) {
+	node(t)
+
+	hostile := `a"]; throw new Error("pwned"); //${1+1}` + "`"
+	script := generate(t, extractThenCall(domain.Node{Variable: "seen", From: hostile}))
+
+	// The path is text in the message — it is how the person finds the node — and
+	// the failure is the generator's own fail(), not an error thrown by the path.
+	result := runScriptAgainst(t, script, reply{Status: 200, Body: map[string]any{"a": "x"}})
+	if !strings.HasPrefix(result.Failure, "fail() was called: could not extract") {
+		t.Errorf("the path was not kept as text: %q", result.Failure)
+	}
+	if len(result.Calls) != 1 {
+		t.Errorf("%d request(s) were made, wanted 1", len(result.Calls))
 	}
 }

@@ -32,8 +32,8 @@ import type { GraphEdge, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/
 
 import { saveGraph, validateGraph } from "../actions";
 import { fromEndpoint } from "../catalog-node";
-import { hasProblems, isCredentialHeader, requestProblems, summaryOfProblems } from "../request-validation";
-import { bindSecretBefore, unboundSecrets, variablesBefore } from "../variables";
+import { extractProblem, hasProblems, isCredentialHeader, requestProblems, summaryOfProblems } from "../request-validation";
+import { bindSecretBefore, undefinedNames, unboundSecrets, variablesBefore } from "../variables";
 import {
   canonical,
   columnWidth,
@@ -138,13 +138,27 @@ function BuilderView({
   // API judges the graph at the end; this says it while somebody is still on it.
   const { problems, blocking } = useMemo(() => {
     const found = issues(graph);
+    const say = (id: string, text: string) => {
+      found[id] = [found[id], text].filter(Boolean).join(". ");
+    };
+
     let count = 0;
     for (const node of graph.nodes) {
-      if (node.kind !== "http_request") continue;
-      const said = requestProblems(node);
-      if (!hasProblems(said)) continue;
-      count++;
-      found[node.id] = [found[node.id], summaryOfProblems(said)].filter(Boolean).join(". ");
+      if (node.kind === "http_request") {
+        const said = requestProblems(node);
+        if (hasProblems(said)) {
+          count++;
+          say(node.id, summaryOfProblems(said) ?? "");
+        }
+      } else if (node.kind === "extract_variable" && extractProblem(node)) {
+        count++;
+        say(node.id, "The extraction needs attention");
+      }
+
+      // Not a fault: a loop, or a script, can give the variable its value. But a
+      // step that reads one nothing before it writes is worth saying out loud.
+      const ghosts = undefinedNames(node, variablesBefore(graph, node.id));
+      if (ghosts.length > 0) say(node.id, `Reads ${ghosts.join(", ")} before it is defined`);
     }
     return { problems: found, blocking: count };
   }, [graph]);
@@ -181,20 +195,27 @@ function BuilderView({
     [graph.nodes, box, data, problems, readOnly],
   );
 
-  const edges = useMemo<Edge[]>(
-    () =>
-      graph.edges.map((edge) => ({
-        id: edgeId(edge),
-        source: edge.from,
-        target: edge.to,
-        sourceHandle: edge.when ?? null,
-        label: edge.when,
-        markerEnd: { type: "arrowclosed" as const },
-        deletable: !readOnly,
-        focusable: false,
-      })),
-    [graph.edges, readOnly],
-  );
+  const edges = useMemo<Edge[]>(() => {
+    // A step that writes a variable names it on the wire that leaves it, so the
+    // thread of a value can be followed along the canvas.
+    const writes: Record<string, string> = {};
+    for (const node of graph.nodes) {
+      if ((node.kind === "extract_variable" || node.kind === "set_variable") && node.variable) {
+        writes[node.id] = `var ${node.variable}`;
+      }
+    }
+
+    return graph.edges.map((edge) => ({
+      id: edgeId(edge),
+      source: edge.from,
+      target: edge.to,
+      sourceHandle: edge.when ?? null,
+      label: edge.when ?? writes[edge.from],
+      markerEnd: { type: "arrowclosed" as const },
+      deletable: !readOnly,
+      focusable: false,
+    }));
+  }, [graph.nodes, graph.edges, readOnly]);
 
   const places = useCallback(
     (g: ScenarioGraph) => Object.fromEntries(g.nodes.map((n) => [n.id, box[n.id]?.position ?? { x: 0, y: 0 }])),
@@ -574,6 +595,7 @@ function BuilderView({
             onChange={(patch, field) => edit(current.id, patch, field)}
             onDelete={removeCurrent}
             onClose={() => setBox((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, { ...v, selected: false }])))}
+            available={variablesBefore(graph, current.id)}
             request={{
               endpoints,
               endpointsHref: `/projects/${projectId}/endpoints`,

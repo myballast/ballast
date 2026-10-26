@@ -151,6 +151,7 @@ type GraphNode struct {
 	Headers    map[string]string `json:"headers,omitempty"`
 	Query      []GraphQueryParam `json:"query,omitempty"`
 	Variable   string            `json:"variable,omitempty"`
+	Source     string            `json:"source,omitempty"`
 	From       string            `json:"from,omitempty"`
 	Value      string            `json:"value,omitempty"`
 	FromEnv    string            `json:"from_env,omitempty"`

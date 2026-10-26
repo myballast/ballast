@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import type { GraphNode } from "@/features/scenarios/types";
 
 import { describe, infoOf } from "../kinds";
+import type { Available } from "../variables";
+import { AvailableVariables } from "./available-variables";
+import { ExtractPanel } from "./extract-panel";
 import { KindIcon } from "./kind-icon";
 import { RequestPanel } from "./request-panel";
 
@@ -37,8 +40,12 @@ export function Inspector({
   onDelete,
   onClose,
   request,
+  available,
 }: {
   node: GraphNode;
+  // What the steps before this one write. Shown under every step that has anything
+  // to read.
+  available: Available[];
   readOnly: boolean;
   // What a request node needs besides itself: the catalog, the variables it can
   // read, and the way to bind a secret.
@@ -78,16 +85,7 @@ export function Inspector({
 
           {node.kind === "http_request" && <RequestPanel node={node} readOnly={readOnly} onChange={onChange} {...request} />}
 
-          {node.kind === "extract_variable" && (
-            <>
-              <Field label="Target variable">
-                {(id) => <input id={id} className={input} value={node.variable ?? ""} onChange={(e) => onChange({ variable: e.target.value }, "variable")} />}
-              </Field>
-              <Field label="JSONPath" hint="Read from the response of the previous request.">
-                {(id) => <input id={id} className={input} value={node.from ?? ""} onChange={(e) => onChange({ from: e.target.value }, "from")} />}
-              </Field>
-            </>
-          )}
+          {node.kind === "extract_variable" && <ExtractPanel node={node} readOnly={readOnly} onChange={onChange} />}
 
           {node.kind === "set_variable" && (
             <>
@@ -163,6 +161,8 @@ export function Inspector({
 
           {node.kind === "end" && <p className="text-xs text-muted-foreground">A path of the scenario stops here.</p>}
         </fieldset>
+
+        {node.kind !== "end" && <AvailableVariables available={available} />}
       </div>
 
       {!readOnly && (

@@ -4256,7 +4256,21 @@ components:
               name: { type: string }
               value: { type: string }
         variable: { type: string }
-        from: { type: string }
+        source:
+          type: string
+          enum: [body, header, status]
+          description: |
+            Where an `extract_variable` reads in the response. Left out it is the
+            body, which is what a graph stored before there was a choice does.
+            When the value is not there the generated script stops the iteration
+            with a message naming the variable, rather than going on with an
+            empty one.
+        from:
+          type: string
+          description: |
+            What an `extract_variable` reads from its `source`: a path in the JSON
+            body (`data.token`, `items.0.id`; a leading `$.` is accepted), or the
+            name of a header. Empty for `status`.
         value: { type: string }
         from_env: { type: string, description: "The key of a secret of the environment, read when the run starts." }
         expression: { type: string }

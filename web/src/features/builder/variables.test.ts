@@ -10,6 +10,7 @@ import {
   unboundSecrets,
   variableForKey,
   variablesBefore,
+  variablesRead,
 } from "./variables.ts";
 
 const graph: ScenarioGraph = {
@@ -105,4 +106,37 @@ test("choosing writes the whole placeholder and puts the caret after it", () => 
     text: "a {{token}} b",
     caret: 11,
   });
+});
+
+test("every place a node can read a variable is found, once each", () => {
+  assert.deepEqual(
+    variablesRead({
+      id: "r",
+      kind: "http_request",
+      method: "GET",
+      path: "/users/{id}/orders/{id}",
+      headers: { "X-A": "{{a}}", "X-B": "n {{b}} {{a}}" },
+      query: [{ name: "q", value: "{{c}}" }],
+      body: '{"x": "{{d}}"}',
+    }).sort(),
+    ["a", "b", "c", "d", "id"],
+  );
+  assert.deepEqual(variablesRead({ id: "s", kind: "set_variable", variable: "v", value: "{{src}}" }), ["src"]);
+  assert.deepEqual(variablesRead({ id: "s", kind: "set_variable", variable: "v", from_env: "KEY" }), []);
+});
+
+test("a condition reads the names in it, and not the text between quotes", () => {
+  assert.deepEqual(variablesRead({ id: "c", kind: "condition", expression: 'status == 200 && name == "alice smith"' }).sort(), [
+    "name",
+    "status",
+  ]);
+  assert.deepEqual(variablesRead({ id: "a", kind: "assertion", expression: "count >= 3" }), ["count"]);
+  assert.deepEqual(variablesRead({ id: "t", kind: "think_time", seconds: 1 }), []);
+});
+
+test("a variable read before it is written is named, for any kind of node", () => {
+  const known = [{ name: "token", secret: true, from: "bind" }];
+  assert.deepEqual(undefinedNames({ id: "c", kind: "condition", expression: "token == ghost" }, known), ["ghost"]);
+  assert.deepEqual(undefinedNames({ id: "s", kind: "set_variable", variable: "v", value: "{{ghost}}" }, known), ["ghost"]);
+  assert.deepEqual(undefinedNames({ id: "c", kind: "condition", expression: "token == 1" }, known), []);
 });

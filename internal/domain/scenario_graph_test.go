@@ -370,3 +370,73 @@ func TestACredentialHeaderMustReadAVariable(t *testing.T) {
 		})
 	}
 }
+
+// An extraction reads the body, a header or the status of the response, and
+// each says what it needs: a path, a header name, or nothing at all.
+func TestWhatAnExtractionNeedsDependsOnWhereItReads(t *testing.T) {
+	extract := func(source ExtractSource, from string) ScenarioGraph {
+		graph := validGraph()
+		graph.Nodes = append([]Node{{ID: "take", Kind: NodeExtractVariable, Variable: "token", Source: source, From: from}}, graph.Nodes...)
+		graph.Edges = []Edge{{From: "call", To: "take"}, {From: "take", To: "done"}}
+		return graph
+	}
+
+	accepted := map[string]ScenarioGraph{
+		"no source is the body, as graphs stored before sources were": extract("", "access_token"),
+		"a body path":                     extract(ExtractFromBody, "data.session.access_token"),
+		"a body path written as JSONPath": extract(ExtractFromBody, "$.data.items.0.id"),
+		"a header":                        extract(ExtractFromHeader, "X-Request-Id"),
+		"the status needs no path":        extract(ExtractFromStatus, ""),
+	}
+	for name, graph := range accepted {
+		t.Run("accepted: "+name, func(t *testing.T) {
+			if err := graph.Validate(); err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+		})
+	}
+
+	refused := map[string]struct {
+		graph ScenarioGraph
+		says  string
+	}{
+		"an unknown source":        {extract("cookie", "a"), "source"},
+		"a body with no path":      {extract(ExtractFromBody, "  "), "extracts from nothing"},
+		"a bare dollar":            {extract(ExtractFromBody, "$."), "extracts from nothing"},
+		"a header with no name":    {extract(ExtractFromHeader, ""), "extracts from nothing"},
+		"a header that is not one": {extract(ExtractFromHeader, "X Id: 1"), "header name"},
+		"a status with a path":     {extract(ExtractFromStatus, "code"), "status"},
+	}
+	for name, c := range refused {
+		t.Run("refused: "+name, func(t *testing.T) {
+			err := c.graph.Validate()
+			if !errors.Is(err, ErrInvalidGraph) {
+				t.Fatalf("got %v, wanted ErrInvalidGraph", err)
+			}
+			if !strings.Contains(err.Error(), c.says) {
+				t.Errorf("the message %q does not say %q", err.Error(), c.says)
+			}
+		})
+	}
+}
+
+// The path k6 reads has no dollar: a selector is data.token, not $.data.token.
+func TestTheBodyPathIsWhatK6Reads(t *testing.T) {
+	cases := map[string]string{
+		"data.token":   "data.token",
+		"$.data.token": "data.token",
+		"$data.token":  "$data.token",
+		" $.a.b ":      "a.b",
+		"items.0.id":   "items.0.id",
+	}
+	for written, wanted := range cases {
+		node := Node{Kind: NodeExtractVariable, From: written}
+		if got := node.BodyPath(); got != wanted {
+			t.Errorf("%q reads as %q, wanted %q", written, got, wanted)
+		}
+	}
+
+	if (Node{Kind: NodeExtractVariable}).Where() != ExtractFromBody {
+		t.Error("an extraction with no source does not read the body")
+	}
+}

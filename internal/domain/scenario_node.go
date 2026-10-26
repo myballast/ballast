@@ -154,16 +154,70 @@ func readsAVariable(parts []TemplatePart) bool {
 	return false
 }
 
+// ExtractSource is the part of a response an extract_variable reads.
+type ExtractSource string
+
+// The three places a value can be taken from. The set is closed, like the kinds
+// of node: the generator writes each of them and nothing else.
+const (
+	ExtractFromBody   ExtractSource = "body"
+	ExtractFromHeader ExtractSource = "header"
+	ExtractFromStatus ExtractSource = "status"
+)
+
+// Where is the source an extraction reads, with the default made explicit: a
+// node with none reads the body.
+func (n Node) Where() ExtractSource {
+	if n.Source == "" {
+		return ExtractFromBody
+	}
+	return n.Source
+}
+
+// BodyPath is the selector k6 reads from the JSON body. k6 takes data.token and
+// not $.data.token, but the second is what people write and what the mock-ups
+// show, so a leading "$." is accepted and taken off here: the one place that
+// decides it, for the validation and the generator alike.
+func (n Node) BodyPath() string {
+	path := strings.TrimSpace(n.From)
+	return strings.TrimPrefix(path, "$.")
+}
+
+// headerName is what a header's name may be made of (RFC 9110's token).
+var headerName = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+
 func (n Node) validateExtract() error {
 	if !variableName.MatchString(n.Variable) {
 		return fmt.Errorf("%w: %q is not a usable variable name", ErrInvalidGraph, n.Variable)
 	}
-	if strings.TrimSpace(n.From) == "" {
-		return fmt.Errorf("%w: the node %q extracts from nothing", ErrInvalidGraph, n.ID)
-	}
 	if len(n.From) > maxNodeTextLength {
 		return fmt.Errorf("%w: the path of the node %q is longer than %d characters",
 			ErrInvalidGraph, n.ID, maxNodeTextLength)
+	}
+
+	switch n.Where() {
+	case ExtractFromBody:
+		if n.BodyPath() == "" || n.BodyPath() == "$" {
+			return fmt.Errorf("%w: the node %q extracts from nothing: give a path in the body, such as data.token",
+				ErrInvalidGraph, n.ID)
+		}
+	case ExtractFromHeader:
+		name := strings.TrimSpace(n.From)
+		if name == "" {
+			return fmt.Errorf("%w: the node %q extracts from nothing: give the name of a header",
+				ErrInvalidGraph, n.ID)
+		}
+		if !headerName.MatchString(name) {
+			return fmt.Errorf("%w: %q is not a header name", ErrInvalidGraph, name)
+		}
+	case ExtractFromStatus:
+		if strings.TrimSpace(n.From) != "" {
+			return fmt.Errorf("%w: the node %q reads the status, which takes no path",
+				ErrInvalidGraph, n.ID)
+		}
+	default:
+		return fmt.Errorf("%w: the node %q reads the source %q, wanted body, header or status",
+			ErrInvalidGraph, n.ID, n.Source)
 	}
 	return nil
 }
