@@ -157,7 +157,10 @@ type GraphNode struct {
 	FromEnv    string            `json:"from_env,omitempty"`
 	Expression string            `json:"expression,omitempty"`
 	Iterations int               `json:"iterations,omitempty"`
+	Over       string            `json:"over,omitempty"`
+	Item       string            `json:"item,omitempty"`
 	Seconds    float64           `json:"seconds,omitempty"`
+	SecondsMax float64           `json:"seconds_max,omitempty"`
 	Group      string            `json:"group,omitempty"`
 	Label      string            `json:"label,omitempty"`
 	Critical   bool              `json:"critical,omitempty"`

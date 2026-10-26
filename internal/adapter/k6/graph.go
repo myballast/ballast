@@ -96,8 +96,7 @@ func (w *scriptWriter) step(step domain.Step) error {
 		w.line("}")
 
 	case domain.StepLoop:
-		w.line("for (let i = 0; i < %d; i++) {", step.Node.Iterations)
-		w.indent++
+		w.loop(step.Node)
 
 	case domain.StepEndLoop:
 		w.indent--
@@ -126,7 +125,7 @@ func (w *scriptWriter) node(node domain.Node) error {
 		return w.setVariable(node)
 
 	case domain.NodeThinkTime:
-		w.line("sleep(%s);", strconv.FormatFloat(node.Seconds, 'f', -1, 64))
+		w.pause(node)
 
 	case domain.NodeAssertion:
 		return w.assertion(node)
@@ -139,6 +138,55 @@ func (w *scriptWriter) node(node domain.Node) error {
 	}
 
 	return nil
+}
+
+// loop opens a loop. A count repeats that many times. A list takes its elements
+// one at a time into the item variable, and never more than the maximum: the list
+// came from somebody else's server, and the ceiling is what keeps one reply from
+// deciding how long a run lasts.
+//
+// A variable that is not a list stops the iteration, with its name and not its
+// content.
+func (w *scriptWriter) loop(node domain.Node) {
+	if node.Over == "" {
+		w.line("for (let i = 0; i < %d; i++) {", node.Iterations)
+		w.indent++
+		return
+	}
+
+	list := "list_" + identifier(node.ID)
+	w.line("const %s = vars[%s];", list, jsString(node.Over))
+	w.line("if (!Array.isArray(%s)) {", list)
+	w.indent++
+	w.line("fail(%s);", jsString(fmt.Sprintf("the variable \"%s\" is not a list, so the loop cannot walk it", node.Over)))
+	w.indent--
+	w.line("}")
+	w.line("for (let i = 0; i < Math.min(%s.length, %d); i++) {", list, node.Iterations)
+	w.indent++
+	w.line("vars[%s] = %s[i];", jsString(node.Item), list)
+}
+
+// pause waits a fixed time, or a time picked between two bounds.
+func (w *scriptWriter) pause(node domain.Node) {
+	if node.SecondsMax == 0 || node.SecondsMax == node.Seconds {
+		w.line("sleep(%s);", strconv.FormatFloat(node.Seconds, 'f', -1, 64))
+		return
+	}
+
+	w.line("sleep(%s + Math.random() * %s);",
+		strconv.FormatFloat(node.Seconds, 'f', -1, 64),
+		strconv.FormatFloat(node.SecondsMax-node.Seconds, 'f', -1, 64))
+}
+
+// identifier makes a node's id usable inside a JavaScript name. An id may hold a
+// hyphen, which a name may not.
+func identifier(id string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '-' {
+			return '_'
+		}
+		return r
+	}, id)
 }
 
 // extract reads one value out of the last response, and stops the iteration when
@@ -309,13 +357,14 @@ func (w *scriptWriter) assertion(node domain.Node) error {
 		return err
 	}
 
-	w.line("const passed_%s = %s;", node.ID, condition)
-	w.line("check(passed_%s, { %s: (ok) => ok });", node.ID, jsString(node.Expression))
+	name := "passed_" + identifier(node.ID)
+	w.line("const %s = %s;", name, condition)
+	w.line("check(%s, { %s: (ok) => ok });", name, jsString(node.Expression))
 
 	if node.Critical {
-		w.line("if (!passed_%s) {", node.ID)
+		w.line("if (!%s) {", name)
 		w.indent++
-		w.line("fail(%s);", jsString("the assertion "+node.ID+" did not hold"))
+		w.line("fail(%s);", jsString("the assertion \""+node.Expression+"\" did not hold"))
 		w.indent--
 		w.line("}")
 	}

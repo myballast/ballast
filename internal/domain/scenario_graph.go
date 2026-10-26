@@ -103,11 +103,19 @@ type Node struct {
 	Expression string `json:"expression,omitempty"`
 
 	// Iterations is how many times a loop repeats, bounded by
-	// MaxLoopIterations.
+	// MaxLoopIterations. For a loop over a list it is the most it will take: a
+	// list another server returns has no length this scenario can promise, so the
+	// maximum is asked for either way.
 	Iterations int `json:"iterations,omitempty"`
+	// Over names the variable holding a list, and Item the variable that takes
+	// each element in turn. Both or neither: empty, the loop just counts.
+	Over string `json:"over,omitempty"`
+	Item string `json:"item,omitempty"`
 
-	// Seconds is how long a think_time waits.
-	Seconds float64 `json:"seconds,omitempty"`
+	// Seconds is how long a think_time waits; with SecondsMax it is the shortest
+	// of a range, and each pass waits a time picked between the two.
+	Seconds    float64 `json:"seconds,omitempty"`
+	SecondsMax float64 `json:"seconds_max,omitempty"`
 
 	// Group and Label say where a node came from and what its author called it:
 	// the folder of an imported collection, the name of a request in it. They

@@ -33,6 +33,12 @@ export function AvailableVariables({ available }: { available: Available[] }) {
           ))}
         </ul>
       )}
+
+      {/* Read anywhere, written by nothing: they stand for the last response. */}
+      <p className="text-xs text-muted-foreground">
+        Always available, from the last response: <span className="data text-foreground">response_status</span> and{" "}
+        <span className="data text-foreground">response_time_ms</span>.
+      </p>
     </section>
   );
 }

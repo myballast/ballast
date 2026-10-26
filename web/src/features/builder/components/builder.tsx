@@ -32,7 +32,8 @@ import type { GraphEdge, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/
 
 import { saveGraph, validateGraph } from "../actions";
 import { fromEndpoint } from "../catalog-node";
-import { extractProblem, hasProblems, isCredentialHeader, requestProblems, summaryOfProblems } from "../request-validation";
+import { nodeProblem } from "../node-validation";
+import { hasProblems, isCredentialHeader, requestProblems, summaryOfProblems } from "../request-validation";
 import { bindSecretBefore, undefinedNames, unboundSecrets, variablesBefore } from "../variables";
 import {
   canonical,
@@ -55,6 +56,19 @@ import { Palette, dragType } from "./palette";
 import { StepNode, type StepData, type StepFlowNode } from "./step-node";
 
 const nodeTypes = { step: StepNode };
+
+// What a step says about itself when its panel has something to fix: short, since
+// the panel says the rest, and in words, since a colour would not.
+const attention: Record<NodeKind, string> = {
+  http_request: "The request needs attention",
+  extract_variable: "The extraction needs attention",
+  set_variable: "The variable needs attention",
+  condition: "The condition needs attention",
+  loop: "The loop needs attention",
+  think_time: "The pause needs attention",
+  assertion: "The assertion needs attention",
+  end: "",
+};
 const fitOptions = { maxZoom: 1, padding: 0.2 };
 
 type Target = { id: string; name: string };
@@ -150,9 +164,9 @@ function BuilderView({
           count++;
           say(node.id, summaryOfProblems(said) ?? "");
         }
-      } else if (node.kind === "extract_variable" && extractProblem(node)) {
+      } else if (nodeProblem(node)) {
         count++;
-        say(node.id, "The extraction needs attention");
+        say(node.id, attention[node.kind]);
       }
 
       // Not a fault: a loop, or a script, can give the variable its value. But a
@@ -527,7 +541,7 @@ function BuilderView({
         )}
         {canEdit && blocking > 0 && (
           <p className="text-xs text-muted-foreground">
-            {blocking === 1 ? "One request needs attention" : `${blocking} requests need attention`} before this can be saved:
+            {blocking === 1 ? "One step needs attention" : `${blocking} steps need attention`} before this can be saved:
             each says what is wrong on the canvas.
           </p>
         )}

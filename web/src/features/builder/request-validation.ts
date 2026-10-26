@@ -281,6 +281,9 @@ const headerToken = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 // body, the name of a header, and for the status nothing at all.
 export function extractProblem(node: GraphNode): string | undefined {
   if (!variableName.test(node.variable ?? "")) return "The variable needs a name made of letters, digits and _, not starting with a digit.";
+  if (node.variable === "response_status" || node.variable === "response_time_ms") {
+    return `${node.variable} reads the last response, so no step may write it.`;
+  }
 
   const from = (node.from ?? "").trim();
   switch (node.source ?? "body") {

@@ -15,7 +15,7 @@ export default function () {
   const passed_assert = (vars["status"] === 200);
   check(passed_assert, { "status == 200": (ok) => ok });
   if (!passed_assert) {
-    fail("the assertion assert did not hold");
+    fail("the assertion \"status == 200\" did not hold");
   }
   return;
 }

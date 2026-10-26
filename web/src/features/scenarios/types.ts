@@ -53,8 +53,14 @@ export type GraphNode = {
   value?: string;
   from_env?: string;
   expression?: string;
+  // How many times a loop repeats; for a loop over a list, the most elements it takes.
   iterations?: number;
+  // The variable holding a list, and the one that takes each element in turn.
+  over?: string;
+  item?: string;
+  // How long a pause waits, or the shortest of its range.
   seconds?: number;
+  seconds_max?: number;
   group?: string;
   label?: string;
   critical?: boolean;

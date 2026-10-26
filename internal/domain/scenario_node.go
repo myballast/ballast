@@ -15,6 +15,33 @@ var nodeID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // object the generated script builds.
 var variableName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// Two names an expression can read and a node can never write. They stand for the
+// last response — its status and how long it took — so an assertion can speak of
+// them without a node to extract them first. A variable of the same name would
+// shadow them, and an assertion on the status would then read something else
+// without saying so.
+const (
+	ResponseStatus = "response_status"
+	ResponseTimeMS = "response_time_ms"
+)
+
+// IsReservedVariable reports whether name is one of the two the response owns.
+func IsReservedVariable(name string) bool {
+	return name == ResponseStatus || name == ResponseTimeMS
+}
+
+// checkWritable refuses a name a node may not give a variable.
+func checkWritable(name string) error {
+	if !variableName.MatchString(name) {
+		return fmt.Errorf("%w: %q is not a usable variable name", ErrInvalidGraph, name)
+	}
+	if IsReservedVariable(name) {
+		return fmt.Errorf("%w: %q is reserved: it reads the last response, so no step may write it",
+			ErrInvalidGraph, name)
+	}
+	return nil
+}
+
 // IsVariableName reports whether name may be used as a scenario variable.
 //
 // Exported because the generator asks the same question about a {name} written
@@ -187,8 +214,8 @@ func (n Node) BodyPath() string {
 var headerName = regexp.MustCompile("^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
 
 func (n Node) validateExtract() error {
-	if !variableName.MatchString(n.Variable) {
-		return fmt.Errorf("%w: %q is not a usable variable name", ErrInvalidGraph, n.Variable)
+	if err := checkWritable(n.Variable); err != nil {
+		return err
 	}
 	if len(n.From) > maxNodeTextLength {
 		return fmt.Errorf("%w: the path of the node %q is longer than %d characters",
@@ -223,8 +250,8 @@ func (n Node) validateExtract() error {
 }
 
 func (n Node) validateSet() error {
-	if !variableName.MatchString(n.Variable) {
-		return fmt.Errorf("%w: %q is not a usable variable name", ErrInvalidGraph, n.Variable)
+	if err := checkWritable(n.Variable); err != nil {
+		return err
 	}
 	if len(n.Value) > maxNodeTextLength {
 		return fmt.Errorf("%w: the value of the node %q is longer than %d characters",
@@ -263,11 +290,34 @@ func (n Node) validateExpression() error {
 
 func (n Node) validateLoop() error {
 	if n.Iterations < 1 {
-		return fmt.Errorf("%w: the loop %q repeats %d times", ErrInvalidGraph, n.ID, n.Iterations)
+		return fmt.Errorf("%w: the loop %q repeats %d times: give it a maximum of at least 1",
+			ErrInvalidGraph, n.ID, n.Iterations)
 	}
 	if n.Iterations > MaxLoopIterations {
 		return fmt.Errorf("%w: the loop %q repeats %d times, more than the %d allowed",
 			ErrInvalidGraph, n.ID, n.Iterations, MaxLoopIterations)
+	}
+
+	// Over and Item come together: a list with nowhere to put each element would
+	// walk it for nothing, and an item with no list would never be set.
+	switch {
+	case n.Over == "" && n.Item == "":
+		return nil
+	case n.Over == "":
+		return fmt.Errorf("%w: the loop %q names an item but no list to take it from", ErrInvalidGraph, n.ID)
+	case n.Item == "":
+		return fmt.Errorf("%w: the loop %q walks a list but names no item to hold each element", ErrInvalidGraph, n.ID)
+	}
+
+	if !variableName.MatchString(n.Over) {
+		return fmt.Errorf("%w: %q is not a usable variable name for the list of the loop %q",
+			ErrInvalidGraph, n.Over, n.ID)
+	}
+	if err := checkWritable(n.Item); err != nil {
+		return err
+	}
+	if n.Over == n.Item {
+		return fmt.Errorf("%w: the loop %q takes each element into the list itself", ErrInvalidGraph, n.ID)
 	}
 	return nil
 }
@@ -276,6 +326,12 @@ func (n Node) validateThinkTime() error {
 	if n.Seconds <= 0 || n.Seconds > 300 {
 		return fmt.Errorf("%w: the node %q waits %v seconds, wanted between 0 and 300",
 			ErrInvalidGraph, n.ID, n.Seconds)
+	}
+
+	// A range is a minimum and a maximum; the maximum is left out for a fixed time.
+	if n.SecondsMax != 0 && (n.SecondsMax < n.Seconds || n.SecondsMax > 300) {
+		return fmt.Errorf("%w: the node %q waits between %v and %v seconds, wanted a maximum between the minimum and 300",
+			ErrInvalidGraph, n.ID, n.Seconds, n.SecondsMax)
 	}
 	return nil
 }

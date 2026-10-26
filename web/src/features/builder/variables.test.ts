@@ -140,3 +140,34 @@ test("a variable read before it is written is named, for any kind of node", () =
   assert.deepEqual(undefinedNames({ id: "s", kind: "set_variable", variable: "v", value: "{{ghost}}" }, known), ["ghost"]);
   assert.deepEqual(undefinedNames({ id: "c", kind: "condition", expression: "token == 1" }, known), []);
 });
+
+test("a loop over a list writes its element, and reads the list", () => {
+  const loop: ScenarioGraph = {
+    start: "get",
+    nodes: [
+      { id: "get", kind: "http_request", method: "GET", path: "/items" },
+      { id: "take", kind: "extract_variable", variable: "items", from: "ids" },
+      { id: "each", kind: "loop", iterations: 5, over: "items", item: "item" },
+      { id: "one", kind: "http_request", method: "GET", path: "/items/{item}" },
+      { id: "done", kind: "end" },
+    ],
+    edges: [
+      { from: "get", to: "take" },
+      { from: "take", to: "each" },
+      { from: "each", to: "one", when: "body" },
+      { from: "each", to: "done", when: "after" },
+      { from: "one", to: "each" },
+    ],
+  };
+
+  assert.deepEqual(variablesBefore(loop, "one").map((v) => v.name).sort(), ["item", "items"]);
+  assert.deepEqual(variablesRead(loop.nodes[2]), ["items"]);
+  assert.deepEqual(undefinedNames(loop.nodes[3], variablesBefore(loop, "one")), []);
+});
+
+test("the two names the response owns are never undefined, and never offered a secret", () => {
+  const assertion = { id: "a", kind: "assertion" as const, expression: "response_status == 200 && count > 1" };
+  assert.deepEqual(variablesRead(assertion), ["count"]);
+  assert.deepEqual(undefinedNames(assertion, []), ["count"]);
+  assert.equal(variableForKey("RESPONSE_STATUS", []), "response_status_2");
+});

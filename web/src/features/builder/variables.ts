@@ -1,4 +1,5 @@
 import type { GraphEdge, GraphNode, ScenarioGraph } from "../scenarios/types.ts";
+import { isReserved, parseCondition } from "./condition.ts";
 
 export type Available = { name: string; secret: boolean; from: string };
 
@@ -41,6 +42,8 @@ export function variablesBefore(graph: ScenarioGraph, nodeId: string): Available
 }
 
 function variableWritten(node: GraphNode): Available | undefined {
+  // A loop over a list writes its element, each time round.
+  if (node.kind === "loop") return node.item ? { name: node.item, secret: false, from: node.id } : undefined;
   if (!node.variable) return undefined;
   if (node.kind === "extract_variable") return { name: node.variable, secret: false, from: node.id };
   if (node.kind === "set_variable") return { name: node.variable, secret: Boolean(node.from_env), from: node.id };
@@ -62,7 +65,7 @@ export function variableForKey(key: string, taken: Iterable<string>): string {
   if (!/^[a-z_]/.test(base)) base = `_${base}`;
 
   let name = base;
-  for (let n = 2; used.has(name); n++) name = `${base}_${n}`;
+  for (let n = 2; used.has(name) || isReserved(name); n++) name = `${base}_${n}`;
   return name;
 }
 
@@ -111,12 +114,20 @@ export function variablesRead(node: GraphNode): string[] {
   ];
   for (const text of texts) for (const match of text.matchAll(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g)) read.add(match[1]);
 
-  // An expression has no literal but numbers and quoted text, so every name left
-  // once the quoted text is taken out is a variable.
+  // An expression is read with the grammar, not a pattern: a name inside quoted
+  // text is text. Half-typed, it falls back to the names it holds so far. The two
+  // names the response owns are readable anywhere and are never "undefined".
   if (node.kind === "condition" || node.kind === "assertion") {
-    const bare = (node.expression ?? "").replace(/"[^"]*"/g, " ");
-    for (const match of bare.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) read.add(match[0]);
+    const parsed = parseCondition(node.expression ?? "");
+    if (parsed.ok) {
+      for (const name of parsed.variables) read.add(name);
+    } else {
+      const bare = (node.expression ?? "").replace(/"[^"]*"/g, " ");
+      for (const match of bare.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) if (!isReserved(match[0])) read.add(match[0]);
+    }
   }
+
+  if (node.kind === "loop" && node.over) read.add(node.over);
 
   return [...read].filter(Boolean);
 }

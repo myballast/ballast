@@ -48,13 +48,13 @@ export function newNode(kind: NodeKind, id: string): GraphNode {
     case "set_variable":
       return { id, kind, variable: "value", value: "" };
     case "condition":
-      return { id, kind, expression: "status == 200" };
+      return { id, kind, expression: "response_status == 200" };
     case "loop":
       return { id, kind, iterations: 3 };
     case "think_time":
       return { id, kind, seconds: 1 };
     case "assertion":
-      return { id, kind, expression: "status == 200" };
+      return { id, kind, expression: "response_status == 200" };
     case "end":
       return { id, kind };
   }
@@ -78,9 +78,16 @@ export function describe(node: GraphNode): { title: string; sub: string } {
     case "condition":
       return { title: label || "Condition", sub: node.expression ?? "" };
     case "loop":
-      return { title: label || "Loop", sub: `${node.iterations ?? 0} times` };
+      return {
+        title: label || "Loop",
+        // The maximum is always on the node: it is the one number that bounds a loop.
+        sub: node.over ? `each ${node.item ?? "item"} of ${node.over}, up to ${node.iterations ?? 0}` : `${node.iterations ?? 0} times`,
+      };
     case "think_time":
-      return { title: label || "Think time", sub: `${node.seconds ?? 0} s` };
+      return {
+        title: label || "Think time",
+        sub: node.seconds_max ? `${node.seconds ?? 0}–${node.seconds_max} s` : `${node.seconds ?? 0} s`,
+      };
     case "assertion":
       return { title: label || "Assertion", sub: node.expression ?? "" };
     case "end":

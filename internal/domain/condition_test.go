@@ -1,7 +1,10 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -110,5 +113,76 @@ func TestAndBindsTighterThanOr(t *testing.T) {
 	}
 	if tree.Right.Kind != CondAnd {
 		t.Fatalf("the right side is %q, wanted and", tree.Right.Kind)
+	}
+}
+
+// The same lists are read by the front end's own copy of the grammar
+// (web/src/features/builder/condition.test.ts). Two parsers that are meant to
+// agree stay in agreement only if they are asked the same questions: a panel that
+// accepted what the server refuses would send somebody to a failed save, and one
+// that refused what the server accepts would forbid a scenario that works.
+func TestTheSharedCorpusIsAcceptedAndRefusedAsWritten(t *testing.T) {
+	raw, err := os.ReadFile("testdata/conditions.json")
+	if err != nil {
+		t.Fatalf("read the corpus: %v", err)
+	}
+
+	var corpus struct {
+		Accepted []string `json:"accepted"`
+		Refused  []string `json:"refused"`
+	}
+	if err := json.Unmarshal(raw, &corpus); err != nil {
+		t.Fatalf("decode the corpus: %v", err)
+	}
+	if len(corpus.Accepted) == 0 || len(corpus.Refused) == 0 {
+		t.Fatal("the corpus is empty, which would prove nothing")
+	}
+
+	for _, expression := range corpus.Accepted {
+		if _, err := ParseCondition(expression); err != nil {
+			t.Errorf("%q should be accepted: %v", expression, err)
+		}
+	}
+	for _, expression := range corpus.Refused {
+		if _, err := ParseCondition(expression); err == nil {
+			t.Errorf("%q should be refused", expression)
+		}
+	}
+}
+
+// Two names read the last response. They are not variables a node writes, so a
+// node cannot be given either: the first would shadow the status, and an
+// assertion on the status would be reading something else without saying so.
+func TestTheResponseNamesAreReservedAndReadable(t *testing.T) {
+	for _, name := range []string{"response_status", "response_time_ms"} {
+		if !IsReservedVariable(name) {
+			t.Errorf("%q is not reserved", name)
+		}
+		if _, err := ParseCondition(name + " > 0"); err != nil {
+			t.Errorf("%q cannot be read in a condition: %v", name, err)
+		}
+	}
+	if IsReservedVariable("status") || IsReservedVariable("token") {
+		t.Error("an ordinary name is reserved")
+	}
+
+	cases := map[string]Node{
+		"an extraction":  {ID: "n", Kind: NodeExtractVariable, Variable: "response_status", From: "a"},
+		"a set variable": {ID: "n", Kind: NodeSetVariable, Variable: "response_time_ms", Value: "1"},
+		"a loop item":    {ID: "n", Kind: NodeLoop, Iterations: 3, Over: "items", Item: "response_status"},
+	}
+	for what, node := range cases {
+		graph := ScenarioGraph{Start: "n", Nodes: []Node{node, {ID: "end", Kind: NodeEnd}}}
+		if node.Kind == NodeLoop {
+			graph.Nodes = append(graph.Nodes, Node{ID: "body", Kind: NodeThinkTime, Seconds: 1})
+			graph.Edges = []Edge{{From: "n", To: "body", When: "body"}, {From: "n", To: "end", When: "after"}, {From: "body", To: "n"}}
+		} else {
+			graph.Edges = []Edge{{From: "n", To: "end"}}
+		}
+
+		err := graph.Validate()
+		if !errors.Is(err, ErrInvalidGraph) || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("%s named after the response was accepted or refused for the wrong reason: %v", what, err)
+		}
 	}
 }

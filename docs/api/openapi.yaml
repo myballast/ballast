@@ -4273,9 +4273,35 @@ components:
             name of a header. Empty for `status`.
         value: { type: string }
         from_env: { type: string, description: "The key of a secret of the environment, read when the run starts." }
-        expression: { type: string }
-        iterations: { type: integer }
-        seconds: { type: number }
+        expression:
+          type: string
+          description: |
+            What a `condition` or an `assertion` tests, in a small grammar of
+            comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), `&&`, `||`, variables,
+            numbers and quoted text. Never JavaScript. `response_status` and
+            `response_time_ms` read the last response and cannot be given to a
+            variable.
+        iterations:
+          type: integer
+          description: |
+            How many times a `loop` repeats, between 1 and 1000. For a loop over a
+            list it is the most elements it will take: a maximum is always required.
+        over:
+          type: string
+          description: The variable holding the list a `loop` walks. Goes with `item`.
+        item:
+          type: string
+          description: |
+            The variable that takes each element of the list in turn. Goes with
+            `over`, and may not be named like the list or like a reserved name.
+        seconds:
+          type: number
+          description: How long a `think_time` waits, or the shortest of its range.
+        seconds_max:
+          type: number
+          description: |
+            The longest of a `think_time` range, between `seconds` and 300. Left out,
+            the wait is fixed; otherwise each pass waits a time picked between the two.
         group: { type: string }
         label: { type: string }
         critical: { type: boolean }

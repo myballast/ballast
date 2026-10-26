@@ -49,7 +49,14 @@ func TestEveryKindOfNodeHasAReference(t *testing.T) {
 		"node_set_variable":     oneNode(domain.Node{ID: "set", Kind: domain.NodeSetVariable, Variable: "token", Value: "abc"}),
 		"node_extract_variable": oneNode(domain.Node{ID: "read", Kind: domain.NodeExtractVariable, Variable: "token", From: "access_token"}),
 		"node_think_time":       oneNode(domain.Node{ID: "wait", Kind: domain.NodeThinkTime, Seconds: 1.5}),
-		"node_secret_variable":  oneNode(domain.Node{ID: "token", Kind: domain.NodeSetVariable, Variable: "token", FromEnv: "API_TOKEN"}),
+		"node_think_time_range": oneNode(domain.Node{ID: "wait", Kind: domain.NodeThinkTime, Seconds: 1, SecondsMax: 4}),
+		"node_assertion_response": oneNode(domain.Node{
+			ID: "assert", Kind: domain.NodeAssertion, Expression: "response_status == 200 && response_time_ms < 500",
+		}),
+		"node_assertion_response_stops": oneNode(domain.Node{
+			ID: "assert", Kind: domain.NodeAssertion, Expression: "response_time_ms < 500", Critical: true,
+		}),
+		"node_secret_variable": oneNode(domain.Node{ID: "token", Kind: domain.NodeSetVariable, Variable: "token", FromEnv: "API_TOKEN"}),
 		"node_http_with_header_variable": oneNode(domain.Node{
 			ID: "call", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/orders",
 			Headers: map[string]string{"Authorization": "Bearer {{token}}"},
@@ -85,6 +92,7 @@ func TestCompleteGraphsHaveAReference(t *testing.T) {
 		"graph_login_and_read": completeGraph(),
 		"graph_branching":      branchingGraph(),
 		"graph_loop":           loopGraph(),
+		"graph_loop_over_list": listLoop(20),
 	}
 
 	for name, graph := range cases {
