@@ -8,17 +8,34 @@ export type KindInfo = {
   // One line for the palette's tooltip and the screen reader.
   hint: string;
   icon: "request" | "extract" | "set" | "condition" | "loop" | "wait" | "assert" | "end";
+  // The accent of the kind, a token of globals.css. It is a help to the eye, never
+  // what tells kinds apart: the label and the icon do.
+  tone: Tone;
 };
 
+export type Tone = { text: string; tint: string; bar: string; var: string };
+
+// Written out whole: Tailwind finds a class by reading it, not by building it.
+const tones = {
+  request: { text: "text-kind-request", tint: "bg-kind-request/15", bar: "bg-kind-request", var: "var(--kind-request)" },
+  extract: { text: "text-kind-extract", tint: "bg-kind-extract/15", bar: "bg-kind-extract", var: "var(--kind-extract)" },
+  set: { text: "text-kind-set", tint: "bg-kind-set/15", bar: "bg-kind-set", var: "var(--kind-set)" },
+  condition: { text: "text-kind-condition", tint: "bg-kind-condition/15", bar: "bg-kind-condition", var: "var(--kind-condition)" },
+  loop: { text: "text-kind-loop", tint: "bg-kind-loop/15", bar: "bg-kind-loop", var: "var(--kind-loop)" },
+  wait: { text: "text-kind-wait", tint: "bg-kind-wait/15", bar: "bg-kind-wait", var: "var(--kind-wait)" },
+  assert: { text: "text-kind-assert", tint: "bg-kind-assert/15", bar: "bg-kind-assert", var: "var(--kind-assert)" },
+  end: { text: "text-kind-end", tint: "bg-kind-end/15", bar: "bg-kind-end", var: "var(--kind-end)" },
+} satisfies Record<KindInfo["icon"], Tone>;
+
 export const kindInfo: KindInfo[] = [
-  { kind: "http_request", label: "HTTP request", hint: "Call an endpoint of the target", icon: "request" },
-  { kind: "extract_variable", label: "Extract variable", hint: "Keep a value from the last response", icon: "extract" },
-  { kind: "set_variable", label: "Set variable", hint: "Give a variable a value or a secret", icon: "set" },
-  { kind: "condition", label: "Condition", hint: "Take one way or the other", icon: "condition" },
-  { kind: "loop", label: "Loop", hint: "Repeat a few steps", icon: "loop" },
-  { kind: "think_time", label: "Think time", hint: "Wait like a person would", icon: "wait" },
-  { kind: "assertion", label: "Assertion", hint: "Check something and fail if it is false", icon: "assert" },
-  { kind: "end", label: "End", hint: "Where a path of the scenario stops", icon: "end" },
+  { kind: "http_request", label: "HTTP request", hint: "Call an endpoint of the target", icon: "request", tone: tones.request },
+  { kind: "extract_variable", label: "Extract variable", hint: "Keep a value from the last response", icon: "extract", tone: tones.extract },
+  { kind: "set_variable", label: "Set variable", hint: "Give a variable a value or a secret", icon: "set", tone: tones.set },
+  { kind: "condition", label: "Condition", hint: "Take one way or the other", icon: "condition", tone: tones.condition },
+  { kind: "loop", label: "Loop", hint: "Repeat a few steps", icon: "loop", tone: tones.loop },
+  { kind: "think_time", label: "Think time", hint: "Wait like a person would", icon: "wait", tone: tones.wait },
+  { kind: "assertion", label: "Assertion", hint: "Check something and fail if it is false", icon: "assert", tone: tones.assert },
+  { kind: "end", label: "End", hint: "Where a path of the scenario stops", icon: "end", tone: tones.end },
 ];
 
 export function infoOf(kind: NodeKind): KindInfo {

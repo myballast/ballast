@@ -6,6 +6,8 @@
 //   - the one exception, the level of a line of a run's output, has tokens of its
 //     own (log-error, log-warn) which only the component that draws a line may
 //     use;
+//   - the colours of the kinds of node of the builder (kind-*), an exception
+//     written in CLAUDE.md, may only be used by the builder's own components;
 //   - no raw Tailwind red, green or amber anywhere, which would be a status
 //     colour that escaped the tokens;
 //   - no colour written in hex in a component: colours are tokens, set in
@@ -31,7 +33,26 @@ const logOwners = new Set(["src/features/runs/components/log-line.tsx", "src/sty
 // The only file that may use the syntax tokens of a JSON body, besides globals.css.
 const syntaxOwners = new Set(["src/features/builder/components/json-editor.tsx", "src/styles/globals.css"]);
 
+// The files that may use the node-kind tokens, besides globals.css: the parts of the
+// builder that draw a kind of node.
+const kindOwners = new Set([
+  "src/features/builder/components/step-node.tsx",
+  "src/features/builder/components/palette.tsx",
+  "src/features/builder/components/kind-icon.tsx",
+  "src/features/builder/components/builder.tsx",
+  "src/features/builder/components/inspector.tsx",
+  "src/features/builder/kinds.ts",
+  "src/features/styleguide/components/builder-samples.tsx",
+  "src/styles/globals.css",
+]);
+
 const rules = [
+  {
+    name: "node-kind colour outside the builder",
+    pattern: /\bkind-(request|extract|set|condition|loop|wait|assert|end)\b/,
+    applies: (file) => !kindOwners.has(file),
+    fix: "node-kind colours belong to the builder's node, palette, minimap and inspector",
+  },
   {
     name: "JSON syntax colour outside the JSON editor",
     pattern: /\bsyntax-(key|string|number|variable)\b/,

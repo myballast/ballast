@@ -9,7 +9,8 @@ import type { Environment } from "@/features/environments/types";
 import type { ScenarioSummary } from "@/features/scenarios/types";
 
 import { launchRun, type LaunchState } from "../actions";
-import { profileKinds, type ProfileKind, type ProfileParams } from "../types";
+import type { ProfileKind, ProfileParams } from "../types";
+import { ParamFields, ProfileKindPicker } from "./profile-fields";
 
 const field =
   "h-9 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
@@ -20,13 +21,6 @@ const field =
 function ownParams(scenario: ScenarioSummary | undefined): ProfileParams | undefined {
   return scenario && scenario.default_params.target_vus >= 1 ? scenario.default_params : undefined;
 }
-
-const paramFields: { name: keyof ProfileParams; label: string; unit: string }[] = [
-  { name: "target_vus", label: "Virtual users", unit: "VUs" },
-  { name: "ramp_up_s", label: "Ramp-up", unit: "s" },
-  { name: "plateau_s", label: "Plateau", unit: "s" },
-  { name: "ramp_down_s", label: "Ramp-down", unit: "s" },
-];
 
 // LaunchForm picks a scenario, a verified environment, a profile and its
 // parameters, and queues the run. A client component because each choice
@@ -111,24 +105,7 @@ export function LaunchForm({
 
       <fieldset className="flex flex-col gap-1.5 text-sm">
         <legend className="pb-1.5">Profile</legend>
-        <div className="flex flex-wrap gap-2">
-          {profileKinds.map((kind) => (
-            <label
-              key={kind}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:checked]:border-brand has-[:checked]:text-foreground text-muted-foreground"
-            >
-              <input
-                type="radio"
-                name="profile"
-                value={kind}
-                checked={profile === kind}
-                onChange={() => choose(scenario, kind)}
-                className="accent-brand"
-              />
-              {kind}
-            </label>
-          ))}
-        </div>
+        <ProfileKindPicker value={profile} onChange={(kind) => choose(scenario, kind)} />
       </fieldset>
 
       <fieldset className="flex flex-col gap-3 text-sm">
@@ -147,36 +124,21 @@ export function LaunchForm({
         </label>
 
         {custom && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {paramFields.map((f) => (
-              <label key={f.name} className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-                {f.label}
-                <span className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    name={f.name}
-                    min={f.name === "target_vus" ? 1 : 0}
-                    required
-                    value={params?.[f.name] ?? ""}
-                    onChange={(event) =>
-                      setParams((current) => ({
-                        ...(current ?? { target_vus: 1, ramp_up_s: 0, plateau_s: 60, ramp_down_s: 0 }),
-                        [f.name]: Number.parseInt(event.target.value, 10),
-                      }))
-                    }
-                    className={`${field} num w-full`}
-                  />
-                  <span>{f.unit}</span>
-                </span>
-              </label>
-            ))}
-          </div>
+          <ParamFields
+            values={params ?? {}}
+            onChange={(name, value) =>
+              setParams((current) => ({
+                ...(current ?? { target_vus: 1, ramp_up_s: 0, plateau_s: 60, ramp_down_s: 0 }),
+                [name]: value,
+              }) as ProfileParams)
+            }
+          />
         )}
 
         {environment && (
           <p className="text-xs text-muted-foreground">
-            {environment.name} takes up to <span className="num">{environment.max_vus}</span> VUs for{" "}
-            <span className="num">{environment.max_duration_s}</span> s. Anything above is lowered to fit before the
+            {environment.name} takes up to <span className="num">{environment.effective_max_vus}</span> VUs for{" "}
+            <span className="num">{environment.effective_max_duration_s}</span> s. Anything above is lowered to fit before the
             run is queued.
             {environment.allowed_window &&
               ` It takes load from ${environment.allowed_window.start} to ${environment.allowed_window.end} (${environment.allowed_window.timezone}) only, for the whole run.`}

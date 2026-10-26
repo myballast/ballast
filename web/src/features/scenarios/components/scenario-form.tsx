@@ -6,7 +6,8 @@ import { useActionState, useEffect, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { CatalogEndpoint } from "@/features/endpoints/types";
-import { profileKinds, type ProfileKind, type ProfileParams } from "@/features/runs/types";
+import { ParamFields, ProfileKindPicker } from "@/features/runs/components/profile-fields";
+import type { ProfileKind, ProfileParams } from "@/features/runs/types";
 
 import { createScenario, updateScenario, type ScenarioFormState } from "../actions";
 import { linesOf } from "../findings";
@@ -18,13 +19,6 @@ import { ScriptFindings } from "./script-findings";
 
 const field =
   "h-9 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-const paramFields: { name: keyof ProfileParams; label: string; unit: string }[] = [
-  { name: "target_vus", label: "Virtual users", unit: "VUs" },
-  { name: "ramp_up_s", label: "Ramp-up", unit: "s" },
-  { name: "plateau_s", label: "Plateau", unit: "s" },
-  { name: "ramp_down_s", label: "Ramp-down", unit: "s" },
-];
 
 // A scenario stored without parameters of its own comes back with every one at
 // zero, which describes no test: those are left for the user to fill in.
@@ -152,24 +146,7 @@ export function ScenarioForm({
 
       <fieldset className="flex flex-col gap-1.5 text-sm">
         <legend className="pb-1.5">Default profile</legend>
-        <div className="flex flex-wrap gap-2">
-          {profileKinds.map((kind) => (
-            <label
-              key={kind}
-              className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:checked]:border-brand has-[:checked]:text-foreground"
-            >
-              <input
-                type="radio"
-                name="profile"
-                value={kind}
-                checked={profile === kind}
-                onChange={() => setProfile(kind)}
-                className="accent-brand"
-              />
-              {kind}
-            </label>
-          ))}
-        </div>
+        <ProfileKindPicker value={profile} onChange={setProfile} />
       </fieldset>
 
       <fieldset className="flex max-w-xl flex-col gap-3 text-sm">
@@ -190,30 +167,10 @@ export function ScenarioForm({
         )}
 
         {custom && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {paramFields.map((f) => (
-              <label key={f.name} className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-                {f.label}
-                <span className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    name={f.name}
-                    min={f.name === "target_vus" ? 1 : 0}
-                    required
-                    value={params[f.name] ?? ""}
-                    onChange={(event) =>
-                      setParams((current) => ({
-                        ...current,
-                        [f.name]: event.target.value === "" ? undefined : Number.parseInt(event.target.value, 10),
-                      }))
-                    }
-                    className={`${field} num w-full`}
-                  />
-                  <span>{f.unit}</span>
-                </span>
-              </label>
-            ))}
-          </div>
+          <ParamFields
+            values={params}
+            onChange={(name, value) => setParams((current) => ({ ...current, [name]: value }))}
+          />
         )}
         <span className="text-xs text-muted-foreground">
           What a run starts from. Each run can change them, and they are lowered to the environment&apos;s ceilings

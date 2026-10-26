@@ -109,12 +109,12 @@ func (p ProfileParams) ClampTo(env Environment) ProfileParams {
 	// one being generous is no reason to ignore the other, and an environment
 	// configured with ten thousand virtual users is a mistake rather than a
 	// permission.
-	vus := min(env.MaxVUs, MaxVUsAnywhere)
+	vus, seconds := env.Ceilings()
 	if p.TargetVUs > vus {
 		p.TargetVUs = vus
 	}
 
-	budget := min(env.MaxDurationS, MaxDurationAnywhereS)
+	budget := seconds
 	p.RampUpS = spend(p.RampUpS, &budget)
 	p.PlateauS = spend(p.PlateauS, &budget)
 	p.RampDownS = spend(p.RampDownS, &budget)

@@ -26,6 +26,9 @@ import { Time } from "@/components/time";
 import { Button } from "@/components/ui/button";
 import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { launchDefaultRun } from "@/features/runs/actions";
+import { sameParams } from "@/features/runs/profile";
+import type { ProfileParams } from "@/features/runs/types";
+import type { Threshold } from "@/features/scenarios/types";
 import { profileSummary, runBlockedReason } from "@/features/scenarios/workspace";
 import { useUnsavedGuard } from "@/features/scenarios/use-unsaved-guard";
 import type { GraphEdge, GraphFinding, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/features/scenarios/types";
@@ -50,6 +53,7 @@ import {
 } from "../graph-model";
 import { emptyHistory, redo, remember, undo, type History } from "../history";
 import { describe, infoOf, newNode } from "../kinds";
+import { Dock, type ProfileDraft, type Target } from "./dock";
 import { EmptyState } from "./empty-state";
 import { ProblemsPanel, type Problem } from "./problems-panel";
 import { ScriptPanel, type Draft } from "./script-panel";
@@ -71,9 +75,8 @@ const attention: Record<NodeKind, string> = {
   assertion: "The assertion needs attention",
   end: "",
 };
-const fitOptions = { maxZoom: 1, padding: 0.2 };
+const fitOptions = { maxZoom: 1.3, padding: 0.06 };
 
-type Target = { id: string; name: string };
 
 // What the canvas keeps about a node beside the graph: where it is, whether it is
 // selected, and what React Flow measured. None of it is saved.
@@ -88,6 +91,8 @@ export type BuilderProps = {
   projectName: string;
   scenario: Scenario & { graph: ScenarioGraph };
   targets: Target[];
+  // The scenario's thresholds, for the dock.
+  thresholds: Threshold[];
   canEdit: boolean;
   canRun: boolean;
   now: Date;
@@ -115,6 +120,7 @@ function BuilderView({
   projectName,
   scenario,
   targets,
+  thresholds,
   canEdit,
   canRun,
   now,
@@ -156,7 +162,21 @@ function BuilderView({
   }, [measured, flow]);
 
   const dirty = useMemo(() => canonical(graph) !== baseline, [graph, baseline]);
-  const guard = useUnsavedGuard(dirty);
+  // The profile in the dock, apart from the graph: it is saved by its own button, and
+  // it is a version of its own. A run starts from the saved one, so one that differs
+  // holds Run back as an unsaved graph does.
+  const hasOwnParams = scenario.default_params.target_vus >= 1;
+  const saved = useMemo<ProfileDraft>(
+    () => ({
+      kind: scenario.default_profile,
+      params: hasOwnParams ? scenario.default_params : { target_vus: 1, ramp_up_s: 0, plateau_s: 60, ramp_down_s: 0 },
+    }),
+    [scenario.default_profile, scenario.default_params, hasOwnParams],
+  );
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(saved);
+  const profileDirty = profileDraft.kind !== saved.kind || !sameParams(profileDraft.params as ProfileParams, saved.params);
+
+  const guard = useUnsavedGuard(dirty || profileDirty);
   // What is wrong with a node: how it is wired, or what it holds. The API judges the
   // graph at the end; this says it while somebody is still on it, and lists it.
   const { problems, blocking, local } = useMemo(() => {
@@ -297,16 +317,30 @@ function BuilderView({
       }
     }
 
-    return graph.edges.map((edge) => ({
-      id: edgeId(edge),
-      source: edge.from,
-      target: edge.to,
-      sourceHandle: edge.when ?? null,
-      label: edge.when ?? writes[edge.from],
-      markerEnd: { type: "arrowclosed" as const },
-      deletable: !readOnly,
-      focusable: false,
-    }));
+    const kinds = new Map(graph.nodes.map((node) => [node.id, node.kind]));
+
+    return graph.edges.map((edge) => {
+      // A wire takes the accent of the step it leaves, so a path can be followed by eye.
+      const from = kinds.get(edge.from);
+      const color = from ? infoOf(from).tone.var : "var(--muted-foreground)";
+      return {
+        id: edgeId(edge),
+        source: edge.from,
+        target: edge.to,
+        sourceHandle: edge.when ?? null,
+        label: edge.when ?? writes[edge.from],
+        type: "default",
+        style: { stroke: color, strokeWidth: 1.6, strokeOpacity: 0.7 },
+        markerEnd: { type: "arrowclosed" as const, color, width: 16, height: 16 },
+        labelShowBg: true,
+        labelBgPadding: [8, 3] as [number, number],
+        labelBgBorderRadius: 999,
+        labelBgStyle: { fill: "var(--card)", stroke: "var(--border)" },
+        labelStyle: { fill: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 10.5 },
+        deletable: !readOnly,
+        focusable: false,
+      };
+    });
   }, [graph.nodes, graph.edges, readOnly]);
 
   const places = useCallback(
@@ -600,7 +634,9 @@ function BuilderView({
   const blocked =
     invalid > 0 && !dirty
       ? `The saved graph has ${invalid} ${invalid === 1 ? "error" : "errors"}, so it cannot run: ${savedFindings[0].message}. They are listed under Problems.`
-      : runBlockedReason({ dirty, canRun, verifiedEnvironments: targets.length });
+      : profileDirty && !dirty && canRun && targets.length > 0
+        ? "Save the profile first: a run starts from the saved one."
+        : runBlockedReason({ dirty, canRun, verifiedEnvironments: targets.length });
   const own = scenario.default_params.target_vus >= 1;
 
   return (
@@ -624,20 +660,24 @@ function BuilderView({
               </>
             )}
           </span>
-          <span className="data text-xs text-muted-foreground" title="The default profile a run starts from">
+          <span
+            className="data flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs"
+            title="The default profile a run starts from"
+          >
+            <span className="font-sans text-[11px] text-muted-foreground">load</span>
             {own ? profileSummary(scenario.default_profile, scenario.default_params) : `${scenario.default_profile} template`}
           </span>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {canRun && (
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <label className="flex items-center gap-2 rounded-md border px-2.5 text-[11px] text-muted-foreground">
                 target
                 <select
                   value={environmentId}
                   onChange={(event) => setEnvironmentId(event.target.value)}
                   disabled={targets.length === 0}
                   aria-describedby={blocked ? reason : undefined}
-                  className="data h-8 rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  className="data h-7 rounded bg-transparent px-1 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 >
                   {targets.length === 0 && <option value="">no verified environment</option>}
                   {targets.map((target) => (
@@ -723,11 +763,11 @@ function BuilderView({
         id="panel-canvas"
         aria-labelledby="tab-canvas"
         hidden={tab !== "canvas"}
-        className={`grid min-h-[34rem] gap-3 lg:h-[calc(100svh-14rem)] ${readOnly ? "lg:grid-cols-[minmax(0,1fr)_20rem]" : "lg:grid-cols-[12.5rem_minmax(0,1fr)_20rem]"}`}
+        className={`grid min-h-[40rem] gap-3 lg:h-[calc(100svh-11rem)] ${readOnly ? "lg:grid-cols-[minmax(0,1fr)_20rem]" : "lg:grid-cols-[12.5rem_minmax(0,1fr)_20rem]"}`}
       >
         {!readOnly && <Palette onAdd={(kind) => addNode(kind)} />}
 
-        <div ref={surface} className="relative min-h-[26rem] overflow-hidden rounded-xl border bg-background">
+        <div ref={surface} className="relative min-h-[32rem] overflow-hidden rounded-xl border bg-background">
           {empty && <EmptyState projectId={projectId} readOnly={readOnly} onAdd={addFirstRequest} />}
           <ReactFlow
             className="builder-flow"
@@ -754,8 +794,8 @@ function BuilderView({
             maxZoom={1.5}
             zoomOnDoubleClick={false}
           >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
-            <MiniMap pannable zoomable ariaLabel="Mini map of the scenario" nodeColor="var(--muted-foreground)" />
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} />
+            <MiniMap pannable zoomable ariaLabel="Mini map of the scenario" nodeColor={minimapColor} nodeStrokeWidth={0} nodeBorderRadius={3} />
             <ZoomPanel />
             {!readOnly && (
               <Panel position="top-left" className="flex gap-1">
@@ -796,6 +836,20 @@ function BuilderView({
         )}
       </div>
 
+      {tab === "canvas" && (
+        <Dock
+          projectId={projectId}
+          scenarioId={scenario.id}
+          thresholds={thresholds}
+          canEdit={canEdit}
+          draft={profileDraft}
+          onDraft={setProfileDraft}
+          dirty={profileDirty}
+          hasOwnParams={hasOwnParams}
+          target={targets.find((t) => t.id === environmentId)}
+        />
+      )}
+
       <ProblemsPanel
         problems={listed}
         checked={fresh || (report !== null && report.findings.length > 0)}
@@ -807,6 +861,12 @@ function BuilderView({
 }
 
 // boxNodes is the nodes as React Flow last had them, for applying its changes to.
+// The mini map draws each step in the accent of its kind.
+function minimapColor(node: { data?: unknown }): string {
+  const step = node.data as StepData | undefined;
+  return step ? infoOf(step.node.kind).tone.var : "var(--muted-foreground)";
+}
+
 function boxNodes(nodes: GraphNode[], box: Record<string, Box>, data: Record<string, StepData>): StepFlowNode[] {
   return nodes.map((node) => ({
     id: node.id,

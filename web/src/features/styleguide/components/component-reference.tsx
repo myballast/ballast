@@ -112,6 +112,8 @@ const environment = (name: string, verified: boolean) => ({
   verification_status: verified ? ("verified" as const) : ("pending" as const),
   max_vus: 50,
   max_duration_s: 600,
+  effective_max_vus: 50,
+  effective_max_duration_s: 600,
   created_at: "2026-10-01T09:00:00Z",
 });
 
@@ -198,6 +200,11 @@ const sampleCatalog = [
     body_too_long: false,
     created_at: "2026-10-01T00:00:00Z",
   },
+];
+
+const sampleThresholds = [
+  { id: "t1", metric: "http_req_duration", expression: "p(95)<300" },
+  { id: "t2", metric: "http_req_failed", expression: "rate<0.01" },
 ];
 
 const graphScenario = (name: string, graph: ScenarioGraph) => ({
@@ -560,6 +567,7 @@ export function ComponentReference() {
             {
               ...environment("production", true),
               max_vus: 1000,
+              effective_max_vus: 200,
               allowed_window: {
                 start: "22:00",
                 end: "04:00",
@@ -571,6 +579,7 @@ export function ComponentReference() {
             {
               ...environment("partner-sandbox", false),
               max_vus: 100,
+              effective_max_vus: 100,
               allowed_window: { start: "00:00", end: "23:59", timezone: "UTC", days: ["sat", "sun"] },
             },
             { ...environment("preview", false), verification_checked_at: "2026-10-18T11:57:00Z" },
@@ -958,7 +967,8 @@ export function ComponentReference() {
           projectId="checkout"
           projectName="storefront"
           scenario={graphScenario("checkout-flow", sampleGraph)}
-          targets={[{ id: "e1", name: "staging-eu" }]}
+          targets={[{ id: "e1", name: "staging-eu", effectiveVus: 100, effectiveSeconds: 600 }]}
+          thresholds={sampleThresholds}
           canEdit
           canRun
           now={now}
@@ -971,6 +981,7 @@ export function ComponentReference() {
           projectName="storefront"
           scenario={graphScenario("checkout-flow", sampleGraph)}
           targets={[]}
+          thresholds={sampleThresholds}
           canEdit={false}
           canRun={false}
           now={now}
@@ -980,7 +991,8 @@ export function ComponentReference() {
           projectId="checkout"
           projectName="storefront"
           scenario={graphScenario("new-flow", { start: "", nodes: [], edges: [] })}
-          targets={[{ id: "e1", name: "staging-eu" }]}
+          targets={[{ id: "e1", name: "staging-eu", effectiveVus: 100, effectiveSeconds: 600 }]}
+          thresholds={[]}
           canEdit
           canRun
           now={now}

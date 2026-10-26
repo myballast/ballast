@@ -5136,6 +5136,8 @@ components:
         - verification_status
         - max_vus
         - max_duration_s
+        - effective_max_vus
+        - effective_max_duration_s
         - created_at
       properties:
         id: { type: string, format: uuid }
@@ -5165,6 +5167,19 @@ components:
           type: integer
           minimum: 1
           maximum: 86400
+        effective_max_vus:
+          type: integer
+          readOnly: true
+          description: |
+            What a run can really use here: the smaller of `max_vus` and the
+            ceiling no configuration can raise (200). A profile asking for more is
+            lowered to this before the run is queued.
+        effective_max_duration_s:
+          type: integer
+          readOnly: true
+          description: |
+            The same for the duration: the smaller of `max_duration_s` and one
+            hour.
         allowed_window:
           $ref: "#/components/schemas/AllowedWindow"
         verification_checked_at:

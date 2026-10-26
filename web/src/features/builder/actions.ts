@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiPatch, apiPost } from "@/lib/api-client";
+import type { ProfileKind, ProfileParams } from "@/features/runs/types";
 import type { GraphReport, Scenario, ScenarioGraph } from "@/features/scenarios/types";
 
 export type GraphState = { ok?: boolean; error?: string };
@@ -56,4 +57,29 @@ export async function validateGraph(projectId: string, scenarioId: string, graph
   } catch (error) {
     return { error: refusal(error, projectId, scenarioId).error };
   }
+}
+
+export type ProfileState = { ok?: boolean; error?: string };
+
+// saveProfile writes the scenario's default profile and its parameters. As with the
+// form of the scenario page, that is the next version of the scenario — the script
+// and the graph it holds do not change — and runs already recorded keep the version
+// they executed.
+export async function saveProfile(
+  projectId: string,
+  scenarioId: string,
+  profile: ProfileKind,
+  params: ProfileParams,
+): Promise<ProfileState> {
+  try {
+    await apiPatch<Scenario>(path(projectId, scenarioId), { default_profile: profile, default_params: params });
+  } catch (error) {
+    // The 400 of an invalid profile says which rule was broken, and is written for
+    // whoever sent it.
+    const refused = refusal(error, projectId, scenarioId);
+    return { error: refused.error };
+  }
+
+  refresh();
+  return { ok: true };
 }

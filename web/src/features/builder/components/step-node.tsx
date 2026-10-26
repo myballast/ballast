@@ -35,23 +35,26 @@ function StepNodeView({ data, selected }: NodeProps<StepFlowNode>) {
   return (
     <div
       className={cn(
-        "w-56 rounded-xl border bg-card px-3 py-2.5 text-left",
+        "relative w-52 rounded-[10px] border bg-card py-3 pr-3.5 pl-4 text-left",
         flagged && "border-2 border-foreground/70",
         selected && "border-brand ring-2 ring-ring",
       )}
     >
+      <span aria-hidden className={cn("absolute inset-y-0 left-0 w-[3px] rounded-l-[10px]", info.tone.bar)} />
       <Handle type="target" position={Position.Left} />
 
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <KindIcon icon={info.icon} />
+        <span className={cn("flex size-5 items-center justify-center rounded", info.tone.tint, info.tone.text)}>
+          <KindIcon icon={info.icon} className="size-3.5" />
+        </span>
         <span className="tracking-wider uppercase">{info.label}</span>
         {start && <span className="data ml-auto rounded border px-1 text-[10px]">start</span>}
       </div>
-      <div className="data mt-1 truncate text-sm" title={title}>
+      <div className="data mt-2 truncate text-[13px]" title={title}>
         {title}
       </div>
       {sub && (
-        <div className="data truncate text-xs text-muted-foreground" title={sub}>
+        <div className="mt-1 truncate text-xs text-muted-foreground" title={sub}>
           {sub}
         </div>
       )}

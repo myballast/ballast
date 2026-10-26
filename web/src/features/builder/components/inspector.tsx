@@ -5,6 +5,7 @@ import { useId } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { GraphNode } from "@/features/scenarios/types";
+import { cn } from "@/lib/utils";
 
 import { describe, infoOf } from "../kinds";
 import type { Available } from "../variables";
@@ -64,7 +65,9 @@ export function Inspector({
   return (
     <aside aria-label="Node inspector" className="flex h-full flex-col overflow-hidden rounded-xl border bg-card">
       <div className="flex items-center gap-2 border-b px-3 py-2.5">
-        <KindIcon icon={info.icon} className="size-4 text-muted-foreground" />
+        <span className={cn("flex size-6 items-center justify-center rounded-md", info.tone.tint, info.tone.text)}>
+          <KindIcon icon={info.icon} className="size-3.5" />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm">{info.label}</div>
           <div className="data truncate text-[11px] text-muted-foreground" title={title}>
