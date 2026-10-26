@@ -15,6 +15,9 @@ export type StepData = {
   // What is wrong with this node's wiring, if anything.
   issue?: string;
   start?: boolean;
+  // An error is on this step: it is drawn with a heavier frame, besides the words it
+  // already says, so that it can be found among forty.
+  flagged?: boolean;
 };
 export type StepFlowNode = Node<StepData, "step">;
 
@@ -24,7 +27,7 @@ const label = "data absolute -top-2.5 rounded border bg-background px-1 text-[10
 // title and what it holds, and — in words, with an icon — when its wiring is
 // incomplete. Colour tells none of it.
 function StepNodeView({ data, selected }: NodeProps<StepFlowNode>) {
-  const { node, issue, start } = data;
+  const { node, issue, start, flagged } = data;
   const info = infoOf(node.kind);
   const { title, sub } = describe(node);
   const ways = exits(node.kind);
@@ -33,6 +36,7 @@ function StepNodeView({ data, selected }: NodeProps<StepFlowNode>) {
     <div
       className={cn(
         "w-56 rounded-xl border bg-card px-3 py-2.5 text-left",
+        flagged && "border-2 border-foreground/70",
         selected && "border-brand ring-2 ring-ring",
       )}
     >

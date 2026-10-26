@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { ApiError, apiPatch, apiPost } from "@/lib/api-client";
-import type { Scenario, ScenarioGraph } from "@/features/scenarios/types";
+import type { GraphReport, Scenario, ScenarioGraph } from "@/features/scenarios/types";
 
 export type GraphState = { ok?: boolean; error?: string };
 
@@ -44,12 +44,16 @@ export async function saveGraph(projectId: string, scenarioId: string, graph: Sc
   return { ok: true };
 }
 
-// validateGraph asks whether a save would be accepted, and saves nothing.
-export async function validateGraph(projectId: string, scenarioId: string, graph: ScenarioGraph): Promise<GraphState> {
+export type ValidateState = { report?: GraphReport; error?: string };
+
+// validateGraph looks the graph over without saving it: everything wrong with it,
+// each fault on its node, or the script a save would store. A graph that is wrong is
+// an answer and not an error, so what comes back is a report either way.
+export async function validateGraph(projectId: string, scenarioId: string, graph: ScenarioGraph): Promise<ValidateState> {
   try {
-    await apiPost(`${path(projectId, scenarioId)}/graph/validate`, { graph });
+    const report = await apiPost<GraphReport>(`${path(projectId, scenarioId)}/graph/validate`, { graph });
+    return { report };
   } catch (error) {
-    return refusal(error, projectId, scenarioId);
+    return { error: refusal(error, projectId, scenarioId).error };
   }
-  return { ok: true };
 }

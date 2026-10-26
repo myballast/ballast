@@ -1,10 +1,6 @@
 package domain
 
-import (
-	"errors"
-	"fmt"
-	"sort"
-)
+import "errors"
 
 // ErrInvalidGraph reports a scenario graph Ballast refuses to store.
 var ErrInvalidGraph = errors.New("invalid scenario graph")
@@ -153,173 +149,14 @@ type ScenarioGraph struct {
 }
 
 // Validate refuses a graph the generator could not turn into a script, or
-// should not.
+// should not. It says the first thing wrong; Check says all of them.
 //
 // Everything here is checked before a version is stored, so the generator can
 // assume a graph it is given is sound.
 func (g ScenarioGraph) Validate() error {
-	if len(g.Nodes) == 0 {
-		return fmt.Errorf("%w: the graph has no node", ErrInvalidGraph)
+	if findings := g.Check(); len(findings) > 0 {
+		return findings[0].Err
 	}
-	if len(g.Nodes) > maxNodesPerGraph {
-		return fmt.Errorf("%w: the graph has %d nodes, more than the %d allowed",
-			ErrInvalidGraph, len(g.Nodes), maxNodesPerGraph)
-	}
-
-	byID := make(map[string]Node, len(g.Nodes))
-	for _, node := range g.Nodes {
-		if err := node.validate(); err != nil {
-			return err
-		}
-		if _, seen := byID[node.ID]; seen {
-			return fmt.Errorf("%w: two nodes share the id %q", ErrInvalidGraph, node.ID)
-		}
-		byID[node.ID] = node
-	}
-
-	if _, ok := byID[g.Start]; !ok {
-		return fmt.Errorf("%w: the start node %q is not in the graph", ErrInvalidGraph, g.Start)
-	}
-
-	if err := g.validateEdges(byID); err != nil {
-		return err
-	}
-
-	if err := g.validateReachability(byID); err != nil {
-		return err
-	}
-
-	// Last, because it is the strongest check: a graph that cannot be walked
-	// into a sequence of steps is a graph no generator could write down. Doing
-	// it here means the generator never has to decide whether a graph is sound.
-	_, err := g.Steps()
-	return err
-}
-
-// validateEdges checks that every edge joins two known nodes, and that a
-// condition is the only kind with a branch.
-func (g ScenarioGraph) validateEdges(byID map[string]Node) error {
-	outgoing := make(map[string][]Edge, len(g.Nodes))
-
-	for _, edge := range g.Edges {
-		if _, ok := byID[edge.From]; !ok {
-			return fmt.Errorf("%w: an edge leaves the unknown node %q", ErrInvalidGraph, edge.From)
-		}
-		if _, ok := byID[edge.To]; !ok {
-			return fmt.Errorf("%w: an edge reaches the unknown node %q", ErrInvalidGraph, edge.To)
-		}
-		outgoing[edge.From] = append(outgoing[edge.From], edge)
-	}
-
-	for id, node := range byID {
-		edges := outgoing[id]
-
-		if node.Kind == NodeEnd {
-			if len(edges) > 0 {
-				return fmt.Errorf("%w: the end node %q has an outgoing edge", ErrInvalidGraph, id)
-			}
-			continue
-		}
-
-		if node.Kind == NodeCondition {
-			if err := validateLabelledEdges(id, edges, "true", "false"); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if node.Kind == NodeLoop {
-			if err := validateLabelledEdges(id, edges, "body", "after"); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if len(edges) != 1 {
-			return fmt.Errorf("%w: the node %q has %d outgoing edges, wanted 1",
-				ErrInvalidGraph, id, len(edges))
-		}
-		if edges[0].When != "" {
-			return fmt.Errorf("%w: the node %q is not a condition but its edge is labelled %q",
-				ErrInvalidGraph, id, edges[0].When)
-		}
-	}
-
-	return nil
-}
-
-// validateLabelledEdges checks that a node with two ways out has exactly those
-// two, each labelled once.
-//
-// A condition with only one branch is a condition whose other outcome nobody
-// decided; a loop with no way out is a loop the scenario never leaves.
-func validateLabelledEdges(id string, edges []Edge, first, second string) error {
-	found := map[string]int{}
-	for _, edge := range edges {
-		if edge.When != first && edge.When != second {
-			return fmt.Errorf("%w: an edge leaving %q is labelled %q, wanted %s or %s",
-				ErrInvalidGraph, id, edge.When, first, second)
-		}
-		found[edge.When]++
-	}
-
-	if found[first] != 1 || found[second] != 1 {
-		return fmt.Errorf("%w: %q needs one %s edge and one %s edge, it has %d edges in all",
-			ErrInvalidGraph, id, first, second, len(edges))
-	}
-
-	return nil
-}
-
-// validateReachability checks that every node can be reached from the start,
-// and that at least one end can be reached.
-//
-// An unreachable node is a step somebody drew and wired to nothing: it would
-// vanish from the generated script without a word, and the scenario would not
-// do what the canvas shows.
-func (g ScenarioGraph) validateReachability(byID map[string]Node) error {
-	next := make(map[string][]string, len(g.Nodes))
-	for _, edge := range g.Edges {
-		next[edge.From] = append(next[edge.From], edge.To)
-	}
-
-	seen := map[string]bool{g.Start: true}
-	queue := []string{g.Start}
-
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		for _, to := range next[current] {
-			if !seen[to] {
-				seen[to] = true
-				queue = append(queue, to)
-			}
-		}
-	}
-
-	var unreachable []string
-	reachesAnEnd := false
-
-	for id, node := range byID {
-		if !seen[id] {
-			unreachable = append(unreachable, id)
-			continue
-		}
-		if node.Kind == NodeEnd {
-			reachesAnEnd = true
-		}
-	}
-
-	if len(unreachable) > 0 {
-		sort.Strings(unreachable)
-		return fmt.Errorf("%w: these nodes cannot be reached from the start: %v",
-			ErrInvalidGraph, unreachable)
-	}
-	if !reachesAnEnd {
-		return fmt.Errorf("%w: no end node can be reached from the start", ErrInvalidGraph)
-	}
-
 	return nil
 }
 

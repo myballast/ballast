@@ -138,12 +138,19 @@ func (h *Scenario) ValidateGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.scenarios.ValidateGraph(r.Context(), who, projectID, id, graphOf(&body.Graph)); err != nil {
-		h.writeScriptError(w, r, err, domain.ScriptReport{})
+	report, err := h.scenarios.ValidateGraph(r.Context(), who, projectID, id, graphOf(&body.Graph))
+	if err != nil {
+		h.writeDomainError(w, r, err)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	out := dto.GraphReport{Valid: report.Valid(), Errors: make([]dto.GraphFinding, 0, len(report.Findings)), Script: report.Script}
+	for _, finding := range report.Findings {
+		out.Errors = append(out.Errors, dto.GraphFinding{
+			NodeID: finding.NodeID, Code: string(finding.Code), Message: finding.Message,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // Delete handles removing a scenario.

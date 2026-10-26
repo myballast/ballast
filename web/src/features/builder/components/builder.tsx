@@ -28,7 +28,7 @@ import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { launchDefaultRun } from "@/features/runs/actions";
 import { profileSummary, runBlockedReason } from "@/features/scenarios/workspace";
 import { useUnsavedGuard } from "@/features/scenarios/use-unsaved-guard";
-import type { GraphEdge, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/features/scenarios/types";
+import type { GraphEdge, GraphFinding, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/features/scenarios/types";
 
 import { saveGraph, validateGraph } from "../actions";
 import { fromEndpoint } from "../catalog-node";
@@ -51,6 +51,8 @@ import {
 import { emptyHistory, redo, remember, undo, type History } from "../history";
 import { describe, infoOf, newNode } from "../kinds";
 import { EmptyState } from "./empty-state";
+import { ProblemsPanel, type Problem } from "./problems-panel";
+import { ScriptPanel, type Draft } from "./script-panel";
 import { Inspector } from "./inspector";
 import { Palette, dragType } from "./palette";
 import { StepNode, type StepData, type StepFlowNode } from "./step-node";
@@ -130,6 +132,13 @@ function BuilderView({
   // Changes when an undo rewrites a node, so the inspector starts from it again.
   const [revision, setRevision] = useState(0);
   const [message, setMessage] = useState<Message | null>(null);
+  // What the server found the last time it looked the graph over, and which graph
+  // that was about: a report on a graph that has changed since is shown, but as old.
+  const [report, setReport] = useState<{ findings: GraphFinding[]; script?: string; key: string } | null>(null);
+  // What was found wrong with the version that is saved. A run executes that one,
+  // so a fault in it stops the run whatever the canvas holds now.
+  const [savedFindings, setSavedFindings] = useState<GraphFinding[]>([]);
+  const [tab, setTab] = useState<"canvas" | "script">("canvas");
   const [environmentId, setEnvironmentId] = useState(targets[0]?.id ?? "");
   const [pending, startTransition] = useTransition();
   // The field being typed in: a run of keystrokes in one field is one undo step.
@@ -148,13 +157,22 @@ function BuilderView({
 
   const dirty = useMemo(() => canonical(graph) !== baseline, [graph, baseline]);
   const guard = useUnsavedGuard(dirty);
-  // What is wrong with a node: how it is wired, or what a request holds. The
-  // API judges the graph at the end; this says it while somebody is still on it.
-  const { problems, blocking } = useMemo(() => {
+  // What is wrong with a node: how it is wired, or what it holds. The API judges the
+  // graph at the end; this says it while somebody is still on it, and lists it.
+  const { problems, blocking, local } = useMemo(() => {
     const found = issues(graph);
     const say = (id: string, text: string) => {
       found[id] = [found[id], text].filter(Boolean).join(". ");
     };
+    const title = (id: string) => {
+      const node = graph.nodes.find((n) => n.id === id);
+      return node ? describe(node).title : "";
+    };
+
+    const listed: Problem[] = [];
+    for (const [id, text] of Object.entries(issues(graph))) {
+      listed.push({ nodeId: id, where: title(id), message: text, level: "error" });
+    }
 
     let count = 0;
     for (const node of graph.nodes) {
@@ -163,20 +181,80 @@ function BuilderView({
         if (hasProblems(said)) {
           count++;
           say(node.id, summaryOfProblems(said) ?? "");
+          const first =
+            said.path ??
+            said.headers.find(Boolean) ??
+            said.query.find(Boolean) ??
+            (said.body ? `The body is not valid JSON (line ${said.body.line}): ${said.body.message}` : said.bodyText) ??
+            "The request needs attention.";
+          listed.push({ nodeId: node.id, where: title(node.id), message: first, level: "error" });
         }
       } else if (nodeProblem(node)) {
         count++;
         say(node.id, attention[node.kind]);
+        listed.push({ nodeId: node.id, where: title(node.id), message: nodeProblem(node) as string, level: "error" });
       }
 
       // Not a fault: a loop, or a script, can give the variable its value. But a
       // step that reads one nothing before it writes is worth saying out loud.
       const ghosts = undefinedNames(node, variablesBefore(graph, node.id));
-      if (ghosts.length > 0) say(node.id, `Reads ${ghosts.join(", ")} before it is defined`);
+      if (ghosts.length > 0) {
+        say(node.id, `Reads ${ghosts.join(", ")} before it is defined`);
+        listed.push({
+          nodeId: node.id,
+          where: title(node.id),
+          message: `Reads ${ghosts.join(", ")} before any step before it writes ${ghosts.length === 1 ? "it" : "them"}.`,
+          level: "warning",
+        });
+      }
     }
-    return { problems: found, blocking: count };
+    return { problems: found, blocking: count, local: listed };
   }, [graph]);
   const empty = graph.nodes.length === 0;
+
+  const key = useMemo(() => canonical(graph), [graph]);
+  const fresh = report !== null && report.key === key;
+
+  // Everything wrong, on its node: what the server said about this graph, then what
+  // the canvas can tell on its own. The same fault said by both is listed once.
+  const listed = useMemo<Problem[]>(() => {
+    const title = (id: string) => {
+      const node = graph.nodes.find((n) => n.id === id);
+      return id === "" ? "Graph" : node ? describe(node).title : id;
+    };
+
+    const fromServer: Problem[] = (report?.findings ?? []).map((f) => ({
+      nodeId: f.node_id ?? "",
+      where: title(f.node_id ?? ""),
+      message: f.message,
+      level: "error",
+    }));
+    // The server has the last word on a node it has looked at: what the canvas said
+    // of the same node in its own words is the same fault, said twice.
+    const looked = new Set(fresh ? fromServer.map((p) => p.nodeId) : []);
+    return [...fromServer, ...local.filter((p) => p.level === "warning" || !looked.has(p.nodeId))];
+  }, [report, fresh, local, graph.nodes]);
+
+  // What each node says about itself: what the canvas found, and what the server
+  // found that the canvas could not (a cycle, say).
+  const said = useMemo(() => {
+    const out = { ...problems };
+    const replaced = new Set<string>();
+    for (const finding of report?.findings ?? []) {
+      const id = finding.node_id;
+      if (!id) continue;
+      // The first thing the server says about a node replaces what the canvas said
+      // of it, when the report is about this graph; the rest follow it.
+      const known = fresh && !replaced.has(id) ? "" : (out[id] ?? "");
+      replaced.add(id);
+      if (!known.includes(finding.message)) out[id] = [known, finding.message].filter(Boolean).join(". ");
+    }
+    return out;
+  }, [problems, report, fresh]);
+
+  // The nodes to draw as faulty: those with an error, from the server while the
+  // graph is as it looked then and from the canvas always.
+  const flagged = useMemo(() => new Set(listed.filter((p) => p.level === "error" && p.nodeId !== "").map((p) => p.nodeId)), [listed]);
 
   const selected = graph.nodes.filter((node) => box[node.id]?.selected);
   const current = selected.length === 1 ? selected[0] : null;
@@ -185,16 +263,16 @@ function BuilderView({
   // canvas redraws that node and not the other forty-nine.
   const data = useMemo(() => {
     const byId: Record<string, StepData> = {};
-    for (const node of graph.nodes) byId[node.id] = { node, issue: problems[node.id], start: node.id === graph.start };
+    for (const node of graph.nodes) byId[node.id] = { node, issue: said[node.id], start: node.id === graph.start, flagged: flagged.has(node.id) };
     return byId;
-  }, [graph, problems]);
+  }, [graph, said, flagged]);
 
   const nodes = useMemo<StepFlowNode[]>(
     () =>
       graph.nodes.map((node) => {
         const placed = box[node.id] ?? { position: { x: 0, y: 0 } };
         const { title } = describe(node);
-        const issue = problems[node.id];
+        const issue = said[node.id];
         return {
           id: node.id,
           type: "step",
@@ -206,7 +284,7 @@ function BuilderView({
           deletable: !readOnly,
         };
       }),
-    [graph.nodes, box, data, problems, readOnly],
+    [graph.nodes, box, data, said, readOnly],
   );
 
   const edges = useMemo<Edge[]>(() => {
@@ -386,6 +464,16 @@ function BuilderView({
     apply(connect(graph, { from: connection.source, to: connection.target, ...(when ? { when } : {}) }));
   }
 
+  // Goes to the node a problem is about: back on the canvas, the node selected and
+  // brought into view.
+  function goTo(nodeId: string) {
+    if (nodeId === "") return;
+    setTab("canvas");
+    setBox((b) => Object.fromEntries(Object.entries(b).map(([id, v]) => [id, { ...v, selected: id === nodeId }])));
+    // After the canvas is shown again: it has no size while it is hidden.
+    setTimeout(() => flow.fitView({ nodes: [{ id: nodeId }], duration: 300, maxZoom: 1, padding: 0.6 }), 50);
+  }
+
   // Choosing an endpoint of the catalog fills a request in, in one step to undo.
   function pickEndpoint(node: GraphNode, endpoint: CatalogEndpoint) {
     const filled = fromEndpoint(endpoint);
@@ -434,17 +522,44 @@ function BuilderView({
     apply(without(graph, new Set([current.id])));
   }
 
+  // Looks the graph over on the server: everything wrong with it, each fault on its
+  // node, or the script a save would store.
   function check() {
     setMessage(null);
+    const asked = canonical(graph);
     startTransition(async () => {
       const outcome = await validateGraph(projectId, scenario.id, graph);
+      if (outcome.error || !outcome.report) {
+        setMessage({ kind: "error", text: outcome.error ?? "The graph could not be checked." });
+        return;
+      }
+
+      setReport({ findings: outcome.report.errors, script: outcome.report.script, key: asked });
+      const count = outcome.report.errors.length;
       setMessage(
-        outcome.error
-          ? { kind: "error", text: outcome.error }
-          : { kind: "ok", text: "This graph is valid: a save would be accepted." },
+        outcome.report.valid
+          ? { kind: "ok", text: "This graph is valid: a save would be accepted." }
+          : { kind: "error", text: `${count} ${count === 1 ? "error" : "errors"} found: they are listed under Problems.` },
       );
     });
   }
+
+  // The saved version is looked over once, when the page opens: a run executes that
+  // one, and a graph stored before a rule existed may not pass it now.
+  useEffect(() => {
+    if (readOnly || scenario.graph.nodes.length === 0) return;
+    let cancelled = false;
+    validateGraph(projectId, scenario.id, scenario.graph).then((outcome) => {
+      if (cancelled || !outcome.report) return;
+      setSavedFindings(outcome.report.errors);
+      setReport({ findings: outcome.report.errors, script: outcome.report.script, key: canonical(scenario.graph) });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Once, for the version the page opened on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function save() {
     setMessage(null);
@@ -455,6 +570,8 @@ function BuilderView({
         return;
       }
       setBaseline(canonical(graph));
+      // A save is refused unless the graph is sound, so the saved one is.
+      setSavedFindings([]);
       setMessage({ kind: "ok", text: "Saved as a new version." });
     });
   }
@@ -467,7 +584,23 @@ function BuilderView({
     });
   }
 
-  const blocked = runBlockedReason({ dirty, canRun, verifiedEnvironments: targets.length });
+  const draft: Draft = !dirty
+    ? { kind: "same" }
+    : fresh && report
+      ? report.findings.length > 0
+        ? { kind: "errors", count: report.findings.length }
+        : report.script
+          ? { kind: "ready", script: report.script }
+          : { kind: "unchecked" }
+      : report
+        ? { kind: "stale" }
+        : { kind: "unchecked" };
+
+  const invalid = savedFindings.length;
+  const blocked =
+    invalid > 0 && !dirty
+      ? `The saved graph has ${invalid} ${invalid === 1 ? "error" : "errors"}, so it cannot run: ${savedFindings[0].message}. They are listed under Problems.`
+      : runBlockedReason({ dirty, canRun, verifiedEnvironments: targets.length });
   const own = scenario.default_params.target_vus >= 1;
 
   return (
@@ -517,7 +650,7 @@ function BuilderView({
             )}
             {canEdit && (
               <>
-                <Button variant="outline" onClick={check} disabled={pending || empty}>
+                <Button variant="outline" onClick={() => check()} disabled={pending || empty}>
                   Validate
                 </Button>
                 <Button variant="outline" onClick={save} disabled={pending || !dirty || empty || blocking > 0}>
@@ -555,7 +688,43 @@ function BuilderView({
         )}
       </div>
 
-      <div className={`grid min-h-[34rem] gap-3 lg:h-[calc(100svh-14rem)] ${readOnly ? "lg:grid-cols-[minmax(0,1fr)_20rem]" : "lg:grid-cols-[12.5rem_minmax(0,1fr)_20rem]"}`}>
+      <div role="tablist" aria-label="View" className="flex w-fit rounded-lg border p-0.5 text-sm">
+        {(["canvas", "script"] as const).map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            id={`tab-${name}`}
+            aria-selected={tab === name}
+            aria-controls={`panel-${name}`}
+            onClick={() => setTab(name)}
+            className="rounded-md px-3 py-1 aria-selected:bg-muted aria-selected:font-medium"
+          >
+            {name === "canvas" ? "Canvas" : "Script"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "script" && (
+        <div role="tabpanel" id="panel-script" aria-labelledby="tab-script">
+          <ScriptPanel
+            saved={scenario.script}
+            version={scenario.version}
+            draft={draft}
+            onWrite={check}
+            pending={pending}
+            canWrite={canEdit}
+          />
+        </div>
+      )}
+
+      <div
+        role="tabpanel"
+        id="panel-canvas"
+        aria-labelledby="tab-canvas"
+        hidden={tab !== "canvas"}
+        className={`grid min-h-[34rem] gap-3 lg:h-[calc(100svh-14rem)] ${readOnly ? "lg:grid-cols-[minmax(0,1fr)_20rem]" : "lg:grid-cols-[12.5rem_minmax(0,1fr)_20rem]"}`}
+      >
         {!readOnly && <Palette onAdd={(kind) => addNode(kind)} />}
 
         <div ref={surface} className="relative min-h-[26rem] overflow-hidden rounded-xl border bg-background">
@@ -626,6 +795,13 @@ function BuilderView({
           </aside>
         )}
       </div>
+
+      <ProblemsPanel
+        problems={listed}
+        checked={fresh || (report !== null && report.findings.length > 0)}
+        stale={report !== null && !fresh}
+        onSelect={goTo}
+      />
     </div>
   );
 }

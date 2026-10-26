@@ -86,6 +86,24 @@ type UpdateScenarioRequest struct {
 	Graph *ScenarioGraph `json:"graph,omitempty"`
 }
 
+// GraphFinding is one fault of a graph, on the node it belongs to.
+type GraphFinding struct {
+	// NodeID is absent for a fault of the graph as a whole.
+	NodeID string `json:"node_id,omitempty"`
+	// Code is stable; the message is not. Key on the code.
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// GraphReport is what looking over a graph found.
+type GraphReport struct {
+	Valid  bool           `json:"valid"`
+	Errors []GraphFinding `json:"errors"`
+	// Script is what a save of this graph would store, and so what a run would
+	// execute. Absent while there are errors.
+	Script string `json:"script,omitempty"`
+}
+
 // ValidateGraphRequest is the body that asks whether a graph would be accepted.
 type ValidateGraphRequest struct {
 	Graph ScenarioGraph `json:"graph"`

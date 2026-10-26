@@ -254,6 +254,28 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, domain.ErrInvalidRunFilter):
 		writeError(w, http.StatusBadRequest, err.Error())
 
+	case errors.Is(err, domain.ErrInvalidGraph):
+		// 422, with every reason: a graph stored before a rule existed, and refused
+		// now, has to say what to fix and on which node, not only that it is refused.
+		body := struct {
+			Error    string             `json:"error"`
+			Findings []dto.GraphFinding `json:"findings"`
+		}{Error: "the scenario's graph is not valid, so it cannot be run", Findings: []dto.GraphFinding{}}
+
+		var refused *domain.GraphRefused
+		if errors.As(err, &refused) {
+			for _, finding := range refused.Findings {
+				body.Findings = append(body.Findings, dto.GraphFinding{
+					NodeID: finding.NodeID, Code: string(finding.Code), Message: finding.Message,
+				})
+			}
+		}
+		writeJSON(w, http.StatusUnprocessableEntity, body)
+
+	case errors.Is(err, domain.ErrInvalidScript):
+		writeError(w, http.StatusUnprocessableEntity,
+			"the script of this scenario is not valid JavaScript, so k6 could not load it")
+
 	case errors.Is(err, domain.ErrForbidden):
 		// The caller holds no right to run in this project. A run they may not
 		// read answers 404 instead, from ByID; queueing one is a request they

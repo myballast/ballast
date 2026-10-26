@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -461,7 +462,8 @@ func TestEveryOperationIsGuarded(t *testing.T) {
 			return err
 		},
 		"validate graph": func() error {
-			return f.service.ValidateGraph(context.Background(), f.who, f.projectID, id, oneRequestGraph("/a"))
+			_, err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, id, oneRequestGraph("/a"))
+			return err
 		},
 		"delete":   func() error { return f.service.Delete(context.Background(), f.who, f.projectID, id) },
 		"versions": func() error { _, err := f.service.Versions(context.Background(), f.who, f.projectID, id); return err },
@@ -815,24 +817,110 @@ func TestChangingTheLoadOfAGraphScenarioKeepsItsGraph(t *testing.T) {
 func TestValidatingAGraphWritesNothingAndIsGuarded(t *testing.T) {
 	f, created := graphFixture(t, allowAll{})
 
-	if err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID,
-		oneRequestGraph("/b")); err != nil {
+	report, err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID, oneRequestGraph("/b"))
+	if err != nil {
 		t.Fatalf("ValidateGraph: %v", err)
+	}
+	if !report.Valid() {
+		t.Errorf("a sound graph has findings: %+v", report.Findings)
 	}
 	if len(f.scenarios.versions) != 0 {
 		t.Error("validating wrote a version")
 	}
 
-	err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID,
-		&domain.ScenarioGraph{Start: "x"})
-	if !errors.Is(err, domain.ErrInvalidGraph) {
-		t.Errorf("got %v, wanted ErrInvalidGraph", err)
-	}
-
 	denied := newFixture(domain.ScriptReport{}, refuseAll{})
-	if err := denied.service.ValidateGraph(context.Background(), denied.who, denied.projectID,
+	if _, err := denied.service.ValidateGraph(context.Background(), denied.who, denied.projectID,
 		created.ID, oneRequestGraph("/b")); !errors.Is(err, domain.ErrForbidden) {
 		t.Errorf("a caller without the right got %v", err)
+	}
+
+	code := newFixture(domain.ScriptReport{}, allowAll{})
+	made, _, err := code.service.Create(context.Background(), code.who, code.request())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := code.service.ValidateGraph(context.Background(), code.who, code.projectID,
+		made.ID, oneRequestGraph("/b")); !errors.Is(err, domain.ErrNotAGraphScenario) {
+		t.Errorf("a code scenario was validated as a graph: %v", err)
+	}
+}
+
+// A graph that is wrong is an answer, not a failure: the report lists everything,
+// each fault on its node, and there is no script to show for it.
+func TestAGraphThatIsWrongGetsAReportAndNoScript(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+
+	broken := &domain.ScenarioGraph{
+		Start: "n1",
+		Nodes: []domain.Node{
+			{ID: "n1", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "no-slash"},
+			{ID: "island", Kind: domain.NodeThinkTime, Seconds: 1},
+			{ID: "n2", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{{From: "n1", To: "n2"}, {From: "island", To: "n2"}},
+	}
+
+	report, err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID, broken)
+	if err != nil {
+		t.Fatalf("a wrong graph is not an error of the request: %v", err)
+	}
+
+	if report.Valid() || report.Script != "" {
+		t.Errorf("valid=%v script=%q", report.Valid(), report.Script)
+	}
+	nodes := map[string]domain.FindingCode{}
+	for _, finding := range report.Findings {
+		nodes[finding.NodeID] = finding.Code
+	}
+	if nodes["n1"] != domain.CodeInvalidNode || nodes["island"] != domain.CodeUnreachable {
+		t.Errorf("the findings are %v", nodes)
+	}
+}
+
+// graphWriter writes a script that says what graph it came from, so that a test can
+// tell two apart.
+type graphWriter struct{}
+
+func (graphWriter) Generate(graph domain.ScenarioGraph) (string, error) {
+	var paths []string
+	for _, node := range graph.Nodes {
+		paths = append(paths, node.Path)
+	}
+	return "// from " + strings.Join(paths, ","), nil
+}
+
+// What the preview shows is what the save stores, and so what a run executes: the
+// same function writes both, from the same graph.
+func TestThePreviewIsTheScriptASaveStores(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+	f.service.generator = graphWriter{}
+
+	next := oneRequestGraph("/preview-me")
+	report, err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID, next)
+	if err != nil || !report.Valid() {
+		t.Fatalf("ValidateGraph: %v %+v", err, report.Findings)
+	}
+
+	saved, _, err := f.service.Update(context.Background(), f.who, f.projectID, created.ID, Update{Graph: next})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if report.Script == "" || report.Script != saved.Script {
+		t.Errorf("the preview is %q and the saved script is %q", report.Script, saved.Script)
+	}
+}
+
+// A script k6 could not load is a finding, found here and not in the middle of a run.
+func TestAScriptThatDoesNotParseIsAFindingOfTheReport(t *testing.T) {
+	f, created := graphFixture(t, allowAll{})
+	f.service.inspector = reportingInspector{report: refusing()}
+
+	report, err := f.service.ValidateGraph(context.Background(), f.who, f.projectID, created.ID, oneRequestGraph("/a"))
+	if err != nil {
+		t.Fatalf("ValidateGraph: %v", err)
+	}
+	if report.Valid() || report.Findings[0].Code != domain.CodeScriptRefused || report.Script != "" {
+		t.Errorf("the report is %+v", report)
 	}
 }
 

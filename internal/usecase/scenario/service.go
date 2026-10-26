@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -309,22 +310,52 @@ func (s *Service) Update(
 	return updated, report, nil
 }
 
-// ValidateGraph says whether a graph would be accepted by a save, and writes
-// nothing. It asks for the right to save, not the right to read: it exists for
-// the person about to save.
+// GraphReport is what looking over a graph found: everything wrong with it, each
+// fault on its node, or the script it would be saved with.
+type GraphReport struct {
+	Findings []domain.GraphFinding
+	// Script is what a save of this graph would store, and so what a run would
+	// execute. Empty while there are findings.
+	Script string
+}
+
+// Valid says the graph is sound and its script is written.
+func (r GraphReport) Valid() bool { return len(r.Findings) == 0 }
+
+// ValidateGraph looks over a graph and writes nothing. It asks for the right to
+// save, not the right to read: it exists for the person about to save.
+//
+// A graph that is wrong is an answer, not a failure — the report lists what is
+// wrong. The script it comes back with is the one a save would store, written by
+// the same function and parsed by the same inspector, so that what somebody reads
+// as a preview cannot differ from what a run would execute.
 func (s *Service) ValidateGraph(
 	ctx context.Context, who domain.Identity, projectID, id uuid.UUID, graph *domain.ScenarioGraph,
-) error {
+) (GraphReport, error) {
 	current, err := s.read(ctx, who, domain.PermManageScenarios, projectID, id)
 	if err != nil {
-		return err
+		return GraphReport{}, err
 	}
 	if current.Mode != domain.ModeGraph {
-		return domain.ErrNotAGraphScenario
+		return GraphReport{}, domain.ErrNotAGraphScenario
 	}
 
-	_, err = s.scriptOf(*graph)
-	return err
+	if findings := graph.Check(); len(findings) > 0 {
+		return GraphReport{Findings: findings}, nil
+	}
+
+	script, err := s.scriptOf(*graph)
+	if err != nil {
+		message := "the script cannot be written"
+		if errors.Is(err, domain.ErrInvalidScript) {
+			message = "the script that would be generated is not valid JavaScript"
+		}
+		return GraphReport{Findings: []domain.GraphFinding{{
+			Code: domain.CodeScriptRefused, Message: message, Err: err,
+		}}}, nil
+	}
+
+	return GraphReport{Script: script}, nil
 }
 
 // scriptOf validates a graph and writes the script a run would execute from it,

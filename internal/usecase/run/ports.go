@@ -178,6 +178,12 @@ type ScenarioReader interface {
 	ScenarioThresholds(ctx context.Context, orgID, scenarioID uuid.UUID) ([]domain.Threshold, error)
 }
 
+// ScriptInspector reads a script without running it and says whether k6 would load
+// it. It is the same inspector a save uses.
+type ScriptInspector interface {
+	Inspect(script string) domain.ScriptReport
+}
+
 // EnvironmentReader reads target environments.
 type EnvironmentReader interface {
 	EnvironmentByID(ctx context.Context, orgID, id uuid.UUID) (domain.Environment, error)

@@ -81,6 +81,23 @@ export type ScenarioGraph = {
   edges: GraphEdge[];
 };
 
+// Mirror of dto.GraphFinding: one fault of a graph, on the node it belongs to.
+export type GraphFinding = {
+  // Absent for a fault of the graph as a whole.
+  node_id?: string;
+  // Stable; the message is not.
+  code: string;
+  message: string;
+};
+
+// Mirror of dto.GraphReport: what looking over a graph found.
+export type GraphReport = {
+  valid: boolean;
+  errors: GraphFinding[];
+  // What a save would store and a run would execute. Absent while there are errors.
+  script?: string;
+};
+
 // Mirror of dto.Scenario: one scenario with its script, and the warnings
 // inspecting it raised. Errors never get this far: they refuse the script.
 export type Scenario = ScenarioSummary & {

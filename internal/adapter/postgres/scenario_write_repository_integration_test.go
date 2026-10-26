@@ -500,3 +500,34 @@ func TestAGraphScenarioComesBackAsSaved(t *testing.T) {
 		t.Errorf("version 1 no longer holds the graph it was written with: %+v", versions)
 	}
 }
+
+// A run reads its scenario through a reader of its own, and what it re-checks
+// before queueing — the graph — has to come through it. Without that, the check is
+// made on a scenario that looks like code, and passes.
+func TestARunReadsTheGraphOfAGraphScenario(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := openDB(ctx, t)
+	who, project, _ := newScenarioWorld(ctx, t, db)
+	scenarios := postgres.NewScenarioWriteRepository(db)
+
+	graph := domain.StarterGraph()
+	created, err := scenarios.Create(ctx, domain.Scenario{
+		ID: uuid.New(), ProjectID: project, Name: "canvas",
+		Script: "one", Version: 1, DefaultProfile: domain.ProfileSmoke,
+		DefaultProfileParams: domain.ProfileParams{TargetVUs: 1, PlateauS: 5},
+		Mode:                 domain.ModeGraph, Graph: &graph,
+	}, who, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	read, err := postgres.NewScenarioRepository(db).ScenarioByID(ctx, who.OrgID, created.ID)
+	if err != nil {
+		t.Fatalf("ScenarioByID: %v", err)
+	}
+	if read.Mode != domain.ModeGraph || !reflect.DeepEqual(read.Graph, &graph) {
+		t.Errorf("the run's reader came back with mode %q and graph %+v", read.Mode, read.Graph)
+	}
+}

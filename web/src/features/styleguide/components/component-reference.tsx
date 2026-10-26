@@ -7,6 +7,7 @@ import { UserMenu } from "@/components/layout/user-menu";
 import { buildTrail } from "@/features/shell/trail";
 import type { ShellScope } from "@/features/shell/types";
 import { MetricCard } from "@/components/metric-card";
+import { BuilderSamples } from "./builder-samples";
 import { ErrorStateSample } from "./error-state-sample";
 import { EmptyState, LoadingState } from "@/components/states";
 import {
@@ -942,6 +943,10 @@ export function ComponentReference() {
       </Section>
       <Section title="New scenario: code or graph">
         <NewScenarioPage project={project("storefront", "checkout")} endpoints={[]} start="graph" />
+      </Section>
+
+      <Section title="Builder: problems and script preview">
+        <BuilderSamples />
       </Section>
 
       <Section title="Scenario builder">

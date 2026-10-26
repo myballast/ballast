@@ -478,6 +478,24 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+        "422":
+          description: |
+            The scenario cannot be run as it stands. Its graph is checked again here:
+            a graph stored before a rule existed, and refused by it now, comes back
+            with every reason (`findings`, each on its node). Its script is parsed
+            again too, so that one k6 could not load is found before a run exists.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+                  findings:
+                    type: array
+                    description: Present when the graph is the reason.
+                    items:
+                      $ref: "#/components/schemas/GraphFinding"
         "429":
           description: |
             A limit nobody can raise from the outside was reached: too many runs
@@ -2575,12 +2593,24 @@ paths:
 
     post:
       tags: [scenarios]
-      summary: Check a graph without saving it
+      summary: Look over a graph without saving it
       description: |
-        Answers whether a save of this graph would be accepted, with the same
-        checks and nothing written. It asks for the right to save, since it
-        exists for the person about to save. Refused with `409` on a scenario
-        written as code.
+        Says everything that is wrong with the graph — each fault on the node it
+        belongs to — and, when nothing is, the script a save would store. The checks
+        are the ones a save makes, and nothing is written. It asks for the right to
+        save, since it exists for the person about to save.
+
+        A graph that is wrong is an answer, not a failure: the status is `200` and
+        `valid` is false. The faults are the unbounded cycles (only a loop may send
+        the run back), nodes nothing leads to, a graph with no way to an `End`,
+        steps with the wrong ways out, and every field a step holds that is refused.
+        When the graph is sound, the generated script is parsed too, so that a script
+        k6 could not load is found here and not in the middle of a run.
+
+        `script` is the one a save writes and a run executes: the same function writes
+        both, from the same graph.
+
+        Refused with `409` on a scenario written as code.
       operationId: validateScenarioGraph
       x-ballast-permission: manage_scenarios
       requestBody:
@@ -2590,8 +2620,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ValidateGraphRequest"
       responses:
-        "204":
-          description: The graph would be accepted.
+        "200":
+          description: What was found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphReport"
         "400":
           description: The body is not valid JSON or an id is not a UUID.
           content:
@@ -2606,14 +2640,6 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           description: The scenario is written as code.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "422":
-          description: |
-            The graph is refused; `error` says why, including a credential header
-            that is typed in rather than read from a variable.
           content:
             application/json:
               schema:
@@ -4333,6 +4359,48 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GraphEdge"
+
+    GraphFinding:
+      type: object
+      required: [code, message]
+      properties:
+        node_id:
+          type: string
+          description: The node the fault is on. Absent for a fault of the graph as a whole.
+        code:
+          type: string
+          enum:
+            - no_node
+            - too_many_nodes
+            - duplicate_id
+            - invalid_node
+            - unknown_start
+            - unknown_edge_node
+            - wrong_exits
+            - unreachable
+            - unbounded_cycle
+            - no_end
+            - empty_loop
+            - too_many_steps
+            - script_refused
+          description: Stable; the message is not.
+        message: { type: string }
+
+    GraphReport:
+      type: object
+      required: [valid, errors]
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          description: Every fault, in the order of the graph.
+          items:
+            $ref: "#/components/schemas/GraphFinding"
+        script:
+          type: string
+          description: |
+            What a save of this graph would store and a run would execute. Absent
+            while there are errors.
 
     ValidateGraphRequest:
       type: object
