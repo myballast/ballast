@@ -96,8 +96,7 @@ func (w *scriptWriter) step(step domain.Step) error {
 		w.line("}")
 
 	case domain.StepLoop:
-		w.line("for (let i = 0; i < %d; i++) {", step.Node.Iterations)
-		w.indent++
+		w.loop(step.Node)
 
 	case domain.StepEndLoop:
 		w.indent--
@@ -120,14 +119,13 @@ func (w *scriptWriter) node(node domain.Node) error {
 		return w.request(node)
 
 	case domain.NodeExtractVariable:
-		w.line("vars[%s] = res ? res.json(%s) : null;",
-			jsString(node.Variable), jsString(node.From))
+		w.extract(node)
 
 	case domain.NodeSetVariable:
 		return w.setVariable(node)
 
 	case domain.NodeThinkTime:
-		w.line("sleep(%s);", strconv.FormatFloat(node.Seconds, 'f', -1, 64))
+		w.pause(node)
 
 	case domain.NodeAssertion:
 		return w.assertion(node)
@@ -140,6 +138,118 @@ func (w *scriptWriter) node(node domain.Node) error {
 	}
 
 	return nil
+}
+
+// loop opens a loop. A count repeats that many times. A list takes its elements
+// one at a time into the item variable, and never more than the maximum: the list
+// came from somebody else's server, and the ceiling is what keeps one reply from
+// deciding how long a run lasts.
+//
+// A variable that is not a list stops the iteration, with its name and not its
+// content.
+func (w *scriptWriter) loop(node domain.Node) {
+	if node.Over == "" {
+		w.line("for (let i = 0; i < %d; i++) {", node.Iterations)
+		w.indent++
+		return
+	}
+
+	list := "list_" + identifier(node.ID)
+	w.line("const %s = vars[%s];", list, jsString(node.Over))
+	w.line("if (!Array.isArray(%s)) {", list)
+	w.indent++
+	w.line("fail(%s);", jsString(fmt.Sprintf("the variable \"%s\" is not a list, so the loop cannot walk it", node.Over)))
+	w.indent--
+	w.line("}")
+	w.line("for (let i = 0; i < Math.min(%s.length, %d); i++) {", list, node.Iterations)
+	w.indent++
+	w.line("vars[%s] = %s[i];", jsString(node.Item), list)
+}
+
+// pause waits a fixed time, or a time picked between two bounds.
+func (w *scriptWriter) pause(node domain.Node) {
+	if node.SecondsMax == 0 || node.SecondsMax == node.Seconds {
+		w.line("sleep(%s);", strconv.FormatFloat(node.Seconds, 'f', -1, 64))
+		return
+	}
+
+	w.line("sleep(%s + Math.random() * %s);",
+		strconv.FormatFloat(node.Seconds, 'f', -1, 64),
+		strconv.FormatFloat(node.SecondsMax-node.Seconds, 'f', -1, 64))
+}
+
+// identifier makes a node's id usable inside a JavaScript name. An id may hold a
+// hyphen, which a name may not.
+func identifier(id string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '-' {
+			return '_'
+		}
+		return r
+	}, id)
+}
+
+// extract reads one value out of the last response, and stops the iteration when
+// it is not there.
+//
+// Stopping is the point. A variable left empty would go into the next request as
+// the text "null" or nothing at all, and the run would measure a call nobody meant
+// to make — with a status that looks like the target's fault. fail() ends the
+// iteration with a message that names the variable and where it was looked for,
+// and never what the response held, which may be a token.
+//
+// The variable is set to null first, and each source only overwrites it when it
+// finds something: a body that is not JSON, or no response at all, is the same
+// "not found" as a missing key.
+func (w *scriptWriter) extract(node domain.Node) {
+	name := jsString(node.Variable)
+	var where string
+
+	w.line("vars[%s] = null;", name)
+
+	switch node.Where() {
+	case domain.ExtractFromHeader:
+		// k6 spells a header as the server did, so the name is compared in lower
+		// case on both sides.
+		wanted := strings.TrimSpace(node.From)
+		w.line("if (res) {")
+		w.indent++
+		w.line("for (const name in res.headers) {")
+		w.indent++
+		w.line("if (name.toLowerCase() === %s) {", jsString(strings.ToLower(wanted)))
+		w.indent++
+		w.line("vars[%s] = res.headers[name];", name)
+		w.indent--
+		w.line("}")
+		w.indent--
+		w.line("}")
+		w.indent--
+		w.line("}")
+		where = "header " + wanted
+
+	case domain.ExtractFromStatus:
+		w.line("vars[%s] = res ? res.status : null;", name)
+		where = "status"
+
+	default:
+		path := node.BodyPath()
+		w.line("try {")
+		w.indent++
+		w.line("vars[%s] = res.json(%s);", name, jsString(path))
+		w.indent--
+		w.line("} catch (error) {")
+		w.indent++
+		w.line("vars[%s] = null;", name)
+		w.indent--
+		w.line("}")
+		where = "body (" + path + ")"
+	}
+
+	w.line("if (vars[%s] === null || vars[%s] === undefined || vars[%s] === \"\") {", name, name, name)
+	w.indent++
+	w.line("fail(%s);", jsString(fmt.Sprintf("could not extract the variable \"%s\" from the response %s", node.Variable, where)))
+	w.indent--
+	w.line("}")
 }
 
 // request writes one HTTP call.
@@ -247,13 +357,14 @@ func (w *scriptWriter) assertion(node domain.Node) error {
 		return err
 	}
 
-	w.line("const passed_%s = %s;", node.ID, condition)
-	w.line("check(passed_%s, { %s: (ok) => ok });", node.ID, jsString(node.Expression))
+	name := "passed_" + identifier(node.ID)
+	w.line("const %s = %s;", name, condition)
+	w.line("check(%s, { %s: (ok) => ok });", name, jsString(node.Expression))
 
 	if node.Critical {
-		w.line("if (!passed_%s) {", node.ID)
+		w.line("if (!%s) {", name)
 		w.indent++
-		w.line("fail(%s);", jsString("the assertion "+node.ID+" did not hold"))
+		w.line("fail(%s);", jsString("the assertion \""+node.Expression+"\" did not hold"))
 		w.indent--
 		w.line("}")
 	}
@@ -333,6 +444,13 @@ func textExpression(text string) (string, error) {
 			continue
 		}
 		pieces = append(pieces, "vars["+jsString(part.Variable)+"]")
+	}
+
+	// A value that is a variable and nothing else is made text: the status or a
+	// number read from a body is a number, and a header or a body must be a string.
+	// Beside a literal the + does it already.
+	if len(parts) == 1 && parts[0].Variable != "" {
+		return `"" + ` + pieces[0], nil
 	}
 
 	return strings.Join(pieces, " + "), nil

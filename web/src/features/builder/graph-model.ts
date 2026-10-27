@@ -4,7 +4,7 @@ import { exits, hasOneExit } from "./kinds.ts";
 export type Position = { x: number; y: number };
 
 export const columnWidth = 270;
-export const rowHeight = 130;
+export const rowHeight = 120;
 // How many columns a band holds before the layout starts a new one below.
 export const columnsPerBand = 6;
 

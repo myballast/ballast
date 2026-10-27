@@ -18,7 +18,7 @@ import {
   type EdgeChange,
   type NodeChange,
 } from "@xyflow/react";
-import { Play, Redo2, Undo2 } from "lucide-react";
+import { Play, Plus, Redo2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 
@@ -26,14 +26,18 @@ import { Time } from "@/components/time";
 import { Button } from "@/components/ui/button";
 import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { launchDefaultRun } from "@/features/runs/actions";
+import { sameParams } from "@/features/runs/profile";
+import type { ProfileParams } from "@/features/runs/types";
+import type { Threshold } from "@/features/scenarios/types";
 import { profileSummary, runBlockedReason } from "@/features/scenarios/workspace";
 import { useUnsavedGuard } from "@/features/scenarios/use-unsaved-guard";
-import type { GraphEdge, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/features/scenarios/types";
+import type { GraphEdge, GraphFinding, GraphNode, NodeKind, Scenario, ScenarioGraph } from "@/features/scenarios/types";
 
 import { saveGraph, validateGraph } from "../actions";
 import { fromEndpoint } from "../catalog-node";
+import { nodeProblem } from "../node-validation";
 import { hasProblems, isCredentialHeader, requestProblems, summaryOfProblems } from "../request-validation";
-import { bindSecretBefore, unboundSecrets, variablesBefore } from "../variables";
+import { bindSecretBefore, undefinedNames, unboundSecrets, variablesBefore } from "../variables";
 import {
   canonical,
   columnWidth,
@@ -49,15 +53,30 @@ import {
 } from "../graph-model";
 import { emptyHistory, redo, remember, undo, type History } from "../history";
 import { describe, infoOf, newNode } from "../kinds";
+import { Dock, type ProfileDraft, type Target } from "./dock";
 import { EmptyState } from "./empty-state";
+import { ProblemsPanel, type Problem } from "./problems-panel";
+import { ScriptPanel, type Draft } from "./script-panel";
 import { Inspector } from "./inspector";
 import { Palette, dragType } from "./palette";
 import { StepNode, type StepData, type StepFlowNode } from "./step-node";
 
 const nodeTypes = { step: StepNode };
-const fitOptions = { maxZoom: 1, padding: 0.2 };
 
-type Target = { id: string; name: string };
+// What a step says about itself when its panel has something to fix: short, since
+// the panel says the rest, and in words, since a colour would not.
+const attention: Record<NodeKind, string> = {
+  http_request: "The request needs attention",
+  extract_variable: "The extraction needs attention",
+  set_variable: "The variable needs attention",
+  condition: "The condition needs attention",
+  loop: "The loop needs attention",
+  think_time: "The pause needs attention",
+  assertion: "The assertion needs attention",
+  end: "",
+};
+const fitOptions = { maxZoom: 1.3, padding: 0.06 };
+
 
 // What the canvas keeps about a node beside the graph: where it is, whether it is
 // selected, and what React Flow measured. None of it is saved.
@@ -72,6 +91,8 @@ export type BuilderProps = {
   projectName: string;
   scenario: Scenario & { graph: ScenarioGraph };
   targets: Target[];
+  // The scenario's thresholds, for the dock.
+  thresholds: Threshold[];
   canEdit: boolean;
   canRun: boolean;
   now: Date;
@@ -99,6 +120,7 @@ function BuilderView({
   projectName,
   scenario,
   targets,
+  thresholds,
   canEdit,
   canRun,
   now,
@@ -116,6 +138,13 @@ function BuilderView({
   // Changes when an undo rewrites a node, so the inspector starts from it again.
   const [revision, setRevision] = useState(0);
   const [message, setMessage] = useState<Message | null>(null);
+  // What the server found the last time it looked the graph over, and which graph
+  // that was about: a report on a graph that has changed since is shown, but as old.
+  const [report, setReport] = useState<{ findings: GraphFinding[]; script?: string; key: string } | null>(null);
+  // What was found wrong with the version that is saved. A run executes that one,
+  // so a fault in it stops the run whatever the canvas holds now.
+  const [savedFindings, setSavedFindings] = useState<GraphFinding[]>([]);
+  const [tab, setTab] = useState<"canvas" | "script">("canvas");
   const [environmentId, setEnvironmentId] = useState(targets[0]?.id ?? "");
   const [pending, startTransition] = useTransition();
   // The field being typed in: a run of keystrokes in one field is one undo step.
@@ -124,6 +153,7 @@ function BuilderView({
 
   // Fit the graph once, when every node has been measured. The `fitView` prop of
   // React Flow runs before that when the nodes are controlled, and fits to nothing.
+  const [showPalette, setShowPalette] = useState(true);
   const measured = useNodesInitialized();
   const fitted = useRef(false);
   useEffect(() => {
@@ -133,22 +163,119 @@ function BuilderView({
   }, [measured, flow]);
 
   const dirty = useMemo(() => canonical(graph) !== baseline, [graph, baseline]);
-  const guard = useUnsavedGuard(dirty);
-  // What is wrong with a node: how it is wired, or what a request holds. The
-  // API judges the graph at the end; this says it while somebody is still on it.
-  const { problems, blocking } = useMemo(() => {
+  // The profile in the dock, apart from the graph: it is saved by its own button, and
+  // it is a version of its own. A run starts from the saved one, so one that differs
+  // holds Run back as an unsaved graph does.
+  const hasOwnParams = scenario.default_params.target_vus >= 1;
+  const saved = useMemo<ProfileDraft>(
+    () => ({
+      kind: scenario.default_profile,
+      params: hasOwnParams ? scenario.default_params : { target_vus: 1, ramp_up_s: 0, plateau_s: 60, ramp_down_s: 0 },
+    }),
+    [scenario.default_profile, scenario.default_params, hasOwnParams],
+  );
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(saved);
+  const profileDirty = profileDraft.kind !== saved.kind || !sameParams(profileDraft.params as ProfileParams, saved.params);
+
+  const guard = useUnsavedGuard(dirty || profileDirty);
+  // What is wrong with a node: how it is wired, or what it holds. The API judges the
+  // graph at the end; this says it while somebody is still on it, and lists it.
+  const { problems, blocking, local } = useMemo(() => {
     const found = issues(graph);
+    const say = (id: string, text: string) => {
+      found[id] = [found[id], text].filter(Boolean).join(". ");
+    };
+    const title = (id: string) => {
+      const node = graph.nodes.find((n) => n.id === id);
+      return node ? describe(node).title : "";
+    };
+
+    const listed: Problem[] = [];
+    for (const [id, text] of Object.entries(issues(graph))) {
+      listed.push({ nodeId: id, where: title(id), message: text, level: "error" });
+    }
+
     let count = 0;
     for (const node of graph.nodes) {
-      if (node.kind !== "http_request") continue;
-      const said = requestProblems(node);
-      if (!hasProblems(said)) continue;
-      count++;
-      found[node.id] = [found[node.id], summaryOfProblems(said)].filter(Boolean).join(". ");
+      if (node.kind === "http_request") {
+        const said = requestProblems(node);
+        if (hasProblems(said)) {
+          count++;
+          say(node.id, summaryOfProblems(said) ?? "");
+          const first =
+            said.path ??
+            said.headers.find(Boolean) ??
+            said.query.find(Boolean) ??
+            (said.body ? `The body is not valid JSON (line ${said.body.line}): ${said.body.message}` : said.bodyText) ??
+            "The request needs attention.";
+          listed.push({ nodeId: node.id, where: title(node.id), message: first, level: "error" });
+        }
+      } else if (nodeProblem(node)) {
+        count++;
+        say(node.id, attention[node.kind]);
+        listed.push({ nodeId: node.id, where: title(node.id), message: nodeProblem(node) as string, level: "error" });
+      }
+
+      // Not a fault: a loop, or a script, can give the variable its value. But a
+      // step that reads one nothing before it writes is worth saying out loud.
+      const ghosts = undefinedNames(node, variablesBefore(graph, node.id));
+      if (ghosts.length > 0) {
+        say(node.id, `Reads ${ghosts.join(", ")} before it is defined`);
+        listed.push({
+          nodeId: node.id,
+          where: title(node.id),
+          message: `Reads ${ghosts.join(", ")} before any step before it writes ${ghosts.length === 1 ? "it" : "them"}.`,
+          level: "warning",
+        });
+      }
     }
-    return { problems: found, blocking: count };
+    return { problems: found, blocking: count, local: listed };
   }, [graph]);
   const empty = graph.nodes.length === 0;
+
+  const key = useMemo(() => canonical(graph), [graph]);
+  const fresh = report !== null && report.key === key;
+
+  // Everything wrong, on its node: what the server said about this graph, then what
+  // the canvas can tell on its own. The same fault said by both is listed once.
+  const listed = useMemo<Problem[]>(() => {
+    const title = (id: string) => {
+      const node = graph.nodes.find((n) => n.id === id);
+      return id === "" ? "Graph" : node ? describe(node).title : id;
+    };
+
+    const fromServer: Problem[] = (report?.findings ?? []).map((f) => ({
+      nodeId: f.node_id ?? "",
+      where: title(f.node_id ?? ""),
+      message: f.message,
+      level: "error",
+    }));
+    // The server has the last word on a node it has looked at: what the canvas said
+    // of the same node in its own words is the same fault, said twice.
+    const looked = new Set(fresh ? fromServer.map((p) => p.nodeId) : []);
+    return [...fromServer, ...local.filter((p) => p.level === "warning" || !looked.has(p.nodeId))];
+  }, [report, fresh, local, graph.nodes]);
+
+  // What each node says about itself: what the canvas found, and what the server
+  // found that the canvas could not (a cycle, say).
+  const said = useMemo(() => {
+    const out = { ...problems };
+    const replaced = new Set<string>();
+    for (const finding of report?.findings ?? []) {
+      const id = finding.node_id;
+      if (!id) continue;
+      // The first thing the server says about a node replaces what the canvas said
+      // of it, when the report is about this graph; the rest follow it.
+      const known = fresh && !replaced.has(id) ? "" : (out[id] ?? "");
+      replaced.add(id);
+      if (!known.includes(finding.message)) out[id] = [known, finding.message].filter(Boolean).join(". ");
+    }
+    return out;
+  }, [problems, report, fresh]);
+
+  // The nodes to draw as faulty: those with an error, from the server while the
+  // graph is as it looked then and from the canvas always.
+  const flagged = useMemo(() => new Set(listed.filter((p) => p.level === "error" && p.nodeId !== "").map((p) => p.nodeId)), [listed]);
 
   const selected = graph.nodes.filter((node) => box[node.id]?.selected);
   const current = selected.length === 1 ? selected[0] : null;
@@ -157,16 +284,16 @@ function BuilderView({
   // canvas redraws that node and not the other forty-nine.
   const data = useMemo(() => {
     const byId: Record<string, StepData> = {};
-    for (const node of graph.nodes) byId[node.id] = { node, issue: problems[node.id], start: node.id === graph.start };
+    for (const node of graph.nodes) byId[node.id] = { node, issue: said[node.id], start: node.id === graph.start, flagged: flagged.has(node.id) };
     return byId;
-  }, [graph, problems]);
+  }, [graph, said, flagged]);
 
   const nodes = useMemo<StepFlowNode[]>(
     () =>
       graph.nodes.map((node) => {
         const placed = box[node.id] ?? { position: { x: 0, y: 0 } };
         const { title } = describe(node);
-        const issue = problems[node.id];
+        const issue = said[node.id];
         return {
           id: node.id,
           type: "step",
@@ -178,23 +305,44 @@ function BuilderView({
           deletable: !readOnly,
         };
       }),
-    [graph.nodes, box, data, problems, readOnly],
+    [graph.nodes, box, data, said, readOnly],
   );
 
-  const edges = useMemo<Edge[]>(
-    () =>
-      graph.edges.map((edge) => ({
+  const edges = useMemo<Edge[]>(() => {
+    // A step that writes a variable names it on the wire that leaves it, so the
+    // thread of a value can be followed along the canvas.
+    const writes: Record<string, string> = {};
+    for (const node of graph.nodes) {
+      if ((node.kind === "extract_variable" || node.kind === "set_variable") && node.variable) {
+        writes[node.id] = `var ${node.variable}`;
+      }
+    }
+
+    const kinds = new Map(graph.nodes.map((node) => [node.id, node.kind]));
+
+    return graph.edges.map((edge) => {
+      // A wire takes the accent of the step it leaves, so a path can be followed by eye.
+      const from = kinds.get(edge.from);
+      const color = from ? infoOf(from).tone.var : "var(--muted-foreground)";
+      return {
         id: edgeId(edge),
         source: edge.from,
         target: edge.to,
         sourceHandle: edge.when ?? null,
-        label: edge.when,
-        markerEnd: { type: "arrowclosed" as const },
+        label: edge.when ?? writes[edge.from],
+        type: "default",
+        style: { stroke: color, strokeWidth: 1.6, strokeOpacity: 0.7 },
+        markerEnd: { type: "arrowclosed" as const, color, width: 16, height: 16 },
+        labelShowBg: true,
+        labelBgPadding: [8, 3] as [number, number],
+        labelBgBorderRadius: 999,
+        labelBgStyle: { fill: "var(--card)", stroke: "var(--border)" },
+        labelStyle: { fill: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 10.5 },
         deletable: !readOnly,
         focusable: false,
-      })),
-    [graph.edges, readOnly],
-  );
+      };
+    });
+  }, [graph.nodes, graph.edges, readOnly]);
 
   const places = useCallback(
     (g: ScenarioGraph) => Object.fromEntries(g.nodes.map((n) => [n.id, box[n.id]?.position ?? { x: 0, y: 0 }])),
@@ -351,6 +499,16 @@ function BuilderView({
     apply(connect(graph, { from: connection.source, to: connection.target, ...(when ? { when } : {}) }));
   }
 
+  // Goes to the node a problem is about: back on the canvas, the node selected and
+  // brought into view.
+  function goTo(nodeId: string) {
+    if (nodeId === "") return;
+    setTab("canvas");
+    setBox((b) => Object.fromEntries(Object.entries(b).map(([id, v]) => [id, { ...v, selected: id === nodeId }])));
+    // After the canvas is shown again: it has no size while it is hidden.
+    setTimeout(() => flow.fitView({ nodes: [{ id: nodeId }], duration: 300, maxZoom: 1, padding: 0.6 }), 50);
+  }
+
   // Choosing an endpoint of the catalog fills a request in, in one step to undo.
   function pickEndpoint(node: GraphNode, endpoint: CatalogEndpoint) {
     const filled = fromEndpoint(endpoint);
@@ -399,17 +557,44 @@ function BuilderView({
     apply(without(graph, new Set([current.id])));
   }
 
+  // Looks the graph over on the server: everything wrong with it, each fault on its
+  // node, or the script a save would store.
   function check() {
     setMessage(null);
+    const asked = canonical(graph);
     startTransition(async () => {
       const outcome = await validateGraph(projectId, scenario.id, graph);
+      if (outcome.error || !outcome.report) {
+        setMessage({ kind: "error", text: outcome.error ?? "The graph could not be checked." });
+        return;
+      }
+
+      setReport({ findings: outcome.report.errors, script: outcome.report.script, key: asked });
+      const count = outcome.report.errors.length;
       setMessage(
-        outcome.error
-          ? { kind: "error", text: outcome.error }
-          : { kind: "ok", text: "This graph is valid: a save would be accepted." },
+        outcome.report.valid
+          ? { kind: "ok", text: "This graph is valid: a save would be accepted." }
+          : { kind: "error", text: `${count} ${count === 1 ? "error" : "errors"} found: they are listed under Problems.` },
       );
     });
   }
+
+  // The saved version is looked over once, when the page opens: a run executes that
+  // one, and a graph stored before a rule existed may not pass it now.
+  useEffect(() => {
+    if (readOnly || scenario.graph.nodes.length === 0) return;
+    let cancelled = false;
+    validateGraph(projectId, scenario.id, scenario.graph).then((outcome) => {
+      if (cancelled || !outcome.report) return;
+      setSavedFindings(outcome.report.errors);
+      setReport({ findings: outcome.report.errors, script: outcome.report.script, key: canonical(scenario.graph) });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Once, for the version the page opened on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function save() {
     setMessage(null);
@@ -420,6 +605,8 @@ function BuilderView({
         return;
       }
       setBaseline(canonical(graph));
+      // A save is refused unless the graph is sound, so the saved one is.
+      setSavedFindings([]);
       setMessage({ kind: "ok", text: "Saved as a new version." });
     });
   }
@@ -432,11 +619,29 @@ function BuilderView({
     });
   }
 
-  const blocked = runBlockedReason({ dirty, canRun, verifiedEnvironments: targets.length });
+  const draft: Draft = !dirty
+    ? { kind: "same" }
+    : fresh && report
+      ? report.findings.length > 0
+        ? { kind: "errors", count: report.findings.length }
+        : report.script
+          ? { kind: "ready", script: report.script }
+          : { kind: "unchecked" }
+      : report
+        ? { kind: "stale" }
+        : { kind: "unchecked" };
+
+  const invalid = savedFindings.length;
+  const blocked =
+    invalid > 0 && !dirty
+      ? `The saved graph has ${invalid} ${invalid === 1 ? "error" : "errors"}, so it cannot run: ${savedFindings[0].message}. They are listed under Problems.`
+      : profileDirty && !dirty && canRun && targets.length > 0
+        ? "Save the profile first: a run starts from the saved one."
+        : runBlockedReason({ dirty, canRun, verifiedEnvironments: targets.length });
   const own = scenario.default_params.target_vus >= 1;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="builder-wide flex flex-col gap-3">
       {guard}
 
       <div className="flex flex-col gap-2">
@@ -456,20 +661,24 @@ function BuilderView({
               </>
             )}
           </span>
-          <span className="data text-xs text-muted-foreground" title="The default profile a run starts from">
+          <span
+            className="data flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs"
+            title="The default profile a run starts from"
+          >
+            <span className="font-sans text-[11px] text-muted-foreground">load</span>
             {own ? profileSummary(scenario.default_profile, scenario.default_params) : `${scenario.default_profile} template`}
           </span>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {canRun && (
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <label className="flex items-center gap-2 rounded-md border px-2.5 text-[11px] text-muted-foreground">
                 target
                 <select
                   value={environmentId}
                   onChange={(event) => setEnvironmentId(event.target.value)}
                   disabled={targets.length === 0}
                   aria-describedby={blocked ? reason : undefined}
-                  className="data h-8 rounded-md border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  className="data h-7 rounded bg-transparent px-1 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 >
                   {targets.length === 0 && <option value="">no verified environment</option>}
                   {targets.map((target) => (
@@ -482,7 +691,7 @@ function BuilderView({
             )}
             {canEdit && (
               <>
-                <Button variant="outline" onClick={check} disabled={pending || empty}>
+                <Button variant="outline" onClick={() => check()} disabled={pending || empty}>
                   Validate
                 </Button>
                 <Button variant="outline" onClick={save} disabled={pending || !dirty || empty || blocking > 0}>
@@ -506,7 +715,7 @@ function BuilderView({
         )}
         {canEdit && blocking > 0 && (
           <p className="text-xs text-muted-foreground">
-            {blocking === 1 ? "One request needs attention" : `${blocking} requests need attention`} before this can be saved:
+            {blocking === 1 ? "One step needs attention" : `${blocking} steps need attention`} before this can be saved:
             each says what is wrong on the canvas.
           </p>
         )}
@@ -520,10 +729,44 @@ function BuilderView({
         )}
       </div>
 
-      <div className={`grid min-h-[34rem] gap-3 lg:h-[calc(100svh-14rem)] ${readOnly ? "lg:grid-cols-[minmax(0,1fr)_20rem]" : "lg:grid-cols-[12.5rem_minmax(0,1fr)_20rem]"}`}>
-        {!readOnly && <Palette onAdd={(kind) => addNode(kind)} />}
+      <div role="tablist" aria-label="View" className="flex w-fit rounded-lg border p-0.5 text-sm">
+        {(["canvas", "script"] as const).map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            id={`tab-${name}`}
+            aria-selected={tab === name}
+            aria-controls={`panel-${name}`}
+            onClick={() => setTab(name)}
+            className="rounded-md px-3 py-1 aria-selected:bg-muted aria-selected:font-medium"
+          >
+            {name === "canvas" ? "Canvas" : "Script"}
+          </button>
+        ))}
+      </div>
 
-        <div ref={surface} className="relative min-h-[26rem] overflow-hidden rounded-xl border bg-background">
+      {tab === "script" && (
+        <div role="tabpanel" id="panel-script" aria-labelledby="tab-script">
+          <ScriptPanel
+            saved={scenario.script}
+            version={scenario.version}
+            draft={draft}
+            onWrite={check}
+            pending={pending}
+            canWrite={canEdit}
+          />
+        </div>
+      )}
+
+      <div
+        role="tabpanel"
+        id="panel-canvas"
+        aria-labelledby="tab-canvas"
+        hidden={tab !== "canvas"}
+        className="grid min-h-[40rem] gap-3 lg:h-[calc(100svh-10rem)]"
+      >
+        <div ref={surface} className="relative min-h-[32rem] overflow-hidden rounded-xl border bg-background">
           {empty && <EmptyState projectId={projectId} readOnly={readOnly} onAdd={addFirstRequest} />}
           <ReactFlow
             className="builder-flow"
@@ -550,11 +793,21 @@ function BuilderView({
             maxZoom={1.5}
             zoomOnDoubleClick={false}
           >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
-            <MiniMap pannable zoomable ariaLabel="Mini map of the scenario" nodeColor="var(--muted-foreground)" />
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} />
+            <MiniMap pannable zoomable ariaLabel="Mini map of the scenario" nodeColor={minimapColor} nodeStrokeWidth={0} nodeBorderRadius={3} />
             <ZoomPanel />
             {!readOnly && (
               <Panel position="top-left" className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-expanded={showPalette}
+                  aria-controls="node-palette"
+                  onClick={() => setShowPalette((open) => !open)}
+                >
+                  <Plus aria-hidden />
+                  Nodes
+                </Button>
                 <Button variant="outline" size="icon" aria-label="Undo" onClick={goBack} disabled={history.past.length === 0}>
                   <Undo2 aria-hidden />
                 </Button>
@@ -564,37 +817,70 @@ function BuilderView({
               </Panel>
             )}
           </ReactFlow>
+          {!readOnly && showPalette && (
+            <div
+              id="node-palette"
+              className="absolute top-14 left-3 z-10 max-h-[calc(100%-4.5rem)] w-52 overflow-y-auto rounded-xl border bg-card p-3"
+            >
+              <Palette onAdd={(kind) => addNode(kind)} />
+            </div>
+          )}
+          {current ? (
+            <div className="absolute inset-y-3 right-3 z-10 w-[min(22rem,calc(100%-1.5rem))]">
+              <Inspector
+                node={current}
+                readOnly={readOnly}
+                revision={revision}
+                onChange={(patch, field) => edit(current.id, patch, field)}
+                onDelete={removeCurrent}
+                onClose={() => setBox((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, { ...v, selected: false }])))}
+                available={variablesBefore(graph, current.id)}
+                request={{
+                  endpoints,
+                  endpointsHref: `/projects/${projectId}/endpoints`,
+                  available: variablesBefore(graph, current.id),
+                  unbound: unboundSecrets(secretKeys?.[environmentId] ?? [], graph),
+                  script: scenario.script,
+                  onPickEndpoint: (endpoint) => pickEndpoint(current, endpoint),
+                  onBind: (key, patchFor) => bindSecret(current, key, patchFor),
+                }}
+              />
+            </div>
+          ) : null}
         </div>
-
-        {current ? (
-          <Inspector
-            node={current}
-            readOnly={readOnly}
-            revision={revision}
-            onChange={(patch, field) => edit(current.id, patch, field)}
-            onDelete={removeCurrent}
-            onClose={() => setBox((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, { ...v, selected: false }])))}
-            request={{
-              endpoints,
-              endpointsHref: `/projects/${projectId}/endpoints`,
-              available: variablesBefore(graph, current.id),
-              unbound: unboundSecrets(secretKeys?.[environmentId] ?? [], graph),
-              script: scenario.script,
-              onPickEndpoint: (endpoint) => pickEndpoint(current, endpoint),
-              onBind: (key, patchFor) => bindSecret(current, key, patchFor),
-            }}
-          />
-        ) : (
-          <aside aria-label="Node inspector" className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-            {empty ? "Nothing to inspect yet." : "Select a node to see and change what it holds."}
-          </aside>
-        )}
       </div>
+
+      {tab === "canvas" && (
+        <Dock
+          projectId={projectId}
+          scenarioId={scenario.id}
+          thresholds={thresholds}
+          canEdit={canEdit}
+          draft={profileDraft}
+          onDraft={setProfileDraft}
+          dirty={profileDirty}
+          hasOwnParams={hasOwnParams}
+          target={targets.find((t) => t.id === environmentId)}
+        />
+      )}
+
+      <ProblemsPanel
+        problems={listed}
+        checked={fresh || (report !== null && report.findings.length > 0)}
+        stale={report !== null && !fresh}
+        onSelect={goTo}
+      />
     </div>
   );
 }
 
 // boxNodes is the nodes as React Flow last had them, for applying its changes to.
+// The mini map draws each step in the accent of its kind.
+function minimapColor(node: { data?: unknown }): string {
+  const step = node.data as StepData | undefined;
+  return step ? infoOf(step.node.kind).tone.var : "var(--muted-foreground)";
+}
+
 function boxNodes(nodes: GraphNode[], box: Record<string, Box>, data: Record<string, StepData>): StepFlowNode[] {
   return nodes.map((node) => ({
     id: node.id,

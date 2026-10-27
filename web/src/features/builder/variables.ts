@@ -1,4 +1,5 @@
 import type { GraphEdge, GraphNode, ScenarioGraph } from "../scenarios/types.ts";
+import { isReserved, parseCondition } from "./condition.ts";
 
 export type Available = { name: string; secret: boolean; from: string };
 
@@ -41,6 +42,8 @@ export function variablesBefore(graph: ScenarioGraph, nodeId: string): Available
 }
 
 function variableWritten(node: GraphNode): Available | undefined {
+  // A loop over a list writes its element, each time round.
+  if (node.kind === "loop") return node.item ? { name: node.item, secret: false, from: node.id } : undefined;
   if (!node.variable) return undefined;
   if (node.kind === "extract_variable") return { name: node.variable, secret: false, from: node.id };
   if (node.kind === "set_variable") return { name: node.variable, secret: Boolean(node.from_env), from: node.id };
@@ -62,7 +65,7 @@ export function variableForKey(key: string, taken: Iterable<string>): string {
   if (!/^[a-z_]/.test(base)) base = `_${base}`;
 
   let name = base;
-  for (let n = 2; used.has(name); n++) name = `${base}_${n}`;
+  for (let n = 2; used.has(name) || isReserved(name); n++) name = `${base}_${n}`;
   return name;
 }
 
@@ -95,23 +98,46 @@ export function bindSecretBefore(
   };
 }
 
-// undefinedNames: the variables a request reads that no node before it writes.
-// Not an error — a variable can come from an earlier loop or a script — but
-// something to say before a run reads "undefined" into an address.
-export function undefinedNames(node: GraphNode, available: Available[]): string[] {
-  const known = new Set(available.map((v) => v.name));
+// variablesRead is every variable a node reads, once each, in the order it meets
+// them: the {name} of a path, the {{name}} of a header, a query value, a body or a
+// "Set variable" value, and the names in a condition or an assertion.
+export function variablesRead(node: GraphNode): string[] {
   const read = new Set<string>();
 
   for (const match of (node.path ?? "").matchAll(/\{([A-Za-z0-9_]*)\}/g)) read.add(match[1]);
 
   const texts = [
     node.body ?? "",
+    node.kind === "set_variable" ? (node.value ?? "") : "",
     ...Object.values(node.headers ?? {}),
     ...(node.query ?? []).map((q) => q.value),
   ];
   for (const text of texts) for (const match of text.matchAll(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g)) read.add(match[1]);
 
-  return [...read].filter((name) => name && !known.has(name));
+  // An expression is read with the grammar, not a pattern: a name inside quoted
+  // text is text. Half-typed, it falls back to the names it holds so far. The two
+  // names the response owns are readable anywhere and are never "undefined".
+  if (node.kind === "condition" || node.kind === "assertion") {
+    const parsed = parseCondition(node.expression ?? "");
+    if (parsed.ok) {
+      for (const name of parsed.variables) read.add(name);
+    } else {
+      const bare = (node.expression ?? "").replace(/"[^"]*"/g, " ");
+      for (const match of bare.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) if (!isReserved(match[0])) read.add(match[0]);
+    }
+  }
+
+  if (node.kind === "loop" && node.over) read.add(node.over);
+
+  return [...read].filter(Boolean);
+}
+
+// undefinedNames: the variables a node reads that no node before it writes. Not an
+// error — a value can come from an earlier pass of a loop, or from a script — but
+// something to say before a run reads "undefined" into an address.
+export function undefinedNames(node: GraphNode, available: Available[]): string[] {
+  const known = new Set(available.map((v) => v.name));
+  return variablesRead(node).filter((name) => !known.has(name));
 }
 
 // What typing {{ offers. The caret is inside an open {{ when the nearest one

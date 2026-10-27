@@ -13,7 +13,7 @@ export default function () {
   const vars = {};
   let res = null;
   // Orders / Read one order
-  res = http.request("GET", BASE_URL + "/orders/" + encodeURIComponent(vars["id"]) + "?" + encodeURIComponent("expand") + "=" + encodeURIComponent("items") + "&" + encodeURIComponent("as") + "=" + encodeURIComponent(vars["who"]), null, {
+  res = http.request("GET", BASE_URL + "/orders/" + encodeURIComponent(vars["id"]) + "?" + encodeURIComponent("expand") + "=" + encodeURIComponent("items") + "&" + encodeURIComponent("as") + "=" + encodeURIComponent("" + vars["who"]), null, {
     headers: {},
     tags: { name: "GET /orders/{id}" },
   });

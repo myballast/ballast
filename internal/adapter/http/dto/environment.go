@@ -19,6 +19,11 @@ type Environment struct {
 	VerificationStatus string `json:"verification_status"`
 	MaxVUs             int    `json:"max_vus"`
 	MaxDurationS       int    `json:"max_duration_s"`
+	// EffectiveMaxVUs and EffectiveMaxDurationS are what a run can really use
+	// here: the smaller of what is declared above and the ceilings no
+	// configuration can raise. A profile asking for more is lowered to these.
+	EffectiveMaxVUs       int `json:"effective_max_vus"`
+	EffectiveMaxDurationS int `json:"effective_max_duration_s"`
 	// AllowedWindow is absent when the target takes load at any hour.
 	AllowedWindow *AllowedWindow `json:"allowed_window,omitempty"`
 	// VerificationCheckedAt is when somebody last asked Ballast to fetch the

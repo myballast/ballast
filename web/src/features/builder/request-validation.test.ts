@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  extractProblem,
   headerProblems,
   isJson,
   jsonProblem,
@@ -130,4 +131,20 @@ test("a variable is recognised only when it is well formed", () => {
   assert.equal(readsAVariable("Bearer {token}"), false);
   assert.equal(readsAVariable("{{bad name}}"), false);
   assert.equal(templateProblem('{"a": 1}'), undefined);
+});
+
+test("an extraction needs what its source needs", () => {
+  const node = (over: object) => ({ id: "e", kind: "extract_variable" as const, variable: "token", ...over });
+
+  assert.equal(extractProblem(node({ from: "data.token" })), undefined);
+  assert.equal(extractProblem(node({ source: "body", from: "$.data.token" })), undefined);
+  assert.equal(extractProblem(node({ source: "header", from: "X-Request-Id" })), undefined);
+  assert.equal(extractProblem(node({ source: "status" })), undefined);
+
+  assert.match(extractProblem(node({ from: "" })) ?? "", /path in the body/);
+  assert.match(extractProblem(node({ from: "$." })) ?? "", /path in the body/);
+  assert.match(extractProblem(node({ source: "header", from: "" })) ?? "", /name of a header/);
+  assert.match(extractProblem(node({ source: "header", from: "X Id: 1" })) ?? "", /header name/);
+  assert.match(extractProblem(node({ source: "status", from: "code" })) ?? "", /no path/);
+  assert.match(extractProblem(node({ variable: "2fast", from: "a" })) ?? "", /variable needs a name/);
 });

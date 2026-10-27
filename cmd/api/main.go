@@ -114,7 +114,9 @@ func serve(log *slog.Logger) error {
 		// written; the worker reads the same setting and leaves the queue alone.
 		run.Accepting(cfg.AcceptingRuns),
 		log,
-	)
+		// A run is the moment a fault in a graph or a script starts to cost a
+		// measurement: both are looked over again before one is queued.
+	).CheckingScriptsWith(k6.NewScriptInspector())
 
 	projects := project.NewService(
 		postgres.NewProjectRepository(db),

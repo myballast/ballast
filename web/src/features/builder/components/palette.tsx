@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "@/lib/utils";
+
 import { kindInfo } from "../kinds";
 import type { NodeKind } from "@/features/scenarios/types";
 import { KindIcon } from "./kind-icon";
@@ -40,9 +42,11 @@ export function Palette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
               onClick={() => onAdd(info.kind)}
               title={info.hint}
               aria-label={`Add ${info.label} node. ${info.hint}`}
-              className="flex w-full cursor-grab items-center gap-2 rounded-lg border bg-card px-2.5 py-2 text-left text-sm hover:bg-muted active:cursor-grabbing"
+              className="flex w-full cursor-grab items-center gap-2 rounded-lg border bg-card px-2 py-1.5 text-left text-[13px] hover:bg-muted active:cursor-grabbing"
             >
-              <KindIcon icon={info.icon} className="size-4 text-muted-foreground" />
+              <span className={cn("flex size-5 items-center justify-center rounded", info.tone.tint, info.tone.text)}>
+                <KindIcon icon={info.icon} className="size-3.5" />
+              </span>
               {info.label}
             </button>
           </li>

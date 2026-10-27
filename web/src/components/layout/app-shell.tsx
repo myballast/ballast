@@ -66,7 +66,7 @@ export function AppShell({
         </details>
 
         <AppHeader organization={me.organization.name} scope={scope} />
-        <main id="content" tabIndex={-1} className="mx-auto w-full max-w-6xl px-4 py-page-y outline-none md:px-page-x">{children}</main>
+        <main id="content" tabIndex={-1} className="mx-auto w-full max-w-6xl px-4 py-page-y outline-none has-[.builder-wide]:max-w-none has-[.builder-wide]:px-4 has-[.builder-wide]:py-4 md:px-page-x md:has-[.builder-wide]:px-5">{children}</main>
       </div>
     </div>
   );

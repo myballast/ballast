@@ -37,6 +37,13 @@ func (r *ScenarioRepository) ScenarioByID(
 			return fmt.Errorf("read the scenario: %w", err)
 		}
 
+		// The mode and the graph come too: a run looks the graph over again before
+		// it is queued, and a scenario that read as code would pass whatever it held.
+		graph, err := graphFromColumn(row.Graph)
+		if err != nil {
+			return err
+		}
+
 		found = domain.Scenario{
 			ID:             row.ID,
 			ProjectID:      row.ProjectID,
@@ -44,6 +51,8 @@ func (r *ScenarioRepository) ScenarioByID(
 			Script:         row.Script,
 			Version:        int(row.Version),
 			DefaultProfile: domain.ProfileKind(row.DefaultProfile),
+			Mode:           domain.ScenarioMode(row.Mode),
+			Graph:          graph,
 		}
 		return nil
 	})

@@ -207,14 +207,52 @@ type call struct {
 	Headers map[string]string `json:"headers"`
 }
 
+// reply is what the stubbed server answers: the same for every request.
+type reply struct {
+	Status  int               `json:"status"`
+	Body    any               `json:"body"`
+	Headers map[string]string `json:"headers"`
+	// DurationMS is how long the stubbed server "took", as k6 reports it.
+	DurationMS float64 `json:"duration"`
+}
+
+// verdict is one check() the script made, and whether it held.
+type verdict struct {
+	Name   string `json:"name"`
+	Passed bool   `json:"passed"`
+}
+
+// outcome is what running the script did: the requests it made, and what stopped
+// it early, if anything did.
+type outcome struct {
+	Calls   []call    `json:"calls"`
+	Failure string    `json:"failure"`
+	Sleeps  []float64 `json:"sleeps"`
+	Checks  []verdict `json:"checks"`
+}
+
 // runScript executes the generated script with k6 replaced by stubs, and
-// returns the requests it made.
+// returns the requests it made. A script that stops itself with fail() is a test
+// failure here: the ones that mean to are run with runScriptAgainst.
 //
 // The imports are stripped and the module's own default function is called, so
 // what runs is exactly the body this generator wrote. If a value escaped into
 // code, it runs here — and either it throws, or it shows up somewhere the test
 // does not expect it.
 func runScript(t *testing.T, script string) []call {
+	t.Helper()
+
+	result := runScriptAgainst(t, script, reply{Status: 200})
+	if result.Failure != "" {
+		t.Fatalf("the script stopped itself: %s", result.Failure)
+	}
+	return result.Calls
+}
+
+// runScriptAgainst runs the script with the stub answering as given, and says what
+// it did and why it stopped. fail() in the stub throws, as it does in k6, which
+// ends the iteration.
+func runScriptAgainst(t *testing.T, script string, answer reply) outcome {
 	t.Helper()
 
 	var body strings.Builder
@@ -226,8 +264,14 @@ func runScript(t *testing.T, script string) []call {
 		body.WriteString("\n")
 	}
 
+	encoded, err := json.Marshal(answer)
+	if err != nil {
+		t.Fatalf("encode the stubbed answer: %v", err)
+	}
+
 	harness := `const calls = [];
 const __ENV = { BASE_URL: "http://target.test", API_TOKEN: "s3cr3t-value" };
+const answer = ` + string(encoded) + `;
 const http = {
   request(method, url, requestBody, params) {
     calls.push({
@@ -236,16 +280,33 @@ const http = {
       body: requestBody === null ? "" : String(requestBody),
       headers: (params && params.headers) || {},
     });
-    return { status: 200, json: () => null };
+    // json() throws on a body that is not JSON, as k6's does.
+    return {
+      status: answer.status,
+      timings: { duration: answer.duration || 0 },
+      headers: answer.headers || {},
+      json: (selector) => {
+        if (answer.body === undefined || answer.body === null) throw new Error("not JSON");
+        return String(selector).split(".").reduce((at, key) => (at == null ? undefined : at[key]), answer.body);
+      },
+    };
   },
 };
-const check = () => true;
+const checks = [];
+const check = (value, conditions) => {
+  for (const name of Object.keys(conditions)) checks.push({ name, passed: Boolean(conditions[name](value)) });
+  return true;
+};
 const fail = (message) => { throw new Error("fail() was called: " + message); };
-const sleep = () => {};
+const sleeps = [];
+const sleep = (seconds) => { sleeps.push(seconds); };
+// Half way through any range, so that a random wait is a number a test can name.
+Math.random = () => 0.5;
 
 ` + body.String() + `
-scenario();
-console.log(JSON.stringify(calls));
+let failure = "";
+try { scenario(); } catch (error) { failure = String(error.message); }
+console.log(JSON.stringify({ calls, failure, sleeps, checks }));
 `
 
 	path := filepath.Join(t.TempDir(), "harness.mjs")
@@ -258,12 +319,11 @@ console.log(JSON.stringify(calls));
 		t.Fatalf("running the generated script failed: %v\n%s", err, output)
 	}
 
-	var made []call
-	if err := json.Unmarshal([]byte(lastLine(string(output))), &made); err != nil {
+	var result outcome
+	if err := json.Unmarshal([]byte(lastLine(string(output))), &result); err != nil {
 		t.Fatalf("read what the script did: %v\n%s", err, output)
 	}
-
-	return made
+	return result
 }
 
 // lastLine is where the harness prints its result, after anything the script
@@ -469,5 +529,427 @@ func TestAGraphWithQueryAndLabelsIsStillDeterministic(t *testing.T) {
 	// Given order, not sorted order: a collection's order means something.
 	if strings.Index(first, `"b"`) > strings.Index(first, `"a"`) {
 		t.Errorf("the query parameters were reordered:\n%s", first)
+	}
+}
+
+// extractThenCall reads one value from a response and uses it in the next request,
+// which is what an extraction is for.
+func extractThenCall(extract domain.Node) domain.ScenarioGraph {
+	extract.ID, extract.Kind = "take", domain.NodeExtractVariable
+	return domain.ScenarioGraph{
+		Start: "first",
+		Nodes: []domain.Node{
+			{ID: "first", Kind: domain.NodeHTTPRequest, Method: "POST", Path: "/login"},
+			extract,
+			{
+				ID: "second", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/me",
+				Headers: map[string]string{"X-Seen": "{{seen}}"},
+			},
+			{ID: "done", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{
+			{From: "first", To: "take"}, {From: "take", To: "second"}, {From: "second", To: "done"},
+		},
+	}
+}
+
+func generate(t *testing.T, graph domain.ScenarioGraph) string {
+	t.Helper()
+	if err := graph.Validate(); err != nil {
+		t.Fatalf("the graph was refused: %v", err)
+	}
+	script, err := k6.GenerateScript(graph)
+	if err != nil {
+		t.Fatalf("GenerateScript: %v", err)
+	}
+	return script
+}
+
+// The value read from the response is the one the next request carries.
+func TestAnExtractedValueReachesTheNextRequest(t *testing.T) {
+	node(t)
+
+	cases := map[string]struct {
+		extract domain.Node
+		answer  reply
+		wanted  string
+	}{
+		"from the body": {
+			domain.Node{Variable: "seen", From: "data.session.token"},
+			reply{Status: 200, Body: map[string]any{"data": map[string]any{"session": map[string]any{"token": "abc"}}}},
+			"abc",
+		},
+		"from the body, written as JSONPath": {
+			domain.Node{Variable: "seen", From: "$.data.token"},
+			reply{Status: 200, Body: map[string]any{"data": map[string]any{"token": "xyz"}}},
+			"xyz",
+		},
+		"a number is kept, zero included": {
+			domain.Node{Variable: "seen", From: "count"},
+			reply{Status: 200, Body: map[string]any{"count": 0}},
+			"0",
+		},
+		"from a header, whatever its case": {
+			domain.Node{Variable: "seen", Source: domain.ExtractFromHeader, From: "x-request-id"},
+			reply{Status: 200, Headers: map[string]string{"X-Request-Id": "req-7"}},
+			"req-7",
+		},
+		"from the status": {
+			domain.Node{Variable: "seen", Source: domain.ExtractFromStatus},
+			reply{Status: 201},
+			"201",
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := runScriptAgainst(t, generate(t, extractThenCall(c.extract)), c.answer)
+
+			if result.Failure != "" {
+				t.Fatalf("the script stopped: %s", result.Failure)
+			}
+			if len(result.Calls) != 2 {
+				t.Fatalf("%d request(s) were made, wanted 2", len(result.Calls))
+			}
+			if got := result.Calls[1].Headers["X-Seen"]; got != c.wanted {
+				t.Errorf("the next request carried %q, wanted %q", got, c.wanted)
+			}
+		})
+	}
+}
+
+// When the value is not there the iteration stops, with the variable's name, and
+// nothing is sent with an empty value in its place.
+func TestAFailedExtractionStopsTheIteration(t *testing.T) {
+	node(t)
+
+	cases := map[string]struct {
+		extract domain.Node
+		answer  reply
+	}{
+		"a path the body does not have": {
+			domain.Node{Variable: "seen", From: "data.token"},
+			reply{Status: 200, Body: map[string]any{"data": map[string]any{}}},
+		},
+		"a body that is not JSON": {
+			domain.Node{Variable: "seen", From: "data.token"},
+			reply{Status: 200},
+		},
+		"a null value": {
+			domain.Node{Variable: "seen", From: "token"},
+			reply{Status: 200, Body: map[string]any{"token": nil}},
+		},
+		"an empty value": {
+			domain.Node{Variable: "seen", From: "token"},
+			reply{Status: 200, Body: map[string]any{"token": ""}},
+		},
+		"a header the response does not have": {
+			domain.Node{Variable: "seen", Source: domain.ExtractFromHeader, From: "X-Missing"},
+			reply{Status: 200, Headers: map[string]string{"X-Other": "1"}},
+		},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := runScriptAgainst(t, generate(t, extractThenCall(c.extract)), c.answer)
+
+			if !strings.Contains(result.Failure, "fail() was called") {
+				t.Fatalf("the script did not stop itself: %q", result.Failure)
+			}
+			if !strings.Contains(result.Failure, `"seen"`) {
+				t.Errorf("the failure does not name the variable: %q", result.Failure)
+			}
+			if len(result.Calls) != 1 {
+				t.Errorf("%d request(s) were made, wanted only the first: the next must not go out empty", len(result.Calls))
+			}
+		})
+	}
+}
+
+// What the response held is never in the failure: it may be a token.
+func TestAFailedExtractionDoesNotRepeatTheResponse(t *testing.T) {
+	node(t)
+
+	graph := extractThenCall(domain.Node{Variable: "seen", From: "missing"})
+	result := runScriptAgainst(t, generate(t, graph), reply{
+		Status: 200, Body: map[string]any{"token": "do-not-repeat-me"}, Headers: map[string]string{"Set-Cookie": "sid=do-not-repeat-me"},
+	})
+
+	if result.Failure == "" || strings.Contains(result.Failure, "do-not-repeat-me") {
+		t.Errorf("the failure is %q", result.Failure)
+	}
+}
+
+// A path typed with quotes or template syntax stays text, like everything else.
+func TestAnExtractionPathIsNeverCode(t *testing.T) {
+	node(t)
+
+	hostile := `a"]; throw new Error("pwned"); //${1+1}` + "`"
+	script := generate(t, extractThenCall(domain.Node{Variable: "seen", From: hostile}))
+
+	// The path is text in the message — it is how the person finds the node — and
+	// the failure is the generator's own fail(), not an error thrown by the path.
+	result := runScriptAgainst(t, script, reply{Status: 200, Body: map[string]any{"a": "x"}})
+	if !strings.HasPrefix(result.Failure, "fail() was called: could not extract") {
+		t.Errorf("the path was not kept as text: %q", result.Failure)
+	}
+	if len(result.Calls) != 1 {
+		t.Errorf("%d request(s) were made, wanted 1", len(result.Calls))
+	}
+}
+
+// A pause waits the time it says, or a time picked between its two bounds.
+func TestAPauseWaitsAsLongAsItSays(t *testing.T) {
+	node(t)
+
+	cases := map[string]struct {
+		pause  domain.Node
+		wanted float64
+	}{
+		"a fixed time":             {domain.Node{Seconds: 2}, 2},
+		"a fraction of a second":   {domain.Node{Seconds: 0.25}, 0.25},
+		"a range, half way":        {domain.Node{Seconds: 1, SecondsMax: 5}, 3},
+		"a range of a single time": {domain.Node{Seconds: 4, SecondsMax: 4}, 4},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			c.pause.ID, c.pause.Kind = "wait", domain.NodeThinkTime
+			result := runScriptAgainst(t, generate(t, oneNode(c.pause)), reply{Status: 200})
+
+			if len(result.Sleeps) != 1 || result.Sleeps[0] != c.wanted {
+				t.Errorf("it waited %v, wanted one wait of %v", result.Sleeps, c.wanted)
+			}
+		})
+	}
+}
+
+// listLoop takes each element of a list the first request returned, and uses it
+// in a request of its own.
+func listLoop(maximum int) domain.ScenarioGraph {
+	return domain.ScenarioGraph{
+		Start: "first",
+		Nodes: []domain.Node{
+			{ID: "first", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/items"},
+			{ID: "take", Kind: domain.NodeExtractVariable, Variable: "items", From: "ids"},
+			{ID: "each", Kind: domain.NodeLoop, Iterations: maximum, Over: "items", Item: "item"},
+			{ID: "one", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/items/{item}"},
+			{ID: "done", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{
+			{From: "first", To: "take"},
+			{From: "take", To: "each"},
+			{From: "each", To: "one", When: "body"},
+			{From: "each", To: "done", When: "after"},
+			{From: "one", To: "each"},
+		},
+	}
+}
+
+// Walking a list takes each element in turn, and never more of them than the
+// maximum the loop was given.
+func TestALoopOverAListTakesEachElementUpToItsMaximum(t *testing.T) {
+	node(t)
+
+	urls := func(result outcome) []string {
+		var out []string
+		for _, c := range result.Calls[1:] {
+			out = append(out, strings.TrimPrefix(c.URL, "http://target.test"))
+		}
+		return out
+	}
+
+	t.Run("a list shorter than the maximum", func(t *testing.T) {
+		result := runScriptAgainst(t, generate(t, listLoop(10)), reply{
+			Status: 200, Body: map[string]any{"ids": []any{"a", "b", "c"}},
+		})
+		if result.Failure != "" {
+			t.Fatalf("the script stopped: %s", result.Failure)
+		}
+		if got := strings.Join(urls(result), " "); got != "/items/a /items/b /items/c" {
+			t.Errorf("the loop called %q", got)
+		}
+	})
+
+	t.Run("a list longer than the maximum", func(t *testing.T) {
+		result := runScriptAgainst(t, generate(t, listLoop(2)), reply{
+			Status: 200, Body: map[string]any{"ids": []any{"a", "b", "c", "d"}},
+		})
+		if got := strings.Join(urls(result), " "); got != "/items/a /items/b" {
+			t.Errorf("the loop called %q, wanted only the first two", got)
+		}
+	})
+
+	t.Run("an empty list", func(t *testing.T) {
+		result := runScriptAgainst(t, generate(t, listLoop(5)), reply{
+			Status: 200, Body: map[string]any{"ids": []any{}},
+		})
+		if result.Failure != "" || len(result.Calls) != 1 {
+			t.Errorf("an empty list should walk nothing: failure %q, %d call(s)", result.Failure, len(result.Calls))
+		}
+	})
+
+	t.Run("an element with a slash is encoded, not followed", func(t *testing.T) {
+		result := runScriptAgainst(t, generate(t, listLoop(5)), reply{
+			Status: 200, Body: map[string]any{"ids": []any{"a/b?x=1"}},
+		})
+		if got := strings.Join(urls(result), " "); got != "/items/a%2Fb%3Fx%3D1" {
+			t.Errorf("the element changed the address: %q", got)
+		}
+	})
+}
+
+// Something that is not a list stops the iteration with the name of the variable,
+// and never with what it held.
+func TestALoopOverSomethingThatIsNotAListStops(t *testing.T) {
+	node(t)
+
+	result := runScriptAgainst(t, generate(t, listLoop(5)), reply{
+		Status: 200, Body: map[string]any{"ids": "do-not-repeat-me"},
+	})
+
+	if !strings.Contains(result.Failure, "fail() was called") || !strings.Contains(result.Failure, `"items"`) {
+		t.Errorf("the failure is %q", result.Failure)
+	}
+	if strings.Contains(result.Failure, "do-not-repeat-me") {
+		t.Error("the failure repeats what the variable held")
+	}
+	if len(result.Calls) != 1 {
+		t.Errorf("%d request(s) were made, wanted only the first", len(result.Calls))
+	}
+}
+
+// assertAfterCall checks something about the response of one request, and then
+// makes another: whether that second request goes out says whether the check
+// stopped the iteration.
+func assertAfterCall(expression string, stop bool) domain.ScenarioGraph {
+	return domain.ScenarioGraph{
+		Start: "first",
+		Nodes: []domain.Node{
+			{ID: "first", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/a"},
+			{ID: "check", Kind: domain.NodeAssertion, Expression: expression, Critical: stop},
+			{ID: "second", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/b"},
+			{ID: "done", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{{From: "first", To: "check"}, {From: "check", To: "second"}, {From: "second", To: "done"}},
+	}
+}
+
+// An assertion can speak of the response itself — its status and how long it took
+// — and a failed one either counts or stops, as it was asked to.
+func TestAnAssertionChecksTheResponseAndCountsOrStops(t *testing.T) {
+	node(t)
+
+	cases := map[string]struct {
+		expression string
+		stop       bool
+		answer     reply
+		holds      bool
+		calls      int
+	}{
+		"status holds":               {"response_status == 200", false, reply{Status: 200}, true, 2},
+		"status fails, counted only": {"response_status == 200", false, reply{Status: 500}, false, 2},
+		"status fails, stops":        {"response_status == 200", true, reply{Status: 500}, false, 1},
+		"fast enough":                {"response_time_ms < 500", true, reply{Status: 200, DurationMS: 120}, true, 2},
+		"too slow, counted only":     {"response_time_ms < 500", false, reply{Status: 200, DurationMS: 900}, false, 2},
+		"too slow, stops":            {"response_time_ms < 500", true, reply{Status: 200, DurationMS: 900}, false, 1},
+		"both, one of them failing":  {"response_status == 200 && response_time_ms < 500", true, reply{Status: 200, DurationMS: 900}, false, 1},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := runScriptAgainst(t, generate(t, assertAfterCall(c.expression, c.stop)), c.answer)
+
+			if len(result.Checks) != 1 || result.Checks[0].Passed != c.holds {
+				t.Errorf("the check was %+v, wanted passed=%v", result.Checks, c.holds)
+			}
+			if len(result.Calls) != c.calls {
+				t.Errorf("%d request(s) went out, wanted %d", len(result.Calls), c.calls)
+			}
+			if !c.stop && result.Failure != "" {
+				t.Errorf("a check that only counts stopped the iteration: %s", result.Failure)
+			}
+			if c.stop && !c.holds && !strings.Contains(result.Failure, "fail() was called") {
+				t.Errorf("an assertion that stops did not: %q", result.Failure)
+			}
+		})
+	}
+}
+
+// With no response yet, a comparison on it is simply false: nothing is read from
+// a request that was never made.
+func TestTheResponseNamesReadNothingBeforeAnyRequest(t *testing.T) {
+	node(t)
+
+	graph := oneNode(domain.Node{ID: "check", Kind: domain.NodeAssertion, Expression: "response_time_ms < 500"})
+	result := runScriptAgainst(t, generate(t, graph), reply{Status: 200})
+
+	if len(result.Checks) != 1 || result.Checks[0].Passed {
+		t.Errorf("a time that was never measured passed a bound: %+v", result.Checks)
+	}
+}
+
+// A condition sends the run down one way or the other, by what it holds.
+func TestAConditionTakesOneWayOrTheOther(t *testing.T) {
+	node(t)
+
+	graph := domain.ScenarioGraph{
+		Start: "first",
+		Nodes: []domain.Node{
+			{ID: "first", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/a"},
+			{ID: "branch", Kind: domain.NodeCondition, Expression: "response_status == 200 && response_time_ms < 500"},
+			{ID: "yes", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/yes"},
+			{ID: "no", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/no"},
+			{ID: "end1", Kind: domain.NodeEnd},
+			{ID: "end2", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{
+			{From: "first", To: "branch"},
+			{From: "branch", To: "yes", When: "true"}, {From: "branch", To: "no", When: "false"},
+			{From: "yes", To: "end1"}, {From: "no", To: "end2"},
+		},
+	}
+	script := generate(t, graph)
+
+	last := func(answer reply) string {
+		calls := runScriptAgainst(t, script, answer).Calls
+		return strings.TrimPrefix(calls[len(calls)-1].URL, "http://target.test")
+	}
+
+	if got := last(reply{Status: 200, DurationMS: 100}); got != "/yes" {
+		t.Errorf("a fast 200 went to %q", got)
+	}
+	if got := last(reply{Status: 200, DurationMS: 900}); got != "/no" {
+		t.Errorf("a slow 200 went to %q", got)
+	}
+	if got := last(reply{Status: 500, DurationMS: 100}); got != "/no" {
+		t.Errorf("a fast 500 went to %q", got)
+	}
+}
+
+// A node id may hold a hyphen, which a JavaScript name may not: the names the
+// generator makes from it have to cope, or the script would not even parse.
+func TestANodeIdWithAHyphenStillMakesAScript(t *testing.T) {
+	node(t)
+
+	graph := domain.ScenarioGraph{
+		Start: "get-list",
+		Nodes: []domain.Node{
+			{ID: "get-list", Kind: domain.NodeHTTPRequest, Method: "GET", Path: "/items"},
+			{ID: "take-ids", Kind: domain.NodeExtractVariable, Variable: "items", From: "ids"},
+			{ID: "each-item", Kind: domain.NodeLoop, Iterations: 3, Over: "items", Item: "item"},
+			{ID: "check-it", Kind: domain.NodeAssertion, Expression: "response_status == 200"},
+			{ID: "all-done", Kind: domain.NodeEnd},
+		},
+		Edges: []domain.Edge{
+			{From: "get-list", To: "take-ids"}, {From: "take-ids", To: "each-item"},
+			{From: "each-item", To: "check-it", When: "body"}, {From: "each-item", To: "all-done", When: "after"},
+			{From: "check-it", To: "each-item"},
+		},
+	}
+
+	result := runScriptAgainst(t, generate(t, graph), reply{Status: 200, Body: map[string]any{"ids": []any{1, 2}}})
+	if result.Failure != "" || len(result.Checks) != 2 {
+		t.Errorf("the script did not run as drawn: failure %q, %d check(s)", result.Failure, len(result.Checks))
 	}
 }

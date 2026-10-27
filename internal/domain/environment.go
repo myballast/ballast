@@ -445,6 +445,15 @@ const (
 	VerificationFailed   VerificationStatus = "verification_failed"
 )
 
+// Ceilings are what a run can really use on this environment: the smaller of what
+// it declares and what no configuration can raise. An environment declared at ten
+// thousand virtual users is a mistake rather than a permission, and a prudent one
+// stays prudent. It is the one place the two are put together, so that clamping a
+// run and telling somebody what it will be clamped to cannot disagree.
+func (e Environment) Ceilings() (vus, seconds int) {
+	return min(e.MaxVUs, MaxVUsAnywhere), min(e.MaxDurationS, MaxDurationAnywhereS)
+}
+
 // IsVerified reports whether load may be sent to this target at all.
 func (e Environment) IsVerified() bool {
 	return e.VerificationStatus == VerificationVerified

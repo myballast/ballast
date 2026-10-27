@@ -8,17 +8,34 @@ export type KindInfo = {
   // One line for the palette's tooltip and the screen reader.
   hint: string;
   icon: "request" | "extract" | "set" | "condition" | "loop" | "wait" | "assert" | "end";
+  // The accent of the kind, a token of globals.css. It is a help to the eye, never
+  // what tells kinds apart: the label and the icon do.
+  tone: Tone;
 };
 
+export type Tone = { text: string; tint: string; bar: string; var: string };
+
+// Written out whole: Tailwind finds a class by reading it, not by building it.
+const tones = {
+  request: { text: "text-kind-request", tint: "bg-kind-request/15", bar: "bg-kind-request", var: "var(--kind-request)" },
+  extract: { text: "text-kind-extract", tint: "bg-kind-extract/15", bar: "bg-kind-extract", var: "var(--kind-extract)" },
+  set: { text: "text-kind-set", tint: "bg-kind-set/15", bar: "bg-kind-set", var: "var(--kind-set)" },
+  condition: { text: "text-kind-condition", tint: "bg-kind-condition/15", bar: "bg-kind-condition", var: "var(--kind-condition)" },
+  loop: { text: "text-kind-loop", tint: "bg-kind-loop/15", bar: "bg-kind-loop", var: "var(--kind-loop)" },
+  wait: { text: "text-kind-wait", tint: "bg-kind-wait/15", bar: "bg-kind-wait", var: "var(--kind-wait)" },
+  assert: { text: "text-kind-assert", tint: "bg-kind-assert/15", bar: "bg-kind-assert", var: "var(--kind-assert)" },
+  end: { text: "text-kind-end", tint: "bg-kind-end/15", bar: "bg-kind-end", var: "var(--kind-end)" },
+} satisfies Record<KindInfo["icon"], Tone>;
+
 export const kindInfo: KindInfo[] = [
-  { kind: "http_request", label: "HTTP request", hint: "Call an endpoint of the target", icon: "request" },
-  { kind: "extract_variable", label: "Extract variable", hint: "Keep a value from the last response", icon: "extract" },
-  { kind: "set_variable", label: "Set variable", hint: "Give a variable a value or a secret", icon: "set" },
-  { kind: "condition", label: "Condition", hint: "Take one way or the other", icon: "condition" },
-  { kind: "loop", label: "Loop", hint: "Repeat a few steps", icon: "loop" },
-  { kind: "think_time", label: "Think time", hint: "Wait like a person would", icon: "wait" },
-  { kind: "assertion", label: "Assertion", hint: "Check something and fail if it is false", icon: "assert" },
-  { kind: "end", label: "End", hint: "Where a path of the scenario stops", icon: "end" },
+  { kind: "http_request", label: "HTTP request", hint: "Call an endpoint of the target", icon: "request", tone: tones.request },
+  { kind: "extract_variable", label: "Extract variable", hint: "Keep a value from the last response", icon: "extract", tone: tones.extract },
+  { kind: "set_variable", label: "Set variable", hint: "Give a variable a value or a secret", icon: "set", tone: tones.set },
+  { kind: "condition", label: "Condition", hint: "Take one way or the other", icon: "condition", tone: tones.condition },
+  { kind: "loop", label: "Loop", hint: "Repeat a few steps", icon: "loop", tone: tones.loop },
+  { kind: "think_time", label: "Think time", hint: "Wait like a person would", icon: "wait", tone: tones.wait },
+  { kind: "assertion", label: "Assertion", hint: "Check something and fail if it is false", icon: "assert", tone: tones.assert },
+  { kind: "end", label: "End", hint: "Where a path of the scenario stops", icon: "end", tone: tones.end },
 ];
 
 export function infoOf(kind: NodeKind): KindInfo {
@@ -44,17 +61,17 @@ export function newNode(kind: NodeKind, id: string): GraphNode {
     case "http_request":
       return { id, kind, method: "GET", path: "/" };
     case "extract_variable":
-      return { id, kind, variable: "value", from: "$.value" };
+      return { id, kind, variable: "value", source: "body", from: "value" };
     case "set_variable":
       return { id, kind, variable: "value", value: "" };
     case "condition":
-      return { id, kind, expression: "status == 200" };
+      return { id, kind, expression: "response_status == 200" };
     case "loop":
       return { id, kind, iterations: 3 };
     case "think_time":
       return { id, kind, seconds: 1 };
     case "assertion":
-      return { id, kind, expression: "status == 200" };
+      return { id, kind, expression: "response_status == 200" };
     case "end":
       return { id, kind };
   }
@@ -68,7 +85,7 @@ export function describe(node: GraphNode): { title: string; sub: string } {
     case "http_request":
       return { title: label || `${node.method ?? "GET"} ${node.path ?? "/"}`, sub: label ? `${node.method} ${node.path}` : "" };
     case "extract_variable":
-      return { title: label || `Extract ${node.variable ?? ""}`, sub: node.from ?? "" };
+      return { title: label || `Extract ${node.variable ?? ""}`, sub: extractSource(node) };
     case "set_variable":
       return {
         title: label || `Set ${node.variable ?? ""}`,
@@ -78,12 +95,27 @@ export function describe(node: GraphNode): { title: string; sub: string } {
     case "condition":
       return { title: label || "Condition", sub: node.expression ?? "" };
     case "loop":
-      return { title: label || "Loop", sub: `${node.iterations ?? 0} times` };
+      return {
+        title: label || "Loop",
+        // The maximum is always on the node: it is the one number that bounds a loop.
+        sub: node.over ? `each ${node.item ?? "item"} of ${node.over}, up to ${node.iterations ?? 0}` : `${node.iterations ?? 0} times`,
+      };
     case "think_time":
-      return { title: label || "Think time", sub: `${node.seconds ?? 0} s` };
+      return {
+        title: label || "Think time",
+        sub: node.seconds_max ? `${node.seconds ?? 0}–${node.seconds_max} s` : `${node.seconds ?? 0} s`,
+      };
     case "assertion":
       return { title: label || "Assertion", sub: node.expression ?? "" };
     case "end":
       return { title: label || "End", sub: "" };
   }
+}
+
+// Where an extraction reads, in a few words: "body · data.token", "header · X-Id",
+// "status".
+export function extractSource(node: GraphNode): string {
+  const source = node.source ?? "body";
+  if (source === "status") return "status";
+  return `${source} · ${(node.from ?? "").replace(/^\$\./, "")}`;
 }

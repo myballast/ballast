@@ -47,12 +47,20 @@ export type GraphNode = {
   headers?: Record<string, string>;
   query?: { name: string; value: string }[];
   variable?: string;
+  // Where an extract_variable reads in the response; the body when left out.
+  source?: "body" | "header" | "status";
   from?: string;
   value?: string;
   from_env?: string;
   expression?: string;
+  // How many times a loop repeats; for a loop over a list, the most elements it takes.
   iterations?: number;
+  // The variable holding a list, and the one that takes each element in turn.
+  over?: string;
+  item?: string;
+  // How long a pause waits, or the shortest of its range.
   seconds?: number;
+  seconds_max?: number;
   group?: string;
   label?: string;
   critical?: boolean;
@@ -71,6 +79,23 @@ export type ScenarioGraph = {
   start: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+};
+
+// Mirror of dto.GraphFinding: one fault of a graph, on the node it belongs to.
+export type GraphFinding = {
+  // Absent for a fault of the graph as a whole.
+  node_id?: string;
+  // Stable; the message is not.
+  code: string;
+  message: string;
+};
+
+// Mirror of dto.GraphReport: what looking over a graph found.
+export type GraphReport = {
+  valid: boolean;
+  errors: GraphFinding[];
+  // What a save would store and a run would execute. Absent while there are errors.
+  script?: string;
 };
 
 // Mirror of dto.Scenario: one scenario with its script, and the warnings

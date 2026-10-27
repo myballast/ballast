@@ -235,14 +235,18 @@ func environmentRequest(w http.ResponseWriter, r *http.Request) (domain.Identity
 }
 
 func environmentOf(e domain.Environment) dto.Environment {
+	effectiveVUs, effectiveSeconds := e.Ceilings()
+
 	out := dto.Environment{
-		ID:                 e.ID.String(),
-		Name:               e.Name,
-		BaseURL:            e.BaseURL,
-		VerificationStatus: string(e.VerificationStatus),
-		MaxVUs:             e.MaxVUs,
-		MaxDurationS:       e.MaxDurationS,
-		CreatedAt:          e.CreatedAt,
+		ID:                    e.ID.String(),
+		Name:                  e.Name,
+		BaseURL:               e.BaseURL,
+		VerificationStatus:    string(e.VerificationStatus),
+		MaxVUs:                e.MaxVUs,
+		MaxDurationS:          e.MaxDurationS,
+		EffectiveMaxVUs:       effectiveVUs,
+		EffectiveMaxDurationS: effectiveSeconds,
+		CreatedAt:             e.CreatedAt,
 	}
 
 	if e.Window != nil {

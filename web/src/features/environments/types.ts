@@ -14,6 +14,10 @@ export type Environment = {
   verification_status: VerificationStatus;
   max_vus: number;
   max_duration_s: number;
+  // What a run can really use here: the smaller of the two above and the ceilings
+  // no configuration can raise. The API says it; the page carries no copy of them.
+  effective_max_vus: number;
+  effective_max_duration_s: number;
   // Hours the target takes load, in its own timezone. Absent: any hour.
   allowed_window?: AllowedWindow;
   // When somebody last asked Ballast to fetch the challenge, whatever came of it.

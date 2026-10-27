@@ -1,0 +1,140 @@
+{
+ "cases": [
+  {
+   "name": "within the ceilings",
+   "params": {
+    "target_vus": 10,
+    "ramp_up_s": 5,
+    "plateau_s": 20,
+    "ramp_down_s": 5
+   },
+   "ceiling_vus": 100,
+   "ceiling_s": 600,
+   "want": {
+    "target_vus": 10,
+    "ramp_up_s": 5,
+    "plateau_s": 20,
+    "ramp_down_s": 5
+   }
+  },
+  {
+   "name": "too many virtual users",
+   "params": {
+    "target_vus": 400,
+    "ramp_up_s": 0,
+    "plateau_s": 60,
+    "ramp_down_s": 0
+   },
+   "ceiling_vus": 100,
+   "ceiling_s": 600,
+   "want": {
+    "target_vus": 100,
+    "ramp_up_s": 0,
+    "plateau_s": 60,
+    "ramp_down_s": 0
+   }
+  },
+  {
+   "name": "too long: the ramp down goes first",
+   "params": {
+    "target_vus": 50,
+    "ramp_up_s": 30,
+    "plateau_s": 100,
+    "ramp_down_s": 30
+   },
+   "ceiling_vus": 100,
+   "ceiling_s": 150,
+   "want": {
+    "target_vus": 50,
+    "ramp_up_s": 30,
+    "plateau_s": 100,
+    "ramp_down_s": 20
+   }
+  },
+  {
+   "name": "shorter still: the plateau goes before the climb",
+   "params": {
+    "target_vus": 50,
+    "ramp_up_s": 30,
+    "plateau_s": 100,
+    "ramp_down_s": 30
+   },
+   "ceiling_vus": 100,
+   "ceiling_s": 90,
+   "want": {
+    "target_vus": 50,
+    "ramp_up_s": 30,
+    "plateau_s": 60,
+    "ramp_down_s": 0
+   }
+  },
+  {
+   "name": "shorter than the climb itself",
+   "params": {
+    "target_vus": 50,
+    "ramp_up_s": 120,
+    "plateau_s": 100,
+    "ramp_down_s": 30
+   },
+   "ceiling_vus": 100,
+   "ceiling_s": 60,
+   "want": {
+    "target_vus": 50,
+    "ramp_up_s": 60,
+    "plateau_s": 0,
+    "ramp_down_s": 0
+   }
+  },
+  {
+   "name": "both ceilings",
+   "params": {
+    "target_vus": 400,
+    "ramp_up_s": 45,
+    "plateau_s": 300,
+    "ramp_down_s": 30
+   },
+   "ceiling_vus": 100,
+   "ceiling_s": 120,
+   "want": {
+    "target_vus": 100,
+    "ramp_up_s": 45,
+    "plateau_s": 75,
+    "ramp_down_s": 0
+   }
+  },
+  {
+   "name": "fits exactly",
+   "params": {
+    "target_vus": 10,
+    "ramp_up_s": 10,
+    "plateau_s": 10,
+    "ramp_down_s": 10
+   },
+   "ceiling_vus": 10,
+   "ceiling_s": 30,
+   "want": {
+    "target_vus": 10,
+    "ramp_up_s": 10,
+    "plateau_s": 10,
+    "ramp_down_s": 10
+   }
+  },
+  {
+   "name": "no ramps",
+   "params": {
+    "target_vus": 5,
+    "ramp_up_s": 0,
+    "plateau_s": 60,
+    "ramp_down_s": 0
+   },
+   "ceiling_vus": 5,
+   "ceiling_s": 30,
+   "want": {
+    "target_vus": 5,
+    "ramp_up_s": 0,
+    "plateau_s": 30,
+    "ramp_down_s": 0
+   }
+  }
+ ]
+}

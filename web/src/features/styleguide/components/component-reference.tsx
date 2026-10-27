@@ -7,6 +7,7 @@ import { UserMenu } from "@/components/layout/user-menu";
 import { buildTrail } from "@/features/shell/trail";
 import type { ShellScope } from "@/features/shell/types";
 import { MetricCard } from "@/components/metric-card";
+import { BuilderSamples } from "./builder-samples";
 import { ErrorStateSample } from "./error-state-sample";
 import { EmptyState, LoadingState } from "@/components/states";
 import {
@@ -111,6 +112,8 @@ const environment = (name: string, verified: boolean) => ({
   verification_status: verified ? ("verified" as const) : ("pending" as const),
   max_vus: 50,
   max_duration_s: 600,
+  effective_max_vus: 50,
+  effective_max_duration_s: 600,
   created_at: "2026-10-01T09:00:00Z",
 });
 
@@ -141,19 +144,23 @@ const sampleGraph: ScenarioGraph = {
   start: "n1",
   nodes: [
     { id: "n1", kind: "http_request", method: "POST", path: "/api/auth/login", headers: { "Content-Type": "application/json" }, body: '{"email":"{{email}}"}' },
-    { id: "n2", kind: "extract_variable", variable: "authToken", from: "$.data.token" },
+    { id: "n2", kind: "extract_variable", variable: "authToken", source: "body", from: "data.token" },
     { id: "n3", kind: "set_variable", variable: "email", from_env: "LOGIN_EMAIL" },
-    { id: "n4", kind: "condition", expression: "status == 200" },
-    { id: "n5", kind: "loop", iterations: 5 },
-    { id: "n6", kind: "think_time", seconds: 2 },
-    { id: "n7", kind: "assertion", expression: "status == 200" },
+    { id: "n4", kind: "condition", expression: "code == 200" },
+    { id: "n5", kind: "loop", iterations: 20, over: "items", item: "item" },
+    { id: "n6", kind: "think_time", seconds: 1, seconds_max: 4 },
+    { id: "n7", kind: "assertion", expression: "response_status == 200 && response_time_ms < 500", critical: true },
     { id: "n8", kind: "end" },
-    { id: "n9", kind: "http_request", method: "GET", path: "/api/cart" },
+    { id: "n9", kind: "http_request", method: "GET", path: "/api/cart/{cartId}" },
+    { id: "n10", kind: "extract_variable", variable: "requestId", source: "header", from: "X-Request-Id" },
+    { id: "n11", kind: "extract_variable", variable: "code", source: "status" },
   ],
   edges: [
     { from: "n1", to: "n2" },
     { from: "n2", to: "n3" },
-    { from: "n3", to: "n4" },
+    { from: "n3", to: "n10" },
+    { from: "n10", to: "n11" },
+    { from: "n11", to: "n4" },
     { from: "n4", to: "n5", when: "true" },
     { from: "n4", to: "n8", when: "false" },
     { from: "n5", to: "n6", when: "body" },
@@ -193,6 +200,11 @@ const sampleCatalog = [
     body_too_long: false,
     created_at: "2026-10-01T00:00:00Z",
   },
+];
+
+const sampleThresholds = [
+  { id: "t1", metric: "http_req_duration", expression: "p(95)<300" },
+  { id: "t2", metric: "http_req_failed", expression: "rate<0.01" },
 ];
 
 const graphScenario = (name: string, graph: ScenarioGraph) => ({
@@ -555,6 +567,7 @@ export function ComponentReference() {
             {
               ...environment("production", true),
               max_vus: 1000,
+              effective_max_vus: 200,
               allowed_window: {
                 start: "22:00",
                 end: "04:00",
@@ -566,6 +579,7 @@ export function ComponentReference() {
             {
               ...environment("partner-sandbox", false),
               max_vus: 100,
+              effective_max_vus: 100,
               allowed_window: { start: "00:00", end: "23:59", timezone: "UTC", days: ["sat", "sun"] },
             },
             { ...environment("preview", false), verification_checked_at: "2026-10-18T11:57:00Z" },
@@ -940,6 +954,10 @@ export function ComponentReference() {
         <NewScenarioPage project={project("storefront", "checkout")} endpoints={[]} start="graph" />
       </Section>
 
+      <Section title="Builder: problems and script preview">
+        <BuilderSamples />
+      </Section>
+
       <Section title="Scenario builder">
         <p className="text-xs text-muted-foreground">
           Every kind of node, with one step left unwired to show its marker. Drag from the palette, press Enter on a
@@ -949,7 +967,8 @@ export function ComponentReference() {
           projectId="checkout"
           projectName="storefront"
           scenario={graphScenario("checkout-flow", sampleGraph)}
-          targets={[{ id: "e1", name: "staging-eu" }]}
+          targets={[{ id: "e1", name: "staging-eu", effectiveVus: 100, effectiveSeconds: 600 }]}
+          thresholds={sampleThresholds}
           canEdit
           canRun
           now={now}
@@ -962,6 +981,7 @@ export function ComponentReference() {
           projectName="storefront"
           scenario={graphScenario("checkout-flow", sampleGraph)}
           targets={[]}
+          thresholds={sampleThresholds}
           canEdit={false}
           canRun={false}
           now={now}
@@ -971,7 +991,8 @@ export function ComponentReference() {
           projectId="checkout"
           projectName="storefront"
           scenario={graphScenario("new-flow", { start: "", nodes: [], edges: [] })}
-          targets={[{ id: "e1", name: "staging-eu" }]}
+          targets={[{ id: "e1", name: "staging-eu", effectiveVus: 100, effectiveSeconds: 600 }]}
+          thresholds={[]}
           canEdit
           canRun
           now={now}

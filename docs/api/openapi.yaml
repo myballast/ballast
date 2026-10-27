@@ -478,6 +478,24 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+        "422":
+          description: |
+            The scenario cannot be run as it stands. Its graph is checked again here:
+            a graph stored before a rule existed, and refused by it now, comes back
+            with every reason (`findings`, each on its node). Its script is parsed
+            again too, so that one k6 could not load is found before a run exists.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error: { type: string }
+                  findings:
+                    type: array
+                    description: Present when the graph is the reason.
+                    items:
+                      $ref: "#/components/schemas/GraphFinding"
         "429":
           description: |
             A limit nobody can raise from the outside was reached: too many runs
@@ -2575,12 +2593,24 @@ paths:
 
     post:
       tags: [scenarios]
-      summary: Check a graph without saving it
+      summary: Look over a graph without saving it
       description: |
-        Answers whether a save of this graph would be accepted, with the same
-        checks and nothing written. It asks for the right to save, since it
-        exists for the person about to save. Refused with `409` on a scenario
-        written as code.
+        Says everything that is wrong with the graph — each fault on the node it
+        belongs to — and, when nothing is, the script a save would store. The checks
+        are the ones a save makes, and nothing is written. It asks for the right to
+        save, since it exists for the person about to save.
+
+        A graph that is wrong is an answer, not a failure: the status is `200` and
+        `valid` is false. The faults are the unbounded cycles (only a loop may send
+        the run back), nodes nothing leads to, a graph with no way to an `End`,
+        steps with the wrong ways out, and every field a step holds that is refused.
+        When the graph is sound, the generated script is parsed too, so that a script
+        k6 could not load is found here and not in the middle of a run.
+
+        `script` is the one a save writes and a run executes: the same function writes
+        both, from the same graph.
+
+        Refused with `409` on a scenario written as code.
       operationId: validateScenarioGraph
       x-ballast-permission: manage_scenarios
       requestBody:
@@ -2590,8 +2620,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ValidateGraphRequest"
       responses:
-        "204":
-          description: The graph would be accepted.
+        "200":
+          description: What was found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphReport"
         "400":
           description: The body is not valid JSON or an id is not a UUID.
           content:
@@ -2606,14 +2640,6 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           description: The scenario is written as code.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "422":
-          description: |
-            The graph is refused; `error` says why, including a credential header
-            that is typed in rather than read from a variable.
           content:
             application/json:
               schema:
@@ -4256,12 +4282,52 @@ components:
               name: { type: string }
               value: { type: string }
         variable: { type: string }
-        from: { type: string }
+        source:
+          type: string
+          enum: [body, header, status]
+          description: |
+            Where an `extract_variable` reads in the response. Left out it is the
+            body, which is what a graph stored before there was a choice does.
+            When the value is not there the generated script stops the iteration
+            with a message naming the variable, rather than going on with an
+            empty one.
+        from:
+          type: string
+          description: |
+            What an `extract_variable` reads from its `source`: a path in the JSON
+            body (`data.token`, `items.0.id`; a leading `$.` is accepted), or the
+            name of a header. Empty for `status`.
         value: { type: string }
         from_env: { type: string, description: "The key of a secret of the environment, read when the run starts." }
-        expression: { type: string }
-        iterations: { type: integer }
-        seconds: { type: number }
+        expression:
+          type: string
+          description: |
+            What a `condition` or an `assertion` tests, in a small grammar of
+            comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), `&&`, `||`, variables,
+            numbers and quoted text. Never JavaScript. `response_status` and
+            `response_time_ms` read the last response and cannot be given to a
+            variable.
+        iterations:
+          type: integer
+          description: |
+            How many times a `loop` repeats, between 1 and 1000. For a loop over a
+            list it is the most elements it will take: a maximum is always required.
+        over:
+          type: string
+          description: The variable holding the list a `loop` walks. Goes with `item`.
+        item:
+          type: string
+          description: |
+            The variable that takes each element of the list in turn. Goes with
+            `over`, and may not be named like the list or like a reserved name.
+        seconds:
+          type: number
+          description: How long a `think_time` waits, or the shortest of its range.
+        seconds_max:
+          type: number
+          description: |
+            The longest of a `think_time` range, between `seconds` and 300. Left out,
+            the wait is fixed; otherwise each pass waits a time picked between the two.
         group: { type: string }
         label: { type: string }
         critical: { type: boolean }
@@ -4293,6 +4359,48 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GraphEdge"
+
+    GraphFinding:
+      type: object
+      required: [code, message]
+      properties:
+        node_id:
+          type: string
+          description: The node the fault is on. Absent for a fault of the graph as a whole.
+        code:
+          type: string
+          enum:
+            - no_node
+            - too_many_nodes
+            - duplicate_id
+            - invalid_node
+            - unknown_start
+            - unknown_edge_node
+            - wrong_exits
+            - unreachable
+            - unbounded_cycle
+            - no_end
+            - empty_loop
+            - too_many_steps
+            - script_refused
+          description: Stable; the message is not.
+        message: { type: string }
+
+    GraphReport:
+      type: object
+      required: [valid, errors]
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          description: Every fault, in the order of the graph.
+          items:
+            $ref: "#/components/schemas/GraphFinding"
+        script:
+          type: string
+          description: |
+            What a save of this graph would store and a run would execute. Absent
+            while there are errors.
 
     ValidateGraphRequest:
       type: object
@@ -5028,6 +5136,8 @@ components:
         - verification_status
         - max_vus
         - max_duration_s
+        - effective_max_vus
+        - effective_max_duration_s
         - created_at
       properties:
         id: { type: string, format: uuid }
@@ -5057,6 +5167,19 @@ components:
           type: integer
           minimum: 1
           maximum: 86400
+        effective_max_vus:
+          type: integer
+          readOnly: true
+          description: |
+            What a run can really use here: the smaller of `max_vus` and the
+            ceiling no configuration can raise (200). A profile asking for more is
+            lowered to this before the run is queued.
+        effective_max_duration_s:
+          type: integer
+          readOnly: true
+          description: |
+            The same for the duration: the smaller of `max_duration_s` and one
+            hour.
         allowed_window:
           $ref: "#/components/schemas/AllowedWindow"
         verification_checked_at:

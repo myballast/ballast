@@ -14,7 +14,15 @@ export function BuilderPage({ page }: { page: BuilderData }) {
       projectId={project.id}
       projectName={project.name}
       scenario={{ ...scenario, graph: scenario.graph }}
-      targets={environments.filter((e) => e.verification_status === "verified").map((e) => ({ id: e.id, name: e.name }))}
+      targets={environments
+        .filter((e) => e.verification_status === "verified")
+        .map((e) => ({
+          id: e.id,
+          name: e.name,
+          effectiveVus: e.effective_max_vus,
+          effectiveSeconds: e.effective_max_duration_s,
+        }))}
+      thresholds={page.thresholds}
       canEdit={can(access, "manage_scenarios")}
       canRun={can(access, "run_test")}
       now={new Date()}

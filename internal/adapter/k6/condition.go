@@ -34,6 +34,16 @@ func writeCondition(node *domain.Condition) (string, error) {
 		return writeComparison(node)
 
 	case domain.CondVariable:
+		// The two names the response owns read it directly. undefined, not null,
+		// before any request: undefined compares false with every bound, where
+		// null would read as zero and pass "response_time_ms < 500".
+		switch node.Name {
+		case domain.ResponseStatus:
+			return "(res ? res.status : undefined)", nil
+		case domain.ResponseTimeMS:
+			return "(res ? res.timings.duration : undefined)", nil
+		}
+
 		// Through vars, so an expression can only read what the scenario set.
 		// Nothing a user writes becomes a bare identifier in the script.
 		return "vars[" + jsString(node.Name) + "]", nil

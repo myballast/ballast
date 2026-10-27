@@ -105,6 +105,10 @@ func (s *Service) queue(
 	params domain.ProfileParams,
 	rerunOf *uuid.UUID,
 ) (domain.Run, error) {
+	if err := s.checkScenario(ctx, actor, scenario); err != nil {
+		return domain.Run{}, err
+	}
+
 	environment, err := s.envs.EnvironmentByID(ctx, actor.OrgID, environmentID)
 	if err != nil {
 		return domain.Run{}, err
@@ -302,4 +306,44 @@ func (s *Service) ByID(
 	}
 
 	return found, results, nil
+}
+
+// checkScenario looks over what is about to be run, once more.
+//
+// A graph is sound when it is stored, and a script parses. Rules get added since,
+// though, and the run is the moment a fault stops being a thing to fix and starts
+// costing a measurement: a graph stored under the older rules that would be refused
+// today is refused here, with every reason, and a script k6 could not load is found
+// before a run exists rather than as an error in the middle of one.
+//
+// It is not an entry in the audit journal: nobody was stopped from doing harm, a
+// scenario is broken.
+func (s *Service) checkScenario(ctx context.Context, actor domain.Identity, scenario domain.Scenario) error {
+	// A run repeated from an earlier one names its scenario and the version it
+	// froze, and carries nothing else. What is looked over is that version — what
+	// will be executed, not what the scenario has become.
+	if scenario.Script == "" && scenario.Version > 0 {
+		version, err := s.scenarios.ScenarioVersionOf(ctx, actor.OrgID, scenario.ID, scenario.Version)
+		if err != nil {
+			return err
+		}
+		scenario.Script, scenario.Mode, scenario.Graph = version.Script, version.Mode, version.Graph
+	}
+
+	if scenario.Mode == domain.ModeGraph && scenario.Graph != nil {
+		if findings := scenario.Graph.Check(); len(findings) > 0 {
+			s.log.InfoContext(ctx, "run refused: the graph is no longer valid",
+				"org_id", actor.OrgID, "scenario_id", scenario.ID, "findings", len(findings))
+			return &domain.GraphRefused{Findings: findings}
+		}
+	}
+
+	if s.scripts != nil {
+		if report := s.scripts.Inspect(scenario.Script); report.Err() != nil {
+			s.log.InfoContext(ctx, "run refused: the script does not parse",
+				"org_id", actor.OrgID, "scenario_id", scenario.ID)
+			return report.Err()
+		}
+	}
+	return nil
 }

@@ -54,6 +54,8 @@ export async function launchRun(projectId: string, _previous: LaunchState, form:
         redirect(`/login?next=${encodeURIComponent(`/projects/${projectId}/runs/new`)}`);
       case 404:
         return { error: "That scenario or environment no longer exists. Reload the page." };
+      case 422:
+        return { error: unfit(error) };
       case 400:
       case 403:
       case 503:
@@ -102,6 +104,10 @@ export async function launchDefaultRun(
         redirect(`/login?next=${encodeURIComponent(`/projects/${projectId}/scenarios/${scenarioId}`)}`);
       case 404:
         return { error: "That scenario or environment no longer exists. Reload the page." };
+      case 422:
+        // The graph or the script is not fit to run. The reasons come with it, each
+        // on its node: the first is said here, and the rest are in the builder.
+        return { error: unfit(error) };
       case 400:
       case 403:
       case 429:
@@ -114,6 +120,14 @@ export async function launchDefaultRun(
   }
 
   redirect(`/runs/${id}`);
+}
+
+// unfit says why a scenario cannot be run, from what the API refused with.
+function unfit(error: ApiError): string {
+  const findings = (error.body as { findings?: { message: string }[] } | undefined)?.findings ?? [];
+  if (findings.length === 0) return error.message;
+  const more = findings.length > 1 ? ` (and ${findings.length - 1} more: open the builder and press Validate)` : "";
+  return `The graph is not valid, so it cannot run: ${findings[0].message}${more}`;
 }
 
 // rerunRun queues a run again with what the run froze — the scenario at the same
@@ -131,6 +145,8 @@ export async function rerunRun(runId: string): Promise<{ error?: string }> {
         redirect(`/login?next=${encodeURIComponent(`/runs/${runId}`)}`);
       case 404:
         return { error: "This run no longer exists. Reload the page." };
+      case 422:
+        return { error: unfit(error) };
       case 400:
       case 403:
       case 429:

@@ -13,6 +13,8 @@ import (
 type Service struct {
 	runs      Repository
 	scenarios ScenarioReader
+	// scripts, when set, is asked whether a script parses before a run is queued.
+	scripts   ScriptInspector
 	envs      EnvironmentReader
 	allowlist AllowlistReader
 	secrets   SecretReader
@@ -88,6 +90,14 @@ func NewService(
 		watchEvery: domain.CancelPollInterval,
 		flushEvery: logFlushInterval,
 	}
+}
+
+// CheckingScriptsWith makes the service refuse to queue a run whose script k6
+// could not load. It is a method and not a parameter because most callers — the
+// worker, and every test of something else — have no use for it.
+func (s *Service) CheckingScriptsWith(inspector ScriptInspector) *Service {
+	s.scripts = inspector
+	return s
 }
 
 // record writes one line of the journal, and says so loudly when it cannot.

@@ -24,6 +24,14 @@
   --color-log-warn: var(--log-warn);
   --color-log-warn-text: var(--log-warn-text);
   --color-log-warn-bg: var(--log-warn-bg);
+  --color-kind-request: var(--kind-request);
+  --color-kind-extract: var(--kind-extract);
+  --color-kind-set: var(--kind-set);
+  --color-kind-condition: var(--kind-condition);
+  --color-kind-loop: var(--kind-loop);
+  --color-kind-wait: var(--kind-wait);
+  --color-kind-assert: var(--kind-assert);
+  --color-kind-end: var(--kind-end);
   --color-syntax-key: var(--syntax-key);
   --color-syntax-string: var(--syntax-string);
   --color-syntax-number: var(--syntax-number);
@@ -101,6 +109,15 @@
   /* The colours of a JSON body in the request editor: violet, blue and orange,
      never the status colours. Only features/builder/components/json-editor.tsx
      uses them (npm run lint holds it to that). */
+  /* Node kinds of the builder, from the mockup. Not statuses: the kind is always said by an icon and a word. */
+  --kind-request: #2f6fc4;
+  --kind-extract: #1f8a79;
+  --kind-set: #4d5fd6;
+  --kind-condition: #b4570f;
+  --kind-loop: #9b3fa8;
+  --kind-wait: #6e6e80;
+  --kind-assert: #1f84a8;
+  --kind-end: #6e6e80;
   --syntax-key: #6d3fe0;
   --syntax-string: #2f6fc4;
   --syntax-number: #b4570f;
@@ -183,6 +200,15 @@
   --border: rgb(255 255 255 / 7%);
   --input: rgb(255 255 255 / 10%);
   --ring: #a78bfa;
+  /* Node kinds of the builder, from the mockup. Not statuses: the kind is always said by an icon and a word. */
+  --kind-request: #5b9cf8;
+  --kind-extract: #46b8a6;
+  --kind-set: #7c8cf8;
+  --kind-condition: #e8843c;
+  --kind-loop: #c77dd1;
+  --kind-wait: #9a9aae;
+  --kind-assert: #58c3e8;
+  --kind-end: #8a8a9c;
   --syntax-key: #b79cfb;
   --syntax-string: #7fb0f7;
   --syntax-number: #f0a068;

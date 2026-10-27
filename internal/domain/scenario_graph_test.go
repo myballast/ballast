@@ -370,3 +370,155 @@ func TestACredentialHeaderMustReadAVariable(t *testing.T) {
 		})
 	}
 }
+
+// An extraction reads the body, a header or the status of the response, and
+// each says what it needs: a path, a header name, or nothing at all.
+func TestWhatAnExtractionNeedsDependsOnWhereItReads(t *testing.T) {
+	extract := func(source ExtractSource, from string) ScenarioGraph {
+		graph := validGraph()
+		graph.Nodes = append([]Node{{ID: "take", Kind: NodeExtractVariable, Variable: "token", Source: source, From: from}}, graph.Nodes...)
+		graph.Edges = []Edge{{From: "call", To: "take"}, {From: "take", To: "done"}}
+		return graph
+	}
+
+	accepted := map[string]ScenarioGraph{
+		"no source is the body, as graphs stored before sources were": extract("", "access_token"),
+		"a body path":                     extract(ExtractFromBody, "data.session.access_token"),
+		"a body path written as JSONPath": extract(ExtractFromBody, "$.data.items.0.id"),
+		"a header":                        extract(ExtractFromHeader, "X-Request-Id"),
+		"the status needs no path":        extract(ExtractFromStatus, ""),
+	}
+	for name, graph := range accepted {
+		t.Run("accepted: "+name, func(t *testing.T) {
+			if err := graph.Validate(); err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+		})
+	}
+
+	refused := map[string]struct {
+		graph ScenarioGraph
+		says  string
+	}{
+		"an unknown source":        {extract("cookie", "a"), "source"},
+		"a body with no path":      {extract(ExtractFromBody, "  "), "extracts from nothing"},
+		"a bare dollar":            {extract(ExtractFromBody, "$."), "extracts from nothing"},
+		"a header with no name":    {extract(ExtractFromHeader, ""), "extracts from nothing"},
+		"a header that is not one": {extract(ExtractFromHeader, "X Id: 1"), "header name"},
+		"a status with a path":     {extract(ExtractFromStatus, "code"), "status"},
+	}
+	for name, c := range refused {
+		t.Run("refused: "+name, func(t *testing.T) {
+			err := c.graph.Validate()
+			if !errors.Is(err, ErrInvalidGraph) {
+				t.Fatalf("got %v, wanted ErrInvalidGraph", err)
+			}
+			if !strings.Contains(err.Error(), c.says) {
+				t.Errorf("the message %q does not say %q", err.Error(), c.says)
+			}
+		})
+	}
+}
+
+// The path k6 reads has no dollar: a selector is data.token, not $.data.token.
+func TestTheBodyPathIsWhatK6Reads(t *testing.T) {
+	cases := map[string]string{
+		"data.token":   "data.token",
+		"$.data.token": "data.token",
+		"$data.token":  "$data.token",
+		" $.a.b ":      "a.b",
+		"items.0.id":   "items.0.id",
+	}
+	for written, wanted := range cases {
+		node := Node{Kind: NodeExtractVariable, From: written}
+		if got := node.BodyPath(); got != wanted {
+			t.Errorf("%q reads as %q, wanted %q", written, got, wanted)
+		}
+	}
+
+	if (Node{Kind: NodeExtractVariable}).Where() != ExtractFromBody {
+		t.Error("an extraction with no source does not read the body")
+	}
+}
+
+// A pause is a fixed time, or a range the generator picks from.
+func TestAPauseIsFixedOrARange(t *testing.T) {
+	pause := func(seconds, longest float64) ScenarioGraph {
+		graph := validGraph()
+		graph.Nodes = append([]Node{{ID: "wait", Kind: NodeThinkTime, Seconds: seconds, SecondsMax: longest}}, graph.Nodes...)
+		graph.Edges = []Edge{{From: "call", To: "wait"}, {From: "wait", To: "done"}}
+		return graph
+	}
+
+	for name, graph := range map[string]ScenarioGraph{
+		"a fixed time":   pause(2, 0),
+		"a range":        pause(1, 5),
+		"a range of one": pause(3, 3),
+		"the longest":    pause(300, 300),
+	} {
+		if err := graph.Validate(); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+
+	for name, graph := range map[string]ScenarioGraph{
+		"a range that ends before it starts": pause(5, 1),
+		"a range past the longest pause":     pause(1, 301),
+		"no time at all":                     pause(0, 0),
+		"a negative maximum":                 pause(1, -2),
+	} {
+		if err := graph.Validate(); !errors.Is(err, ErrInvalidGraph) {
+			t.Errorf("%s: got %v, wanted ErrInvalidGraph", name, err)
+		}
+	}
+}
+
+// A loop always has a maximum, whether it counts or walks a list: a list
+// somebody else's server returns has no length this scenario can promise.
+func TestALoopOverAListStillNeedsAMaximum(t *testing.T) {
+	loop := func(node Node) ScenarioGraph {
+		node.ID, node.Kind = "each", NodeLoop
+		return ScenarioGraph{
+			Start: "each",
+			Nodes: []Node{
+				node,
+				{ID: "call", Kind: NodeHTTPRequest, Method: "GET", Path: "/items/{item}"},
+				{ID: "done", Kind: NodeEnd},
+			},
+			Edges: []Edge{
+				{From: "each", To: "call", When: "body"},
+				{From: "each", To: "done", When: "after"},
+				{From: "call", To: "each"},
+			},
+		}
+	}
+
+	for name, graph := range map[string]ScenarioGraph{
+		"a count":                loop(Node{Iterations: 3}),
+		"a list, at most ten":    loop(Node{Over: "items", Item: "item", Iterations: 10}),
+		"a list, at the ceiling": loop(Node{Over: "items", Item: "item", Iterations: MaxLoopIterations}),
+	} {
+		if err := graph.Validate(); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+
+	refused := map[string]struct {
+		graph ScenarioGraph
+		says  string
+	}{
+		"no maximum":                 {loop(Node{Over: "items", Item: "item"}), "repeats 0 times"},
+		"a maximum past the ceiling": {loop(Node{Over: "items", Item: "item", Iterations: MaxLoopIterations + 1}), "more than"},
+		"a list with no item name":   {loop(Node{Over: "items", Iterations: 5}), "item"},
+		"an item with no list":       {loop(Node{Item: "item", Iterations: 5}), "list"},
+		"a list that is not a name":  {loop(Node{Over: "a b", Item: "item", Iterations: 5}), "variable name"},
+		"an item that is not a name": {loop(Node{Over: "items", Item: "1x", Iterations: 5}), "variable name"},
+		"the list as its own item":   {loop(Node{Over: "items", Item: "items", Iterations: 5}), "itself"},
+	}
+	for name, c := range refused {
+		err := c.graph.Validate()
+		if !errors.Is(err, ErrInvalidGraph) || !strings.Contains(err.Error(), c.says) {
+			t.Errorf("%s: got %v, wanted a refusal that says %q", name, err, c.says)
+		}
+	}
+}
