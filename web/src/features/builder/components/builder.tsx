@@ -18,7 +18,7 @@ import {
   type EdgeChange,
   type NodeChange,
 } from "@xyflow/react";
-import { Play, Redo2, Undo2 } from "lucide-react";
+import { Play, Plus, Redo2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 
@@ -153,6 +153,7 @@ function BuilderView({
 
   // Fit the graph once, when every node has been measured. The `fitView` prop of
   // React Flow runs before that when the nodes are controlled, and fits to nothing.
+  const [showPalette, setShowPalette] = useState(true);
   const measured = useNodesInitialized();
   const fitted = useRef(false);
   useEffect(() => {
@@ -640,7 +641,7 @@ function BuilderView({
   const own = scenario.default_params.target_vus >= 1;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="builder-wide flex flex-col gap-3">
       {guard}
 
       <div className="flex flex-col gap-2">
@@ -763,10 +764,8 @@ function BuilderView({
         id="panel-canvas"
         aria-labelledby="tab-canvas"
         hidden={tab !== "canvas"}
-        className={`grid min-h-[40rem] gap-3 lg:h-[calc(100svh-11rem)] ${readOnly ? "lg:grid-cols-[minmax(0,1fr)_20rem]" : "lg:grid-cols-[12.5rem_minmax(0,1fr)_20rem]"}`}
+        className="grid min-h-[40rem] gap-3 lg:h-[calc(100svh-10rem)]"
       >
-        {!readOnly && <Palette onAdd={(kind) => addNode(kind)} />}
-
         <div ref={surface} className="relative min-h-[32rem] overflow-hidden rounded-xl border bg-background">
           {empty && <EmptyState projectId={projectId} readOnly={readOnly} onAdd={addFirstRequest} />}
           <ReactFlow
@@ -799,6 +798,16 @@ function BuilderView({
             <ZoomPanel />
             {!readOnly && (
               <Panel position="top-left" className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-expanded={showPalette}
+                  aria-controls="node-palette"
+                  onClick={() => setShowPalette((open) => !open)}
+                >
+                  <Plus aria-hidden />
+                  Nodes
+                </Button>
                 <Button variant="outline" size="icon" aria-label="Undo" onClick={goBack} disabled={history.past.length === 0}>
                   <Undo2 aria-hidden />
                 </Button>
@@ -808,32 +817,37 @@ function BuilderView({
               </Panel>
             )}
           </ReactFlow>
+          {!readOnly && showPalette && (
+            <div
+              id="node-palette"
+              className="absolute top-14 left-3 z-10 max-h-[calc(100%-4.5rem)] w-52 overflow-y-auto rounded-xl border bg-card p-3"
+            >
+              <Palette onAdd={(kind) => addNode(kind)} />
+            </div>
+          )}
+          {current ? (
+            <div className="absolute inset-y-3 right-3 z-10 w-[min(22rem,calc(100%-1.5rem))]">
+              <Inspector
+                node={current}
+                readOnly={readOnly}
+                revision={revision}
+                onChange={(patch, field) => edit(current.id, patch, field)}
+                onDelete={removeCurrent}
+                onClose={() => setBox((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, { ...v, selected: false }])))}
+                available={variablesBefore(graph, current.id)}
+                request={{
+                  endpoints,
+                  endpointsHref: `/projects/${projectId}/endpoints`,
+                  available: variablesBefore(graph, current.id),
+                  unbound: unboundSecrets(secretKeys?.[environmentId] ?? [], graph),
+                  script: scenario.script,
+                  onPickEndpoint: (endpoint) => pickEndpoint(current, endpoint),
+                  onBind: (key, patchFor) => bindSecret(current, key, patchFor),
+                }}
+              />
+            </div>
+          ) : null}
         </div>
-
-        {current ? (
-          <Inspector
-            node={current}
-            readOnly={readOnly}
-            revision={revision}
-            onChange={(patch, field) => edit(current.id, patch, field)}
-            onDelete={removeCurrent}
-            onClose={() => setBox((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, { ...v, selected: false }])))}
-            available={variablesBefore(graph, current.id)}
-            request={{
-              endpoints,
-              endpointsHref: `/projects/${projectId}/endpoints`,
-              available: variablesBefore(graph, current.id),
-              unbound: unboundSecrets(secretKeys?.[environmentId] ?? [], graph),
-              script: scenario.script,
-              onPickEndpoint: (endpoint) => pickEndpoint(current, endpoint),
-              onBind: (key, patchFor) => bindSecret(current, key, patchFor),
-            }}
-          />
-        ) : (
-          <aside aria-label="Node inspector" className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-            {empty ? "Nothing to inspect yet." : "Select a node to see and change what it holds."}
-          </aside>
-        )}
       </div>
 
       {tab === "canvas" && (
