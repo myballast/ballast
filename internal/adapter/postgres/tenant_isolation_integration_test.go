@@ -150,6 +150,11 @@ func seedEveryTable(ctx context.Context, t *testing.T, db *postgres.DB, label st
 			  VALUES ($1, $2, 'shop.yaml', 'GET', '/users/{id}', $3)`,
 				[]any{org, project, user}},
 
+			// The worker's own presence: one row per runner, written by the runner.
+			{`INSERT INTO runner (org_id, name, version, contract, state, started_at, heartbeat_at)
+			  VALUES ($1, $2, 'test', 1, 'serving', now(), now())`,
+				[]any{org, label + "-runner"}},
+
 			{`INSERT INTO invitation (org_id, project_id, email, role, token_hash, expires_at)
 			  VALUES ($1, $2, $3, 'runner', $4, now() + interval '7 days')`,
 				[]any{org, project, "invited-" + label + "@example.test", label + "-token-hash"}},
@@ -201,7 +206,7 @@ func dropEverything(ctx context.Context, t *testing.T, db *postgres.DB, org uuid
 
 	tables := []string{
 		"run_log", "run_artifact", "run_threshold", "run_metric",
-		"catalog_endpoint", "environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
+		"catalog_endpoint", "runner", "environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
 		"environment", "membership",
 		"project_allowed_host", "project", "app_user", "organization",
 	}

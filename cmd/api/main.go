@@ -43,6 +43,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
+	fleet "github.com/youssefmahersi/ballast/internal/usecase/runner"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
 
 	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
@@ -178,6 +179,12 @@ func serve(log *slog.Logger) error {
 
 	journalReader := audit.NewService(journal, permissions, log)
 
+	// What the workers say about themselves. The API only reads it: a worker
+	// writes its own row, and nothing here can write one for it.
+	runners := fleet.NewService(
+		postgres.NewRunnerRepository(db), postgres.NewRunnerPolicyRepository(db),
+		postgres.NewProjectRepository(db), permissions, infra.SystemClock{}, log)
+
 	sessions, err := session.NewManager(cfg.SessionSecret, middleware.OriginOf(cfg.PublicURL), cfg.SessionTTL, infra.SystemClock{})
 	if err != nil {
 		return err
@@ -197,7 +204,7 @@ func serve(log *slog.Logger) error {
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: originGuard(cfg, log)(httpadapter.NewRouter(service, projects, scenarios, catalogs, environments,
-			invitations, journalReader, signIn, permissions, sessions, db.Ping, cfg.WebURL, log)),
+			invitations, journalReader, runners, signIn, permissions, sessions, db.Ping, cfg.WebURL, log)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

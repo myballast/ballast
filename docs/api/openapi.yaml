@@ -46,6 +46,10 @@ tags:
     description: The signed-in user and the organization their session acts for.
   - name: runs
     description: Queue load-test runs and read their results.
+  - name: runners
+    description: |
+      The machines that execute runs, as each last described itself. A worker
+      writes its own state; nothing here can write one for it.
   - name: scenarios
     description: |
       Versioned k6 scripts. A script never hardcodes what it targets or how
@@ -575,6 +579,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          description: The caller does not administer every project of the organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /runners:
+    get:
+      tags: [runners]
+      summary: The machines that execute runs
+      description: |
+        Every runner of the organization, with what it last said about itself
+        and what that means now. A runner writes its own state every ten
+        seconds; whether it is online is worked out when this is read, from how
+        long ago it last spoke, so a worker that was killed without a word is
+        offline without anything having had to record it.
+
+        `outdated` says a runner is below the minimum contract the organization
+        holds its workers to. It stays online and keeps beating, and takes no
+        run: what it did not take stays queued, intact, for a runner that is
+        current.
+
+        Reserved to somebody who administers **every** project of the
+        organization, as the emergency stop and the organization's usage are:
+        this is a state of the whole platform, and an administrator of only part
+        of it is refused rather than shown a picture that leaves out the rest.
+      operationId: listRunners
+      x-ballast-permission: manage_project
+      responses:
+        "200":
+          description: The runners, by name, and the minimum contract.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunnerList"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
@@ -4776,6 +4820,68 @@ components:
             Their volumes count as zero, which is why this number travels with
             the total: a figure with no idea how much of it is missing is a
             figure nobody can price.
+
+    Runner:
+      type: object
+      description: One machine that executes runs, as it last described itself.
+      required:
+        - name
+        - version
+        - contract
+        - status
+        - outdated
+        - started_at
+        - last_seen_at
+      properties:
+        name:
+          type: string
+          description: |
+            Identifies the runner inside the organization. A runner restarted
+            under the same name is the same runner.
+        version:
+          type: string
+          description: The build, for a person to read.
+        contract:
+          type: integer
+          description: |
+            What the runner and the database promise each other. An integer
+            because a minimum has to be compared, and a commit hash cannot be.
+        status:
+          type: string
+          enum: [online, draining, offline]
+          description: |
+            Read when the list is asked for, never stored. `online` took runs
+            and spoke in the last thirty seconds; `draining` was told to stop,
+            takes nothing new and is letting the run it is executing finish;
+            `offline` said it stopped, or has been silent for over thirty
+            seconds.
+        outdated:
+          type: boolean
+          description: |
+            The runner's contract is below `minimum_contract`. It takes no run.
+            It is not a status of its own: such a runner is still online.
+        started_at:
+          type: string
+          format: date-time
+          description: When the process started.
+        last_seen_at:
+          type: string
+          format: date-time
+          description: The runner's last beat.
+
+    RunnerList:
+      type: object
+      required: [runners, minimum_contract]
+      properties:
+        runners:
+          type: array
+          items:
+            $ref: "#/components/schemas/Runner"
+        minimum_contract:
+          type: integer
+          description: |
+            The oldest contract the organization still hands a run to. 1, the
+            first contract, until somebody raises it.
 
     AuditEntry:
       type: object

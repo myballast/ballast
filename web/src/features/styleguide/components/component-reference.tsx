@@ -30,6 +30,8 @@ import { PendingInvitations } from "@/features/members/components/pending-invita
 import { PermissionsMatrix } from "@/features/members/components/permissions-matrix";
 import type { Invitation, Member, RolesMatrix } from "@/features/members/types";
 import { EnvironmentList } from "@/features/environments/components/environment-list";
+import { RunnerCard } from "@/features/runners/components/runner-card";
+import type { Runner } from "@/features/runners/types";
 import { SecretList } from "@/features/environments/components/secret-list";
 import { Builder } from "@/features/builder/components/builder";
 import { NewScenarioPage } from "@/features/scenarios/components/new-scenario-page";
@@ -87,6 +89,18 @@ const latencies = [
 ];
 
 const now = new Date("2026-10-12T18:00:00Z");
+
+function runner(name: string, status: Runner["status"], secondsAgo: number, contract = 2): Runner {
+  return {
+    name,
+    version: "a1b2c3d",
+    contract,
+    status,
+    outdated: contract < 2,
+    started_at: "2026-10-12T08:00:00Z",
+    last_seen_at: new Date(now.getTime() - secondsAgo * 1000).toISOString(),
+  };
+}
 
 const project = (
   name: string,
@@ -590,6 +604,27 @@ export function ComponentReference() {
         <p className="text-xs text-muted-foreground">As anybody else: nothing the API would refuse is offered.</p>
         <EnvironmentList projectId="checkout" now={now} environments={[environment("preview", false), environment("staging", true)]} />
         <EnvironmentList projectId="checkout" now={now} environments={[]} />
+      </Section>
+
+      <Section title="Runners">
+        <p className="text-xs text-muted-foreground">
+          One of each: online, draining while a deployment lets its last run finish, offline after silence, and one
+          below the minimum contract — still online, taking no run.
+        </p>
+        <RunnerCard
+          now={now}
+          list={{
+            minimum_contract: 2,
+            runners: [
+              runner("vps-1", "online", 3),
+              runner("vps-2", "draining", 6),
+              runner("vps-3", "offline", 540),
+              runner("vps-4", "online", 8, 1),
+            ],
+          }}
+        />
+        <p className="text-xs text-muted-foreground">Before any runner has reported.</p>
+        <RunnerCard now={now} list={{ minimum_contract: 1, runners: [] }} />
       </Section>
 
       <Section title="Shell: sidebar, role and breadcrumb">

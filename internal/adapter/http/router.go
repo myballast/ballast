@@ -18,6 +18,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/invitation"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
+	"github.com/youssefmahersi/ballast/internal/usecase/runner"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
 )
 
@@ -54,6 +55,7 @@ func NewRouter(
 	environments *environment.Service,
 	invitations *invitation.Service,
 	journal *audit.Service,
+	runners *runner.Service,
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
 	sessions *session.Manager,
@@ -68,6 +70,7 @@ func NewRouter(
 	environmentHandler := handler.NewEnvironment(environments, log)
 	invitationHandler := handler.NewInvitation(invitations, sessions, log)
 	auditHandler := handler.NewAudit(journal, log)
+	runnerHandler := handler.NewRunner(runners, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
 
 	handlers := map[string]http.HandlerFunc{
@@ -118,6 +121,7 @@ func NewRouter(
 		"PATCH /projects/{projectId}":                             projectHandler.Update,
 		"DELETE /projects/{projectId}":                            projectHandler.Delete,
 		"GET /usage":                                              runHandler.Usage,
+		"GET /runners":                                            runnerHandler.List,
 		"GET /projects/{projectId}/usage":                         runHandler.ProjectUsage,
 		"GET /projects/{projectId}/audit":                         auditHandler.InProject,
 		"GET /projects/{projectId}/members":                       projectHandler.Members,

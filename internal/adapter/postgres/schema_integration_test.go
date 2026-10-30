@@ -31,6 +31,7 @@ var expectedTables = []string{
 	"run_log",
 	"run_metric",
 	"run_threshold",
+	"runner",
 	"scenario",
 	"scenario_version",
 	"secret",

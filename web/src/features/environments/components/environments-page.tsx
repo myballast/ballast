@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
 import type { Project } from "@/features/projects/types";
+import { RunnerCard } from "@/features/runners/components/runner-card";
+import type { RunnerList } from "@/features/runners/types";
 import { can, type Access } from "@/lib/permissions";
 
 import type { Environment } from "../types";
@@ -23,10 +25,14 @@ export function EnvironmentsPage({
   project,
   access,
   environments,
+  runners,
 }: {
   project: Project;
   access: Access;
   environments: Environment[];
+  // The machines that execute runs, for somebody who may read them. Absent for
+  // everybody else: the API reserves them to an administrator of every project.
+  runners?: RunnerList | null;
 }) {
   // Hidden from whoever cannot declare one; the API refuses them anyway.
   const declare = can(access, "manage_environments") ? <NewEnvironment projectId={project.id} /> : undefined;
@@ -53,6 +59,7 @@ export function EnvironmentsPage({
         now={new Date()}
         action={declare}
       />
+      {runners && <RunnerCard list={runners} now={new Date()} />}
     </div>
   );
 }

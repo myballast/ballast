@@ -9,6 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	// The zone database, inside the binary: the image this runs in has none, and
+	// an environment's window is read in its own zone.
+	_ "time/tzdata"
+
 	"github.com/google/uuid"
 
 	"github.com/youssefmahersi/ballast/internal/adapter/k6"
@@ -21,7 +25,13 @@ import (
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
+	fleet "github.com/youssefmahersi/ballast/internal/usecase/runner"
 )
+
+// version is the build, set at link time with -ldflags "-X main.version=<sha>".
+// It is what the screen shows next to the runner; the contract is what is
+// compared.
+var version = "dev"
 
 func main() {
 	log := logging.New("worker")
@@ -38,10 +48,19 @@ func work(log *slog.Logger) error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	// Two ways to stop, and they are not the same. The first signal is a
+	// deployment: take nothing new and let the run that is measuring finish, so
+	// that restarting this process is never a way of killing one. The second
+	// signal, or the end of the time a run is allowed, is an order: cancel it,
+	// which is what destroys its container.
+	drain, stopDraining := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopDraining()
 
-	db, err := postgres.Open(ctx, cfg.DatabaseURL)
+	hard, stopNow := context.WithCancel(context.Background())
+	defer stopNow()
+	go stopWhenTold(drain, stopNow, cfg.DrainTimeout, log)
+
+	db, err := postgres.Open(hard, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -52,6 +71,8 @@ func work(log *slog.Logger) error {
 		TTL:          cfg.RunTTL,
 		ExtraHosts:   cfg.ExtraHosts,
 		AllowedCIDRs: cfg.EgressAllowedCIDRs,
+		WorkDir:      cfg.WorkDir,
+		ProxyImage:   cfg.ProxyImage,
 	})
 	if err != nil {
 		return err
@@ -89,6 +110,30 @@ func work(log *slog.Logger) error {
 		log,
 	)
 
+	// Said before anything else is done, and from a goroutine of its own: the
+	// worker is online from the moment it starts, through the sweep below, and
+	// through a two-hour soak. The context is not the draining one, because a
+	// draining worker is alive; the deferred call ends it only after the last
+	// run is over, and before the database it writes to is closed.
+	presence, err := fleet.NewPresence(
+		postgres.NewRunnerRepository(db), infra.SystemClock{},
+		cfg.OrgID, cfg.RunnerName, version, domain.RunnerContract)
+	if err != nil {
+		return err
+	}
+	presenceCtx, endPresence := context.WithCancel(context.Background())
+	beating := make(chan struct{})
+	go func() {
+		defer close(beating)
+		beat(presenceCtx, drain, presence, domain.RunnerHeartbeatEvery, log)
+	}()
+	defer func() {
+		endPresence()
+		<-beating
+	}()
+
+	log.Info("runner announced", "name", cfg.RunnerName, "version", version, "contract", domain.RunnerContract)
+
 	if !cfg.AcceptingRuns {
 		// Said once, loudly, at startup. A worker that silently takes nothing
 		// looks exactly like a worker with nothing to do.
@@ -99,7 +144,7 @@ func work(log *slog.Logger) error {
 	// Before taking any work. A worker that was killed mid-run left a generator
 	// behind, and a generator does not stop when its worker does: it keeps
 	// loading somebody's target until its own time limit ends it.
-	if destroyed, err := service.Sweep(ctx, cfg.OrgID); err != nil {
+	if destroyed, err := service.Sweep(hard, cfg.OrgID); err != nil {
 		// Loud, but not fatal. A daemon that cannot be swept is no reason to
 		// stop executing runs.
 		log.Error("this machine could not be swept", "error", err)
@@ -108,11 +153,57 @@ func work(log *slog.Logger) error {
 			"containers", destroyed)
 	}
 
-	go collect(ctx, service, cfg.OrgID, cfg.CollectInterval, log)
+	// Under the hard context, not the draining one: a worker that is waiting for
+	// its last run is still the one that has to notice another worker's death.
+	go collect(hard, service, cfg.OrgID, cfg.CollectInterval, log)
 
 	log.Info("polling for runs", "org_id", cfg.OrgID, "interval", cfg.PollInterval)
 
-	return poll(ctx, service, cfg.OrgID, cfg.PollInterval, log)
+	// The service behind a guard: a worker older than the organization's minimum
+	// stays up and takes nothing, and the run it did not take stays queued.
+	guarded := &contractGuard{
+		next:     service,
+		gate:     fleet.NewGate(postgres.NewRunnerPolicyRepository(db), domain.RunnerContract),
+		contract: domain.RunnerContract,
+		log:      log,
+	}
+
+	return poll(drain, hard, guarded, cfg.OrgID, cfg.PollInterval, log)
+}
+
+// stopWhenTold cancels the hard context once draining has begun and the time to
+// drain has run out, or a second signal says not to wait.
+func stopWhenTold(
+	drain context.Context,
+	stopNow context.CancelFunc,
+	timeout time.Duration,
+	log *slog.Logger,
+) {
+	<-drain.Done()
+
+	// signal.NotifyContext keeps catching signals until it is stopped, so a
+	// second one is delivered here as well.
+	again := make(chan os.Signal, 1)
+	signal.Notify(again, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(again)
+
+	log.Info("draining: no new run will be taken, the one under way is left to finish",
+		"wait_at_most", timeout)
+
+	select {
+	case <-again:
+		log.Warn("a second signal: stopping the run under way")
+	case <-time.After(timeout):
+		log.Warn("the drain timed out: stopping the run under way", "waited", timeout)
+	}
+	stopNow()
+}
+
+// Processor is what the loop below asks of the run service: take the next queued
+// run and execute it. A name of its own so that the loop can be tested without a
+// database, a Docker daemon and every port the service holds.
+type Processor interface {
+	ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- domain.LogLine) (bool, error)
 }
 
 // collect looks for runs whose worker has died, on its own schedule.
@@ -157,9 +248,14 @@ func collect(
 // It polls a single organization because row-level security means the
 // application role cannot see, or even enumerate, any other. Finding work
 // across tenants is an unsolved question that belongs with the queue.
+//
+// It takes two contexts because stopping comes in two kinds. Cancelling drain
+// means take nothing more; the run under way is handed hard, which a first
+// signal does not touch. Cancelling hard cancels that run too.
 func poll(
-	ctx context.Context,
-	service *run.Service,
+	drain context.Context,
+	hard context.Context,
+	service Processor,
 	orgID uuid.UUID,
 	interval time.Duration,
 	log *slog.Logger,
@@ -168,6 +264,14 @@ func poll(
 	defer ticker.Stop()
 
 	for {
+		// Before claiming, and not only when idle: with a full queue the loop
+		// would otherwise never look, and a worker told to stop would take run
+		// after run.
+		if drain.Err() != nil || hard.Err() != nil {
+			log.Info("stopping")
+			return nil
+		}
+
 		// Not where the lines are stored: the service does that as they
 		// arrive, so that the live view has them. These are the same lines,
 		// forwarded here for a trace of what a run printed.
@@ -180,7 +284,7 @@ func poll(
 			}
 		}()
 
-		worked, err := service.ProcessNext(ctx, orgID, logs)
+		worked, err := service.ProcessNext(hard, orgID, logs)
 		close(logs)
 		<-drained
 
@@ -194,7 +298,10 @@ func poll(
 		}
 
 		select {
-		case <-ctx.Done():
+		case <-drain.Done():
+			log.Info("stopping")
+			return nil
+		case <-hard.Done():
 			log.Info("stopping")
 			return nil
 		case <-ticker.C:

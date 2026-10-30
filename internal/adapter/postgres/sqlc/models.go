@@ -103,10 +103,11 @@ type Membership struct {
 }
 
 type Organization struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Name      string
-	CreatedAt time.Time
+	ID                uuid.UUID
+	OrgID             uuid.UUID
+	Name              string
+	CreatedAt         time.Time
+	MinRunnerContract int32
 }
 
 type Project struct {
@@ -200,6 +201,17 @@ type RunThreshold struct {
 	Metric     string
 	Expression string
 	Passed     bool
+}
+
+type Runner struct {
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	Name        string
+	Version     string
+	Contract    int32
+	State       string
+	StartedAt   time.Time
+	HeartbeatAt time.Time
 }
 
 type Scenario struct {

@@ -111,6 +111,14 @@ func Routes() []Route {
 			Method: "GET", Path: "/usage",
 			Scope: ScopeAnyProject, Permission: domain.PermManageProject,
 		},
+		// The machines that execute runs. A state of the whole platform, read by
+		// the same people as the emergency stop and the organization's usage:
+		// somebody who administers only part of the organization is refused
+		// rather than shown a picture that leaves out the rest.
+		{
+			Method: "GET", Path: "/runners",
+			Scope: ScopeAnyProject, Permission: domain.PermManageProject,
+		},
 		{
 			Method: "POST", Path: "/runs/stop-all",
 			Scope: ScopeAnyProject, Permission: domain.PermCancelRun,

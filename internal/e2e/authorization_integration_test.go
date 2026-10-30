@@ -28,6 +28,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
+	fleet "github.com/youssefmahersi/ballast/internal/usecase/runner"
 )
 
 // A permission mask says what somebody may do. It never says what to, and these
@@ -215,6 +216,9 @@ func newWorld(ctx context.Context, t *testing.T) world {
 	api := httptest.NewServer(httpadapter.NewRouter(
 		runs, projects, nil, nil, nil, nil,
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
+		fleet.NewService(
+			postgres.NewRunnerRepository(db), postgres.NewRunnerPolicyRepository(db),
+			postgres.NewProjectRepository(db), permissions, infra.SystemClock{}, log),
 		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
 	))
 	t.Cleanup(api.Close)
@@ -515,6 +519,24 @@ func TestAProjectOfAnotherOrganizationIsIndistinguishableFromNoProject(t *testin
 	}
 	if left != 1 {
 		t.Errorf("the other organization's project was deleted (%d left)", left)
+	}
+}
+
+// The state of the machines that execute runs is the state of the whole
+// platform. Somebody who maintains one project and has nothing in the other is
+// refused, and told why, rather than shown a picture that leaves out what they
+// cannot see.
+func TestAMaintainerCannotReadTheRunners(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	w := newWorld(ctx, t)
+
+	res := w.request(t, http.MethodGet, "/runners", "")
+	if res.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("GET /runners answered %d for somebody who does not administer every project: %s",
+			res.StatusCode, body)
 	}
 }
 
