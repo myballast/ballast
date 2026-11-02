@@ -8,6 +8,7 @@ import { ParamFields, ProfileKindPicker } from "@/features/runs/components/profi
 import { clampProfile, duration, isLowered, paramsProblem, stagesOf, summaryOf, totalSeconds } from "@/features/runs/profile";
 import type { ProfileKind, ProfileParams } from "@/features/runs/types";
 import { ThresholdRules } from "@/features/scenarios/components/threshold-rules";
+import type { EndpointChoice } from "@/features/scenarios/threshold-presets";
 import type { Threshold } from "@/features/scenarios/types";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,8 @@ type Props = {
   projectId: string;
   scenarioId: string;
   thresholds: Threshold[];
+  // The requests of the graph, for a rule narrowed to one of them.
+  endpoints: EndpointChoice[];
   canEdit: boolean;
   // The profile as it is being edited, and whether that differs from what is saved.
   draft: ProfileDraft;
@@ -104,6 +107,7 @@ export function Dock(props: Props) {
             scenarioId={props.scenarioId}
             thresholds={thresholds}
             editable={props.canEdit}
+            endpoints={props.endpoints}
           />
         </div>
       )}

@@ -25,7 +25,7 @@ export function RunDetail({ run, context, tab }: { run: Run; context: RunContext
         summary={
           <>
             <RunExecution run={run} context={context} />
-            <RunMetricsCards metrics={run.metrics} />
+            <RunMetricsCards metrics={run.metrics} thresholds={run.thresholds} />
             <ThresholdList thresholds={run.thresholds} results={results} />
             <HttpPhases metrics={run.metrics} results={results} />
             <EndpointMetrics metrics={run.metrics} results={results} />

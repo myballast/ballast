@@ -1,5 +1,8 @@
 "use client";
 
+import { InfoTip } from "@/components/info-tip";
+
+import { profileHelp } from "../profile-help";
 import { profileKinds, type ProfileKind, type ProfileParams } from "../types";
 
 // The fields of a load profile, written once. The scenario form, the launch form and
@@ -30,26 +33,57 @@ export function ProfileKindPicker({
   disabled?: boolean;
   name?: string;
 }) {
+  const help = profileHelp[value];
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {profileKinds.map((kind) => (
-        <label
-          key={kind}
-          className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground has-[:checked]:border-brand has-[:checked]:text-foreground has-[:disabled]:cursor-default has-[:disabled]:opacity-60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
-        >
-          <input
-            type="radio"
-            name={name}
-            value={kind}
-            checked={value === kind}
-            disabled={disabled}
-            onChange={() => onChange(kind)}
-            className="accent-brand"
-          />
-          {kind}
-        </label>
-      ))}
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2">
+        {profileKinds.map((kind) => (
+          <div key={kind} className="flex items-center gap-1">
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground has-[:checked]:border-brand has-[:checked]:text-foreground has-[:disabled]:cursor-default has-[:disabled]:opacity-60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+              <input
+                type="radio"
+                name={name}
+                value={kind}
+                checked={value === kind}
+                disabled={disabled}
+                onChange={() => onChange(kind)}
+                className="accent-brand"
+              />
+              {kind}
+            </label>
+            <InfoTip label={`the ${kind} profile`}>{profileHelp[kind].summary}</InfoTip>
+          </div>
+        ))}
+      </div>
+
+      {/* What the chosen profile is for, said where it is chosen. */}
+      <div aria-live="polite" className="flex items-center gap-4 rounded-lg border p-3 text-xs">
+        <ProfileShape shape={help.shape} label={`${value}: ${help.summary}`} />
+        <div className="flex min-w-0 flex-col gap-1">
+          <p>
+            <span className="text-foreground">{value}</span> — {help.summary}
+          </p>
+          <p className="text-muted-foreground">Use it: {help.when}</p>
+        </div>
+      </div>
     </div>
+  );
+}
+
+// ProfileShape draws the load of a profile over time, as an idea: the real numbers
+// are the parameters below it, and they can all be changed.
+function ProfileShape({ shape, label }: { shape: [number, number][]; label: string }) {
+  const width = 120;
+  const height = 44;
+  const point = ([at, level]: [number, number]) => `${at * width},${height - 4 - level * (height - 8)}`;
+  const line = shape.map(point).join(" ");
+
+  return (
+    <svg role="img" aria-label={`Shape of the load over time. ${label}`} viewBox={`0 0 ${width} ${height}`} className="h-11 w-[7.5rem] shrink-0 text-brand">
+      <polygon points={`0,${height - 4} ${line} ${width},${height - 4}`} fill="currentColor" fillOpacity="0.14" />
+      <polyline points={line} fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
   );
 }
 

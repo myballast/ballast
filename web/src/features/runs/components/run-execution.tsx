@@ -1,22 +1,28 @@
 import Link from "next/link";
 
+import { InfoTip } from "@/components/info-tip";
 import { Time } from "@/components/time";
 import { formatDuration } from "@/lib/format";
 
 import type { RunContext } from "../detail";
+import { loadHelp } from "../metric-help";
+import { profileHelp } from "../profile-help";
 import type { Run } from "../types";
 
 function Fact({
   label,
+  help,
   children,
 }: {
   label: string;
+  help?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <dt className="text-[11px] tracking-wider text-muted-foreground uppercase">
+      <dt className="flex items-center gap-1.5 text-[11px] tracking-wider text-muted-foreground uppercase">
         {label}
+        {help && <InfoTip label={label}>{help}</InfoTip>}
       </dt>
       <dd className="text-sm">{children}</dd>
     </div>
@@ -48,18 +54,33 @@ export function RunExecution({
         </Link>
       </Fact>
       <Fact label="Scenario">
-        <span>{scenario?.name ?? "Deleted scenario"}</span>{" "}
-        <span className="data text-xs text-muted-foreground">
-          v{run.scenario_version} executed
-          {newer && ` · now v${scenario.version}`}
-          {!scenario && " · deleted since"}
-        </span>
+        {/* The whole line leads to the scenario, while it still exists. */}
+        {scenario ? (
+          <Link
+            href={`/projects/${project.id}/scenarios/${scenario.id}`}
+            title="Open the scenario"
+            className="-mx-1 block rounded-md px-1 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <span className="underline-offset-4 hover:underline">{scenario.name}</span>{" "}
+            <span className="data text-xs text-muted-foreground">
+              v{run.scenario_version} executed
+              {newer && ` · now v${scenario.version}`}
+            </span>
+          </Link>
+        ) : (
+          <>
+            <span>Deleted scenario</span>{" "}
+            <span className="data text-xs text-muted-foreground">v{run.scenario_version} executed · deleted since</span>
+          </>
+        )}
       </Fact>
       <Fact label="Environment">
         {environment?.name ?? "Deleted environment"}
       </Fact>
-      <Fact label="Profile">{run.profile}</Fact>
-      <Fact label="Load">
+      <Fact label="Profile" help={profileHelp[run.profile]?.summary}>
+        {run.profile}
+      </Fact>
+      <Fact label="Load" help={loadHelp}>
         <span className="num">
           {p.target_vus} VUs · {p.ramp_up_s}s / {p.plateau_s}s / {p.ramp_down_s}
           s

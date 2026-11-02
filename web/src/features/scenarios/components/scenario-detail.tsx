@@ -4,6 +4,7 @@ import { can } from "@/lib/permissions";
 import type { ScenarioPage } from "../detail";
 import { ScenarioWorkspace } from "./scenario-workspace";
 import { ScriptFindings } from "./script-findings";
+import { endpointChoices } from "../threshold-presets";
 import { ThresholdRules } from "./threshold-rules";
 
 function Title({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,7 @@ export function ScenarioDetail({ page }: { page: ScenarioPage }) {
             scenarioId={scenario.id}
             thresholds={thresholds}
             editable={editable}
+            endpoints={endpointChoices(scenario.graph)}
           />
         </CardContent>
       </Card>

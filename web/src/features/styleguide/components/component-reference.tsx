@@ -536,18 +536,28 @@ export function ComponentReference() {
 
       <Section title="Metric cards">
         <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-          <MetricCard label="p95 latency" value="1.69 ms" />
+          <MetricCard label="p95 latency" value="1.69 ms" help="95 % of the requests were faster than this." />
           <MetricCard label="p99 latency" value="2.37 ms" hint="threshold p(99)<800" />
           <MetricCard
             label="Error rate"
             value="32.62 %"
-            hint="threshold rate<0.01"
-            status={{ tone: "failed", icon: CircleX, label: "Failed" }}
+            help="The share of requests that failed."
+            hint="threshold < 1.00 %"
+            closeness={1}
+            status={{ tone: "failed", icon: CircleX, label: "Breached" }}
+          />
+          <MetricCard
+            label="Error rate"
+            value="100.00 %"
+            help="The share of requests that failed."
+            notice="No threshold watches the error rate, so failed requests do not fail this run, whatever its status says."
           />
           <MetricCard
             label="Requests / sec"
             value="1,214.4 req/s"
-            status={{ tone: "passed", icon: CircleCheck, label: "Passed" }}
+            hint="threshold ≥ 1,000.0 req/s"
+            closeness={1}
+            status={{ tone: "passed", icon: CircleCheck, label: "Met" }}
           />
         </div>
       </Section>
@@ -707,7 +717,16 @@ export function ComponentReference() {
       </Section>
 
       <Section title="Thresholds">
-        <ThresholdRules projectId="checkout" scenarioId="checkout" thresholds={thresholds} editable />
+        <ThresholdRules
+          projectId="checkout"
+          scenarioId="checkout"
+          thresholds={thresholds}
+          editable
+          endpoints={[
+            { name: "POST /login", usable: true },
+            { name: "GET /users/{id}", usable: false },
+          ]}
+        />
         <ThresholdRules projectId="checkout" scenarioId="checkout" thresholds={thresholds} editable={false} />
         <ThresholdRules projectId="checkout" scenarioId="checkout" thresholds={[]} editable={false} />
       </Section>

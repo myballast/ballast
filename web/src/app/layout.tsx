@@ -35,7 +35,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`dark ${sans.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
+      {/* Some browser extensions (a shortcut helper writes cz-shortcut-listen) add
+          attributes to <body> before React loads. They are not ours to fix, and this
+          silences the warning for the <body> element's own attributes only. */}
+      <body suppressHydrationWarning className="flex min-h-full flex-col">
         <Providers>{children}</Providers>
       </body>
     </html>

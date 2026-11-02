@@ -43,6 +43,10 @@ const staging = { id: "e1", name: "staging-eu", effectiveVus: 100, effectiveSeco
 function DockSample({ draft, canEdit, dirty, target }: { draft: ProfileDraft; canEdit: boolean; dirty: boolean; target: typeof staging | undefined }) {
   return (
     <Dock
+      endpoints={[
+        { name: "POST /login", usable: true },
+        { name: "GET /users/{id}", usable: false },
+      ]}
       projectId="checkout"
       scenarioId="g1"
       thresholds={thresholds}

@@ -1,0 +1,822 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Ballast load testing</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Ballast runs k6 load tests from its own servers, only against targets you have proven you own, and explains the results in plain words.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Ballast: load tests anyone on the team can read">
+<meta property="og:description" content="Pick a project, a scenario and a verified environment. Run k6 from Ballast's servers and read the verdict, without infrastructure code and without the risk of hitting a server you do not own.">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout concept: one dark, bordered column. Every section is a component: text on one side, real-markup UI mockup on the other. No shadows; 1px borders separate surfaces. */
+:root{
+  /* surfaces */
+  --bg:#0B0B0F; --card:#0D0D12; --raise:#101017; --sunk:#08080C;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
+  /* text */
+  --text:#E7E7EE; --muted:#A3A3B5; --dim:#7F7F92;
+  /* brand: actions, links, highlights only */
+  --brand:#8B5CF6; --brand-fill:#7B45F5; --brand-hover:#6D38E8; --on-brand:#FFFFFF;
+  /* status: runs and thresholds only, always icon + word */
+  --ok:#5ED070; --warn:#E6C56A; --bad:#FF7A80;
+  /* comparison only */
+  --run-a:#5B9CF8; --run-b:#E8843C;
+  /* node kinds */
+  --n-http:#4FB3D9; --n-extract:#37B5A5; --n-set:#7F93E8; --n-cond:#E879A6;
+  --n-loop:#C9A27E; --n-think:#8B98AD; --n-assert:#B7C9E2; --n-end:#6F6F82;
+  /* type */
+  --sans:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:10px; --w:1160px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:72px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+body{margin:0;background:var(--bg);color:var(--text);font:400 16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:60}
+h1,h2,h3,h4,p,ul,ol,figure{margin:0}
+ul,ol{padding:0;list-style:none}
+a{color:var(--brand);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
+button{font:inherit;color:inherit}
+.mono,code,kbd,pre{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:var(--w);margin:0 auto}
+.label{font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:500}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.skip{position:absolute;left:-999px;top:8px;background:var(--card);border:1px solid var(--line-2);padding:8px 12px;border-radius:8px;z-index:100}
+.skip:focus{left:8px}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 18px;border-radius:9px;border:1px solid var(--line-2);background:transparent;color:var(--text);font-weight:500;font-size:.9375rem;cursor:pointer;text-decoration:none;transition:background .15s,border-color .15s}
+.btn:hover{background:rgba(255,255,255,.05);text-decoration:none}
+.btn-primary{background:var(--brand-fill);border-color:var(--brand-fill);color:var(--on-brand)}
+.btn-primary:hover{background:var(--brand-hover);border-color:var(--brand-hover)}
+.btn-sm{height:32px;padding:0 12px;font-size:.8125rem;border-radius:8px}
+
+/* chips and tags */
+.tag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border:1px solid var(--line-2);border-radius:6px;font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;white-space:nowrap}
+.tag-brand{color:var(--brand);border-color:rgba(139,92,246,.45)}
+.status{display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:.8125rem;white-space:nowrap}
+.status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.bad{color:var(--bad)}
+
+/* texture: a framed panel of fine dots, fading toward its edges, behind the hero and the closing call to action. A border and a gradient, never a drop shadow. */
+.hero{position:relative;isolation:isolate}
+.hero::before{content:"";position:absolute;z-index:-1;inset:16px 0 0;max-width:var(--w);margin-inline:auto;border:1px solid var(--line);border-radius:20px;
+  background:
+    radial-gradient(60% 55% at 50% 0%,rgba(139,92,246,.13),transparent 70%),
+    radial-gradient(rgba(255,255,255,.11) 1px,transparent 1.3px) 0 0/14px 14px;
+  -webkit-mask-image:radial-gradient(120% 100% at 50% 0%,#000 35%,transparent 100%);mask-image:radial-gradient(120% 100% at 50% 0%,#000 35%,transparent 100%)}
+.final{position:relative;isolation:isolate;overflow:hidden}
+.final::before{content:"";position:absolute;z-index:-1;inset:0;
+  background:
+    radial-gradient(50% 70% at 0% 100%,rgba(139,92,246,.12),transparent 70%),
+    radial-gradient(rgba(255,255,255,.08) 1px,transparent 1.3px) 0 0/14px 14px;
+  -webkit-mask-image:radial-gradient(110% 120% at 0% 100%,#000 25%,transparent 100%);mask-image:radial-gradient(110% 120% at 0% 100%,#000 25%,transparent 100%)}
+/* header */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:rgba(11,11,15,.92);border-bottom:1px solid var(--line);margin:0 calc(-1*max(16px,env(safe-area-inset-left,0px)));padding:0 max(16px,env(safe-area-inset-left,0px))}
+.top .wrap{display:flex;align-items:center;gap:24px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:500;font-size:1.0625rem;letter-spacing:-.01em}
+.brand:hover{text-decoration:none}
+.brand svg{width:28px;height:25px;fill:var(--brand)}
+.top nav{display:flex;gap:22px;margin-left:12px}
+.top nav a{color:var(--muted);font-size:.875rem}
+.top nav a:hover{color:var(--text);text-decoration:none}
+.top .btn{margin-left:auto}
+.top .btn + .btn{margin-left:0}
+@media (max-width:820px){.top nav{display:none}}
+
+section{padding-block:88px}
+@media (max-width:700px){section{padding-block:60px}}
+.sec-head{display:flex;flex-direction:column;gap:14px;max-width:680px;margin-bottom:44px}
+h1{font-size:clamp(2.25rem,5.2vw,3.5rem);line-height:1.06;letter-spacing:-.025em;font-weight:500;text-wrap:balance}
+h2{font-size:clamp(1.75rem,3.4vw,2.5rem);line-height:1.12;letter-spacing:-.02em;font-weight:500;text-wrap:balance}
+h3{font-size:1.25rem;line-height:1.3;letter-spacing:-.01em;font-weight:500}
+.lede{font-size:1.125rem;color:var(--muted);text-wrap:pretty;max-width:60ch}
+p{text-wrap:pretty}
+
+/* hero */
+.hero{padding-block:72px 40px}
+.hero-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;align-items:center}
+.hero-copy{display:flex;flex-direction:column;gap:24px}
+.cta-row{display:flex;flex-wrap:wrap;gap:12px}
+.hero-note{font-size:.8125rem;color:var(--dim)}
+@media (max-width:980px){.hero-grid{grid-template-columns:minmax(0,1fr)}.hero{padding-block:48px 24px}}
+
+/* mockup shell */
+.mock{background:var(--card);border:1px solid var(--line-2);border-radius:12px;overflow:hidden;min-width:0}
+.mock-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.mock-bar .title{font-size:.8125rem;font-weight:500}
+.mock-bar .sp{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.mock-body{padding:16px}
+.dots{background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);background-size:16px 16px}
+.mock-cap{font-size:.75rem;color:var(--dim);padding:0 2px;margin-top:10px}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 9px;border:1px solid var(--line-2);border-radius:7px;font-size:.75rem;color:var(--muted);background:transparent}
+.pill.on{color:var(--text);border-color:rgba(139,92,246,.6);background:rgba(139,92,246,.12)}
+
+/* builder canvas */
+.canvas{padding:20px 16px 18px;--gx:40px;--gy:38px}
+.flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:var(--gx);row-gap:var(--gy)}
+.node{position:relative;background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r);padding:10px 12px 10px 16px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.node .bar{position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:0 2px 2px 0;background:var(--c)}
+.node .k{display:flex;align-items:center;gap:6px;font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--c);font-weight:500}
+.node .k .ic{width:13px;height:13px}
+.node .v{font-family:var(--mono);font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node .m{font-size:.6875rem;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node[data-edge]::after{content:attr(data-edge);position:absolute;left:100%;top:50%;width:var(--gx);transform:translateY(-100%);border-bottom:1px solid var(--line-2);text-align:center;font:400 .5625rem/1.5 var(--mono);color:var(--muted);padding-bottom:1px}
+.node[data-edge]::before{content:"";position:absolute;left:calc(100% + var(--gx) - 6px);top:50%;width:6px;height:6px;border-top:1px solid var(--line-2);border-right:1px solid var(--line-2);transform:translateY(-50%) rotate(45deg)}
+.node.down::after,.node.down::before{all:unset}
+.node.down[data-edge]::after{content:attr(data-edge);position:absolute;left:50%;top:100%;height:var(--gy);border-left:1px solid var(--line-2);display:flex;align-items:center;padding-left:8px;font:400 .5625rem/1 var(--mono);color:var(--muted)}
+.node.down[data-edge]::before{content:"";position:absolute;left:50%;top:calc(100% + var(--gy) - 6px);width:6px;height:6px;border-bottom:1px solid var(--line-2);border-right:1px solid var(--line-2);transform:translateX(-50%) rotate(45deg)}
+.node.last::after,.node.last::before{display:none}
+.node.last{grid-column:3;grid-row:2}
+.problems{grid-row:2;grid-column:1/3;background:var(--sunk);border:1px dashed var(--line-2);border-radius:var(--r);padding:10px 14px;display:flex;flex-direction:column;gap:3px;justify-content:center}
+.problems .t{font-size:.8125rem;color:var(--text)}
+.problems .t b{font-family:var(--mono);font-weight:500}
+@media (max-width:700px){
+  .canvas{--gy:30px}
+  .flow{grid-template-columns:minmax(0,1fr)}
+  .node[data-edge]:not(.down):not(.last)::after{left:50%;top:100%;width:auto;height:var(--gy);transform:none;border-bottom:0;border-left:1px solid var(--line-2);display:flex;align-items:center;justify-content:flex-start;padding:0 0 0 8px;text-align:left}
+  .node[data-edge]:not(.down):not(.last)::before{left:50%;top:calc(100% + var(--gy) - 6px);width:6px;height:6px;border:0;border-bottom:1px solid var(--line-2);border-right:1px solid var(--line-2);transform:translateX(-50%) rotate(45deg)}
+  .problems{grid-row:auto;grid-column:auto;order:2}
+  .node.last{grid-column:auto;grid-row:auto}
+}
+.dock{border-top:1px solid var(--line);padding:14px 16px;display:flex;flex-wrap:wrap;gap:14px 20px;align-items:flex-end;background:var(--raise)}
+.dock .grp{display:flex;flex-direction:column;gap:6px}
+.dock .pills{display:flex;gap:6px;flex-wrap:wrap}
+.field{height:30px;display:inline-flex;align-items:center;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;font-family:var(--mono);font-size:.8125rem;background:var(--card);min-width:64px}
+.dock .go{margin-left:auto}
+.dock-note{flex-basis:100%;font-size:.75rem;color:var(--muted);display:flex;gap:8px;align-items:center}
+
+/* strips */
+.problem-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.pcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px;display:flex;flex-direction:column;gap:10px}
+.pcard p{color:var(--muted);font-size:.9375rem}
+@media (max-width:860px){.problem-grid{grid-template-columns:minmax(0,1fr)}}
+
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;counter-reset:s}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px;display:flex;flex-direction:column;gap:12px}
+.step .n{font-family:var(--mono);font-size:.8125rem;color:var(--brand)}
+.step p{color:var(--muted);font-size:.9375rem}
+.step .mini{margin-top:auto;padding-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+@media (max-width:860px){.steps{grid-template-columns:minmax(0,1fr)}}
+
+/* features */
+.feat{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;align-items:center;padding-block:56px;border-top:1px solid var(--line)}
+.feat:first-of-type{border-top:0;padding-top:0}
+.feat.flip .feat-copy{order:2}
+.feat-copy{display:flex;flex-direction:column;gap:16px;min-width:0}
+.feat-copy p{color:var(--muted)}
+.bul{display:flex;flex-direction:column;gap:10px}
+.bul li{display:grid;grid-template-columns:16px minmax(0,1fr);gap:10px;color:var(--text);font-size:.9375rem}
+.bul .ic{margin-top:4px;color:var(--brand)}
+@media (max-width:980px){.feat{grid-template-columns:minmax(0,1fr);gap:28px;padding-block:44px}.feat.flip .feat-copy{order:0}}
+
+.legend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.leg{position:relative;background:var(--raise);border:1px solid var(--line-2);border-radius:8px;padding:8px 8px 8px 12px;display:flex;align-items:center;gap:6px;font-size:.6875rem;color:var(--text);min-width:0}
+.leg::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:0 2px 2px 0;background:var(--c)}
+.leg .ic{color:var(--c);width:13px;height:13px}
+.leg span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:520px){.legend{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stack{display:flex;flex-direction:column;gap:14px}
+.prob{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;font-size:.8125rem;padding:10px 12px;border:1px solid var(--line-2);border-radius:8px;background:var(--raise)}
+.prob .ic{color:var(--warn);margin-top:2px}
+.prob .where{font-family:var(--mono);font-size:.75rem;color:var(--muted)}
+pre{margin:0;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:.75rem;line-height:1.7;overflow-x:auto;color:#CFCFDC}
+pre .c{color:var(--dim)}
+.code-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.code-head .btn{margin-left:auto}
+
+.src{display:flex;flex-wrap:wrap;gap:8px}
+.kv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;font-size:.8125rem;align-items:baseline}
+.kv .k{color:var(--muted)}
+.kv .v{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.list{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.list>div{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line);font-size:.8125rem;min-width:0}
+.list>div:first-child{border-top:0}
+.list .mono{font-size:.75rem}
+.list .r{margin-left:auto;color:var(--dim);font-size:.75rem;text-align:right}
+.guard{display:flex;gap:10px;align-items:center;border:1px solid var(--line-2);border-radius:8px;padding:10px 12px;font-size:.8125rem;color:var(--muted);background:var(--raise)}
+
+.shape{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:10px}
+.shape svg{display:block;width:100%;height:auto}
+.prof-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:16px}
+@media (max-width:600px){.prof-grid{grid-template-columns:minmax(0,1fr)}}
+.prof-desc h4{font-size:1rem;font-weight:500;margin-bottom:6px}
+.prof-desc p{font-size:.875rem;color:var(--muted)}
+.notice{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line-2);border-radius:8px;padding:10px 12px;font-size:.8125rem;color:var(--muted);background:var(--raise)}
+.notice .ic{margin-top:2px;color:var(--text)}
+
+.starters{display:flex;flex-wrap:wrap;gap:8px}
+.starter{height:30px;padding:0 12px;border:1px solid var(--line-2);border-radius:8px;background:var(--raise);font-size:.8125rem;cursor:default;display:inline-flex;align-items:center}
+.rule{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.rule .f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rule .field{width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.75rem}
+@media (max-width:560px){.rule{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:640px){.two{grid-template-columns:minmax(0,1fr)}}
+.words{border:1px solid var(--line);border-radius:8px;padding:12px;font-size:.875rem;background:var(--raise)}
+.words b{font-family:var(--mono);font-weight:500}
+
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:760px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tile{border:1px solid var(--line);border-radius:8px;background:var(--raise);padding:10px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.tile .top-row{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tile .val{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:1.125rem;font-weight:500;white-space:nowrap}
+.tile .val small{font-size:.75rem;color:var(--muted);font-weight:400}
+.info{width:18px;height:18px;border:1px solid var(--line-2);border-radius:50%;background:transparent;color:var(--muted);display:inline-grid;place-items:center;padding:0;cursor:help;font:500 .6875rem/1 var(--mono)}
+.info:hover{color:var(--text)}
+.explain{font-size:.8125rem;color:var(--muted);border:1px solid var(--line-2);border-radius:8px;padding:8px 12px;background:var(--raise)}
+.phases{display:flex;height:12px;border-radius:6px;overflow:hidden;border:1px solid var(--line-2)}
+.phases i{display:block;min-width:2px}
+.ph-leg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.6875rem;color:var(--muted)}
+.ph-leg span{display:inline-flex;align-items:center;gap:6px}
+.ph-leg i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.ph-leg b{font-family:var(--mono);font-weight:400;color:var(--text)}
+table{border-collapse:collapse;width:100%;font-size:.8125rem}
+th{font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:500;text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--raise)}
+.warnbox{display:flex;gap:10px;align-items:flex-start;border:1px solid rgba(230,197,106,.4);border-radius:8px;padding:10px 12px;font-size:.8125rem;color:var(--text);background:rgba(230,197,106,.05)}
+.warnbox .ic{color:var(--warn);margin-top:2px}
+.logs{font-size:.6875rem;line-height:1.8}
+.logs .t{color:var(--dim)}
+.logs .red{color:var(--muted);background:rgba(255,255,255,.08);border-radius:3px;padding:0 4px}
+.frozen{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:.75rem;color:var(--muted)}
+.frozen .mono{color:var(--text)}
+
+.proj-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:720px){.proj-grid{grid-template-columns:minmax(0,1fr)}}
+.proj{border:1px solid var(--line-2);border-radius:var(--r);background:var(--raise);padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.proj .nm{display:flex;align-items:center;gap:6px;font-weight:500;font-size:.875rem}
+.proj .nm .ic{margin-left:auto;color:var(--dim);width:14px;height:14px}
+.proj .nm .ic.fav{color:var(--text);fill:currentColor}
+.proj .meta{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.role{font-family:var(--mono);font-size:.6875rem;color:var(--muted);border:1px solid var(--line-2);border-radius:5px;padding:1px 6px}
+.env-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:640px){.env-grid{grid-template-columns:minmax(0,1fr)}}
+.env{border:1px solid var(--line-2);border-radius:var(--r);background:var(--raise);padding:14px;display:flex;flex-direction:column;gap:10px}
+.env h4{font-size:.9375rem;font-weight:500;display:flex;align-items:center;gap:8px}
+
+/* compare */
+.compare-sec{border:1px solid var(--line-2);border-radius:16px;background:var(--card);padding:clamp(20px,4vw,44px)}
+.runs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+@media (max-width:520px){.runs{grid-template-columns:minmax(0,1fr)}}
+.run{border:1px solid var(--line-2);border-radius:var(--r);padding:12px 14px;background:var(--raise);display:flex;flex-direction:column;gap:2px}
+.run .nm{display:flex;align-items:center;gap:8px;font-weight:500;font-size:.875rem}
+.run i{width:12px;height:3px;border-radius:2px;display:inline-block}
+.run .m{font-family:var(--mono);font-size:.75rem;color:var(--muted)}
+.d-up{color:var(--text);font-family:var(--mono)}
+.chart{border:1px solid var(--line);border-radius:8px;background:var(--sunk);padding:10px}
+.chart svg{display:block;width:100%;height:auto}
+.legend-row{display:flex;gap:16px;flex-wrap:wrap;font-size:.75rem;color:var(--muted);margin-top:8px}
+.legend-row span{display:inline-flex;align-items:center;gap:6px}
+.legend-row i{width:14px;height:3px;border-radius:2px;display:inline-block}
+
+/* safety */
+.route{display:grid;grid-template-columns:minmax(0,1fr) 44px minmax(0,1.15fr) 44px minmax(0,1fr);gap:0;align-items:stretch;margin-bottom:24px}
+.rbox{border:1px solid var(--line-2);border-radius:var(--r);background:var(--card);padding:16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.rbox h3{font-size:1rem}
+.rbox p{font-size:.8125rem;color:var(--muted)}
+.rbox .mono{font-size:.75rem}
+.arrow{display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.arrow svg{width:28px;height:14px}
+.blocked{border:1px dashed var(--line-2);border-radius:var(--r);padding:14px 16px;font-size:.8125rem;color:var(--muted);display:flex;gap:10px;align-items:flex-start;margin-bottom:28px;background:var(--sunk)}
+.blocked .ic{margin-top:2px;color:var(--text)}
+@media (max-width:860px){
+  .route{grid-template-columns:minmax(0,1fr)}
+  .arrow{height:36px}
+  .arrow svg{transform:rotate(90deg)}
+}
+.trust{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.trust{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.trust{grid-template-columns:minmax(0,1fr)}}
+.tcard{border:1px solid var(--line);border-radius:var(--r);background:var(--card);padding:18px;display:flex;flex-direction:column;gap:8px}
+.tcard .ic{color:var(--brand);width:18px;height:18px}
+.tcard h3{font-size:1rem}
+.tcard p{font-size:.875rem;color:var(--muted)}
+
+/* roadmap */
+.road{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.road{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.road{grid-template-columns:minmax(0,1fr)}}
+.rd{border:1px dashed var(--line-2);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px;font-size:.875rem}
+.rd .tag{align-self:flex-start}
+
+/* faq */
+.faq{max-width:760px;border-top:1px solid var(--line)}
+details{border-bottom:1px solid var(--line)}
+summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:18px 2px;font-weight:500;font-size:1.0625rem}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";margin-left:auto;font-family:var(--mono);color:var(--muted);font-size:1.125rem}
+details[open] summary::after{content:"–"}
+details p{padding:0 2px 20px;color:var(--muted);max-width:62ch}
+
+.final{border:1px solid var(--line-2);border-radius:16px;background:var(--card);padding:clamp(28px,6vw,72px);display:flex;flex-direction:column;gap:20px;align-items:flex-start}
+footer{border-top:1px solid var(--line);padding-block:32px 48px;display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center;color:var(--dim);font-size:.8125rem}
+footer nav{display:flex;gap:20px;flex-wrap:wrap;margin-left:auto}
+footer a{color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-http" viewBox="0 0 16 16"><path d="M2 8h9M8 4l4 4-4 4"/></symbol>
+  <symbol id="i-extract" viewBox="0 0 16 16"><path d="M9 3h4v4M13 3L7 9M5 5H3v8h8v-2"/></symbol>
+  <symbol id="i-set" viewBox="0 0 16 16"><path d="M3 5h10M3 11h10M6 3v4M10 9v4"/></symbol>
+  <symbol id="i-cond" viewBox="0 0 16 16"><path d="M8 2l5 6-5 6-5-6z"/></symbol>
+  <symbol id="i-loop" viewBox="0 0 16 16"><path d="M3 8a5 5 0 019-3M13 3v3h-3M13 8a5 5 0 01-9 3M3 13v-3h3"/></symbol>
+  <symbol id="i-think" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/></symbol>
+  <symbol id="i-assert" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
+  <symbol id="i-end" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M5.5 8.2l1.8 1.8 3.2-3.8"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v3M8 11.5h.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M6 6l4 4M10 6l-4 4"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-1a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h1"/></symbol>
+  <symbol id="i-star" viewBox="0 0 16 16"><path d="M8 2l1.8 3.7 4 .6-2.9 2.8.7 4L8 11.2 4.4 13.1l.7-4L2.2 6.3l4-.6z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 2l5 2v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z"/></symbol>
+  <symbol id="i-db" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><path d="M5 2.5h6l2.5 2.5v6L11 13.5H5L2.5 11V5z"/><path d="M6 8h4"/></symbol>
+  <symbol id="i-log" viewBox="0 0 16 16"><path d="M3 3h10v10H3zM5.5 6h5M5.5 8.5h5M5.5 11h3"/></symbol>
+  <symbol id="i-meter" viewBox="0 0 16 16"><path d="M2.5 11a5.5 5.5 0 0111 0M8 11l2.5-3.5"/></symbol>
+  <symbol id="i-seq" viewBox="0 0 16 16"><path d="M3 4h10M3 8h6M3 12h8"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 28 14"><path d="M1 7h24M20 2l5 5-5 5"/></symbol>
+</svg>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- ============ Component: Header ============ -->
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Ballast, home">
+      <svg viewBox="330 360 595 525" aria-hidden="true"><rect x="538" y="363" width="177" height="64"/><path d="M471 452H782L836 562L626 494L418 562Z"/><path d="M334 615L610 531V723H390Z"/><path d="M643 531L919 615L862 723H643Z"/><path d="M404 753H850L779 881H474Z"/></svg>
+      Ballast
+    </a>
+    <nav aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#compare">Compare runs</a>
+      <a href="#safety">Safety</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn btn-sm" href="/login">Sign in</a>
+    <a class="btn btn-primary btn-sm" href="/login">Start testing</a>
+  </div>
+</header>
+
+<main id="main">
+<!-- ============ Component: Hero ============ -->
+<section class="hero" id="top" aria-labelledby="h-hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="tag tag-brand" style="align-self:flex-start">Built on k6</span>
+      <h1 id="h-hero">Load tests anyone on the team can read.</h1>
+      <p class="lede">Pick a project, a scenario and an environment. Ballast runs the k6 test from its own servers and gives you a verdict in plain words. It cannot aim load at a server you do not own.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/login">Start testing</a>
+        <a class="btn" href="#how">See how it works</a>
+      </div>
+      <p class="hero-note">Sign in with GitHub. No password, no infrastructure code.</p>
+    </div>
+
+    <figure>
+      <div class="mock" role="img" aria-label="Mockup of the Ballast scenario builder: four nodes connected by labeled edges, with the load profile dock underneath.">
+        <div class="mock-bar">
+          <span class="title">Checkout flow</span>
+          <span class="tag">v7</span>
+          <span class="sp"><span class="pill">Undo</span><span class="pill">Redo</span><span class="pill">Script preview</span></span>
+        </div>
+        <div class="canvas dots" aria-hidden="true">
+          <div class="flow">
+            <div class="node" data-edge="200" style="--c:var(--n-http)"><i class="bar"></i><span class="k"><svg class="ic"><use href="#i-http"/></svg>HTTP request</span><span class="v">POST /login</span><span class="m">expects 200</span></div>
+            <div class="node" data-edge="token" style="--c:var(--n-extract)"><i class="bar"></i><span class="k"><svg class="ic"><use href="#i-extract"/></svg>Extract variable</span><span class="v">token</span><span class="m">from body</span></div>
+            <div class="node down" data-edge="found" style="--c:var(--n-cond)"><i class="bar"></i><span class="k"><svg class="ic"><use href="#i-cond"/></svg>Condition</span><span class="v">token exists</span><span class="m">2 branches</span></div>
+            <div class="problems"><span class="label">Problems · 0</span><span class="t">The graph is sound. <b>Run</b> is enabled.</span></div>
+            <div class="node last" style="--c:var(--n-assert)"><i class="bar"></i><span class="k"><svg class="ic"><use href="#i-assert"/></svg>Assertion</span><span class="v">cart has items</span><span class="m">GET /cart</span></div>
+          </div>
+        </div>
+        <div class="dock" aria-hidden="true">
+          <div class="grp"><span class="label">Load profile</span><div class="pills"><span class="pill">Smoke</span><span class="pill on">Load</span><span class="pill">Stress</span><span class="pill">Spike</span><span class="pill">Soak</span></div></div>
+          <div class="grp"><span class="label">Virtual users (simulated people)</span><span class="field">50</span></div>
+          <div class="grp"><span class="label">Duration</span><span class="field">5 min</span></div>
+          <span class="btn btn-primary btn-sm go">Run</span>
+          <div class="dock-note"><svg class="ic"><use href="#i-check"/></svg>Target: staging.example.test · ownership verified</div>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ Component: Problem ============ -->
+<section aria-labelledby="h-problem">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">The problem</span>
+      <h2 id="h-problem">Load testing usually goes wrong in three places.</h2>
+    </div>
+    <div class="problem-grid">
+      <article class="pcard"><svg class="ic" style="color:var(--dim)"><use href="#i-log"/></svg><h3>Scripts nobody reads</h3><p>A k6 file lives on one laptop. Few people on the team can say what it does or whether it still matches the product.</p></article>
+      <article class="pcard"><svg class="ic" style="color:var(--dim)"><use href="#i-meter"/></svg><h3>Numbers nobody explains</h3><p>p95, p99, iterations. The output is a wall of metrics, and a run can look fine while every request fails.</p></article>
+      <article class="pcard"><svg class="ic" style="color:var(--dim)"><use href="#i-stop"/></svg><h3>One wrong target</h3><p>A mistyped URL can send real traffic at a server that is not yours, and take it down.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Component: How it works ============ -->
+<section id="how" aria-labelledby="h-how">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">How it works</span>
+      <h2 id="h-how">Three steps from idea to verdict.</h2>
+    </div>
+    <ol class="steps">
+      <li class="step"><span class="n">Step 1</span><h3>Build a scenario</h3><p>Draw it on a canvas, or write a plain k6 script. Or import a file you already have. Each scenario is one or the other.</p><div class="mini"><span class="pill">Visual</span><span class="pill">k6 script</span><span class="pill">Import</span></div></li>
+      <li class="step"><span class="n">Step 2</span><h3>Pick an environment and a load profile</h3><p>Only environments you have proven you own appear in the list. Pick Smoke, Load, Stress, Spike or Soak. Ballast shows what each one does.</p><div class="mini"><span class="pill">Verified targets</span><span class="pill">5 profiles</span></div></li>
+      <li class="step"><span class="n">Step 3</span><h3>Run it and read the verdict</h3><p>Watch live logs while it runs. Then read each number in plain language, with a clear Passed or Failed for every threshold.</p><div class="mini"><span class="status ok"><svg class="ic"><use href="#i-check"/></svg>Passed</span><span class="status bad"><svg class="ic"><use href="#i-x"/></svg>Failed</span></div></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ Component: Features ============ -->
+<section id="features" aria-labelledby="h-feat">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">What you get today</span>
+      <h2 id="h-feat">Everything you need to run a test and understand it.</h2>
+      <p class="lede">All mockups on this page use example data.</p>
+    </div>
+
+    <!-- Feature: visual builder -->
+    <article class="feat" aria-labelledby="f1">
+      <div class="feat-copy">
+        <span class="label">Visual scenario builder</span>
+        <h3 id="f1">Draw the test instead of coding it.</h3>
+        <ul class="bul">
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Eight node kinds, each with its own color, icon and name. Guided panels show which variables are available at every step.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>A Problems panel lists every fault on its node: an unreachable step, a loop with no maximum, a cycle that never ends. Run stays disabled until the graph is sound.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Script preview shows the exact k6 script Ballast will run. Same graph, same bytes.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Undo and redo, drag-and-drop or keyboard to add nodes. Prefer code? Write a plain k6 script instead.</span></li>
+        </ul>
+      </div>
+      <div class="mock"><div class="mock-body stack">
+        <div class="legend" role="list" aria-label="Eight node kinds">
+          <div class="leg" role="listitem" style="--c:var(--n-http)"><svg class="ic"><use href="#i-http"/></svg><span>HTTP request</span></div>
+          <div class="leg" role="listitem" style="--c:var(--n-extract)"><svg class="ic"><use href="#i-extract"/></svg><span>Extract variable</span></div>
+          <div class="leg" role="listitem" style="--c:var(--n-set)"><svg class="ic"><use href="#i-set"/></svg><span>Set variable</span></div>
+          <div class="leg" role="listitem" style="--c:var(--n-cond)"><svg class="ic"><use href="#i-cond"/></svg><span>Condition</span></div>
+          <div class="leg" role="listitem" style="--c:var(--n-loop)"><svg class="ic"><use href="#i-loop"/></svg><span>Loop</span></div>
+          <div class="leg" role="listitem" style="--c:var(--n-think)"><svg class="ic"><use href="#i-think"/></svg><span>Think time</span></div>
+          <div class="leg" role="listitem" style="--c:var(--n-assert)"><svg class="ic"><use href="#i-assert"/></svg><span>Assertion</span></div>
+          <div class="leg" role="listitem" style="--c:var(--n-end)"><svg class="ic"><use href="#i-end"/></svg><span>End</span></div>
+        </div>
+        <div class="stack" style="gap:8px">
+          <span class="label">Problems · 2</span>
+          <div class="prob"><svg class="ic"><use href="#i-alert"/></svg><div>Loop has no maximum.<div class="where">Loop · "Retry payment"</div></div></div>
+          <div class="prob"><svg class="ic"><use href="#i-alert"/></svg><div>This step can never be reached.<div class="where">Think time · "Wait 2 s"</div></div></div>
+        </div>
+        <div>
+          <div class="code-head"><span class="label">Script preview</span><button class="btn btn-sm" type="button" data-copy="#script1"><svg class="ic"><use href="#i-copy"/></svg><span>Copy</span></button></div>
+<pre id="script1"><span class="c">// generated from scenario "Checkout flow" v7</span>
+import http from 'k6/http';
+import { check } from 'k6';
+
+export default function () {
+  const res = http.post(`${__ENV.BASE_URL}/login`);
+  check(res, { 'status is 200': (r) =&gt; r.status === 200 });
+}</pre>
+        </div>
+      </div></div>
+    </article>
+
+    <!-- Feature: import -->
+    <article class="feat flip" aria-labelledby="f2">
+      <div class="feat-copy">
+        <span class="label">Import what you already have</span>
+        <h3 id="f2">Start from a file, not a blank canvas.</h3>
+        <ul class="bul">
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Import from OpenAPI, Postman collections, cURL commands and HAR files into a scenario graph.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Secrets in the file are never copied. They become variables you retype.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>A final guard refuses the import if any secret value leaks anywhere.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>A project endpoint catalog lets you pick endpoints instead of typing paths.</span></li>
+        </ul>
+      </div>
+      <div class="mock"><div class="mock-bar"><span class="title">Import</span></div><div class="mock-body stack">
+        <div class="src"><span class="pill">OpenAPI</span><span class="pill on">Postman collection</span><span class="pill">cURL</span><span class="pill">HAR</span></div>
+        <div class="list">
+          <div><span class="tag">GET</span><span class="mono">/products</span><span class="r">imported</span></div>
+          <div><span class="tag">POST</span><span class="mono">/cart/items</span><span class="r">imported</span></div>
+          <div><span class="tag">POST</span><span class="mono">/checkout</span><span class="r">imported</span></div>
+        </div>
+        <div class="list">
+          <div><svg class="ic"><use href="#i-lock"/></svg><span class="mono">{{api_key}}</span><span class="r">secret removed, retype it</span></div>
+          <div><svg class="ic"><use href="#i-lock"/></svg><span class="mono">{{session_cookie}}</span><span class="r">secret removed, retype it</span></div>
+        </div>
+        <div class="guard"><svg class="ic"><use href="#i-shield"/></svg>Secret guard: no secret value found in the graph.</div>
+      </div></div>
+    </article>
+
+    <!-- Feature: load profiles -->
+    <article class="feat" aria-labelledby="f3">
+      <div class="feat-copy">
+        <span class="label">Load profiles</span>
+        <h3 id="f3">Pick a shape of load. No math.</h3>
+        <ul class="bul">
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Smoke, Load, Stress, Spike and Soak, each explained in plain words with its shape drawn next to it.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Profiles are lowered automatically to the environment's ceilings, and Ballast tells you before the run starts.</span></li>
+        </ul>
+      </div>
+      <div class="mock"><div class="mock-body stack">
+        <div class="pills" role="group" aria-label="Load profile" id="profBtns" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <div class="prof-grid">
+          <div class="shape"><svg viewBox="0 0 120 44" role="img" aria-label="Shape of the selected load profile" id="profSvg"><line x1="0" y1="40" x2="120" y2="40" stroke="rgba(255,255,255,.13)"/><polyline id="profLine" fill="none" stroke="#E7E7EE" stroke-width="1.5" stroke-linejoin="round" points=""/></svg></div>
+          <div class="prof-desc"><h4 id="profName"></h4><p id="profText"></p></div>
+        </div>
+        <div class="notice"><svg class="ic"><use href="#i-alert"/></svg><span>Staging allows up to <b class="num">50</b> virtual users. This profile asks for <b class="num">200</b>, so Ballast lowers it to <b class="num">50</b> before the run starts.</span></div>
+      </div></div>
+    </article>
+
+    <!-- Feature: thresholds -->
+    <article class="feat flip" aria-labelledby="f4">
+      <div class="feat-copy">
+        <span class="label">Thresholds</span>
+        <h3 id="f4">Set a pass mark without learning k6 syntax.</h3>
+        <ul class="bul">
+          <li><svg class="ic"><use href="#i-check"/></svg><span>One-click starters cover the common cases.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>A guided builder writes the k6 rule from a measure, a number and an optional endpoint.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>You see the rule in words and in k6, side by side.</span></li>
+        </ul>
+      </div>
+      <div class="mock"><div class="mock-body stack">
+        <div class="starters"><span class="starter">Most requests are fast</span><span class="starter">Almost no request fails</span><span class="starter">Every check holds</span><span class="starter">No slow outliers</span></div>
+        <div class="rule">
+          <div class="f"><span class="label">Measure</span><span class="field">p95 latency</span></div>
+          <div class="f"><span class="label">Must be</span><span class="field">below</span></div>
+          <div class="f"><span class="label">Number</span><span class="field">800 ms</span></div>
+          <div class="f"><span class="label">Endpoint</span><span class="field">POST /checkout</span></div>
+        </div>
+        <div class="two">
+          <div class="words"><span class="label">In words</span><p style="margin-top:6px">95 % of requests to <b>POST /checkout</b> must finish in under <b>800 ms</b>.</p></div>
+<pre><span class="c">// in k6</span>
+thresholds: {
+  'http_req_duration{name:POST /checkout}':
+    ['p(95)&lt;800'],
+}</pre>
+        </div>
+      </div></div>
+    </article>
+
+    <!-- Feature: results -->
+    <article class="feat" aria-labelledby="f5">
+      <div class="feat-copy">
+        <span class="label">Results people can read</span>
+        <h3 id="f5">An explanation behind every number.</h3>
+        <ul class="bul">
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Latency (p95, p99, median), requests per second, error rate, iterations, checks, data received, the HTTP phase breakdown and per-endpoint metrics.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>An "i" on every number explains it in plain language. A warning appears when failed requests are not watched by any threshold, so a run never quietly passes with 100 % errors.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Verdicts are read from k6, never recomputed. Live logs stream while the run is going, with secrets redacted.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Every run freezes what was executed. Editing a scenario never rewrites history. Re-run in one click.</span></li>
+        </ul>
+      </div>
+      <div class="mock"><div class="mock-bar"><span class="title">Run #128</span><span class="status bad"><svg class="ic"><use href="#i-x"/></svg>Failed</span><span class="sp"><span class="btn btn-sm">Re-run</span></span></div><div class="mock-body stack">
+        <div class="frozen"><span>Scenario <span class="mono">checkout v7</span></span><span>Profile <span class="mono">Load</span></span><span>Users <span class="mono">50</span></span><span>Duration <span class="mono">5 min</span></span></div>
+        <div class="tiles">
+          <div class="tile"><div class="top-row"><span class="label">p95</span><button class="info" type="button" data-explain="p95 is the time that 95 % of requests beat. The slowest 5 % took longer." aria-label="Explain p95">i</button></div><span class="val">412<small> ms</small></span></div>
+          <div class="tile"><div class="top-row"><span class="label">p99</span><button class="info" type="button" data-explain="p99 is the time that 99 % of requests beat. It shows the slow outliers." aria-label="Explain p99">i</button></div><span class="val">780<small> ms</small></span></div>
+          <div class="tile"><div class="top-row"><span class="label">Requests / s</span><button class="info" type="button" data-explain="How many requests the target served each second, on average." aria-label="Explain requests per second">i</button></div><span class="val">241.6</span></div>
+          <div class="tile"><div class="top-row"><span class="label">Error rate</span><button class="info" type="button" data-explain="The share of requests that failed. Lower is better." aria-label="Explain error rate">i</button></div><span class="val">0.20<small> %</small></span></div>
+        </div>
+        <div class="explain" id="explainBox" role="status" aria-live="polite">Select an “i” to read what a number means.</div>
+        <div class="stack" style="gap:8px">
+          <span class="label">Where the time goes · average request</span>
+          <div class="phases" role="img" aria-label="Phase breakdown: waiting takes most of the request time">
+            <i style="flex:.5;background:#3A3A48"></i><i style="flex:1.6;background:#4A4A5C"></i><i style="flex:4.4;background:#5C5C72"></i><i style="flex:.2;background:#74748C"></i><i style="flex:87.6;background:#8E8EA8"></i><i style="flex:5.8;background:#B0B0C6"></i>
+          </div>
+          <div class="ph-leg"><span><i style="background:#3A3A48"></i>blocked <b>2.1</b></span><span><i style="background:#4A4A5C"></i>connecting <b>6.4</b></span><span><i style="background:#5C5C72"></i>TLS <b>18.2</b></span><span><i style="background:#74748C"></i>sending <b>0.4</b></span><span><i style="background:#8E8EA8"></i>waiting <b>361.0</b></span><span><i style="background:#B0B0C6"></i>receiving <b>24.0</b> ms</span></div>
+        </div>
+        <div class="scroll"><table>
+          <thead><tr><th>Threshold</th><th class="n">Result</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">http_req_duration p(95) &lt; 800</td><td class="n mono">412 ms</td><td><span class="status ok"><svg class="ic"><use href="#i-check"/></svg>Passed</span></td></tr>
+            <tr><td class="mono">http_req_failed rate &lt; 0.001</td><td class="n mono">0.002</td><td><span class="status bad"><svg class="ic"><use href="#i-x"/></svg>Failed</span></td></tr>
+            <tr><td class="mono">checks rate &gt; 0.99</td><td class="n mono">0.998</td><td><span class="status ok"><svg class="ic"><use href="#i-check"/></svg>Passed</span></td></tr>
+          </tbody>
+        </table></div>
+        <div class="warnbox"><svg class="ic"><use href="#i-alert"/></svg><div><b style="font-weight:500">Warning.</b> This scenario has no threshold on failed requests. Add one so a run cannot pass with errors.</div></div>
+        <div class="stack" style="gap:6px"><span class="label">Live log</span>
+<pre class="logs"><span class="t">12:04:11</span> vu=18  POST /login      200  112 ms
+<span class="t">12:04:11</span> vu=18  GET  /cart       200   94 ms
+<span class="t">12:04:12</span> vu=31  POST /checkout   200  388 ms
+<span class="t">12:04:12</span> header Authorization: Bearer <span class="red">••••••••</span></pre></div>
+      </div></div>
+    </article>
+
+    <!-- Feature: teams -->
+    <article class="feat flip" aria-labelledby="f6">
+      <div class="feat-copy">
+        <span class="label">Teams and projects</span>
+        <h3 id="f6">One workspace for every project.</h3>
+        <ul class="bul">
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Favorites, sorting and a list or grid view. Roles are set per project.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Invite people with a single-use link. Switch organization in one click.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Collapse the sidebar to give the canvas room. Sign in with GitHub, with no password to manage.</span></li>
+        </ul>
+      </div>
+      <div class="mock"><div class="mock-bar"><span class="title">Projects</span><span class="sp"><span class="pill">Sort: last run</span><span class="pill on">Grid</span><span class="pill">List</span></span></div><div class="mock-body">
+        <div class="proj-grid">
+          <div class="proj"><div class="nm">Storefront API <svg class="ic fav"><use href="#i-star"/></svg></div><div class="meta"><span class="role">maintainer</span><span class="status ok"><svg class="ic"><use href="#i-check"/></svg>Passed</span></div></div>
+          <div class="proj"><div class="nm">Billing service <svg class="ic fav"><use href="#i-star"/></svg></div><div class="meta"><span class="role">admin</span><span class="status warn"><svg class="ic"><use href="#i-alert"/></svg>Degraded</span></div></div>
+          <div class="proj"><div class="nm">Search <svg class="ic"><use href="#i-star"/></svg></div><div class="meta"><span class="role">runner</span><span class="status bad"><svg class="ic"><use href="#i-x"/></svg>Failed</span></div></div>
+        </div>
+      </div></div>
+    </article>
+
+    <!-- Feature: environments -->
+    <article class="feat" aria-labelledby="f7">
+      <div class="feat-copy">
+        <span class="label">Environments and secrets</span>
+        <h3 id="f7">Set the limits once. Every run respects them.</h3>
+        <ul class="bul">
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Define staging, production and more, each with ceilings on virtual users and duration.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Set allowed time windows. A run must fit entirely inside its window. It is refused, never shortened.</span></li>
+          <li><svg class="ic"><use href="#i-check"/></svg><span>Secrets are encrypted and injected as environment variables. The API never returns a value, only the name and dates.</span></li>
+        </ul>
+      </div>
+      <div class="mock"><div class="mock-body env-grid">
+        <div class="env"><h4>staging <span class="tag">Verified</span></h4>
+          <div class="kv"><span class="k">Max virtual users</span><span class="v">50</span><span class="k">Max duration</span><span class="v">10 min</span><span class="k">Window</span><span class="v">Mon–Fri 09:00–18:00</span></div></div>
+        <div class="env"><h4>production <span class="tag">Verified</span></h4>
+          <div class="kv"><span class="k">Max virtual users</span><span class="v">20</span><span class="k">Max duration</span><span class="v">5 min</span><span class="k">Window</span><span class="v">Sat 02:00–04:00</span></div></div>
+        <div class="list" style="grid-column:1/-1">
+          <div><svg class="ic"><use href="#i-lock"/></svg><span class="mono">STRIPE_TEST_KEY</span><span class="r">set 12 Sep · value never shown</span></div>
+          <div><svg class="ic"><use href="#i-lock"/></svg><span class="mono">SESSION_SALT</span><span class="r">set 03 Oct · value never shown</span></div>
+        </div>
+      </div></div>
+    </article>
+  </div>
+</section>
+
+<!-- ============ Component: Run comparison ============ -->
+<section id="compare" aria-labelledby="h-compare">
+  <div class="wrap">
+    <div class="compare-sec">
+      <div class="sec-head" style="margin-bottom:32px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="label">Run comparison</span><span class="tag tag-brand">Coming soon</span></div>
+        <h2 id="h-compare">Did that release make it faster or slower?</h2>
+        <p class="lede">Put two runs side by side. See the change in p95 latency and error rate. Ballast compares automatically against the last passing run of the same scenario.</p>
+      </div>
+      <div class="runs">
+        <div class="run"><span class="nm"><i style="background:var(--run-a)"></i>Run A · baseline</span><span class="m">#126 · last passing run</span></div>
+        <div class="run"><span class="nm"><i style="background:var(--run-b)"></i>Run B · this release</span><span class="m">#128 · same scenario</span></div>
+      </div>
+      <div class="scroll" style="margin-bottom:12px"><table>
+        <thead><tr><th>Measure</th><th class="n">Run A</th><th class="n">Run B</th><th class="n">Change</th></tr></thead>
+        <tbody>
+          <tr><td>p95 latency</td><td class="n mono">412 ms</td><td class="n mono">468 ms</td><td class="n d-up">+56 ms (+13.6 %)</td></tr>
+          <tr><td>Error rate</td><td class="n mono">0.20 %</td><td class="n mono">0.40 %</td><td class="n d-up">+0.20 points</td></tr>
+        </tbody>
+      </table></div>
+      <div class="chart">
+        <svg viewBox="0 0 540 220" role="img" aria-label="Chart of p95 latency over five minutes. Run B, in orange, stays above run A, in blue.">
+          <g stroke="rgba(255,255,255,.08)"><line x1="44" y1="184" x2="508" y2="184"/><line x1="44" y1="128" x2="508" y2="128"/><line x1="44" y1="72" x2="508" y2="72"/><line x1="44" y1="16" x2="508" y2="16"/></g>
+          <g fill="#7F7F92" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end"><text x="38" y="187">0</text><text x="38" y="131">200</text><text x="38" y="75">400</text><text x="38" y="19">600 ms</text></g>
+          <g fill="#7F7F92" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle"><text x="44" y="204">0</text><text x="137" y="204">1</text><text x="230" y="204">2</text><text x="322" y="204">3</text><text x="415" y="204">4</text><text x="508" y="204">5 min</text></g>
+          <polyline fill="none" stroke="#5B9CF8" stroke-width="2" stroke-linejoin="round" points="44,150 80,100 137,84 230,76 322,72 415,78 480,90 508,140"/>
+          <polyline fill="none" stroke="#E8843C" stroke-width="2" stroke-linejoin="round" points="44,150 80,92 137,68 230,60 322,50 415,44 480,70 508,128"/>
+          <circle cx="508" cy="140" r="3.5" fill="#5B9CF8"/><circle cx="508" cy="128" r="3.5" fill="#E8843C"/>
+          <text x="516" y="146" font-family="JetBrains Mono, monospace" font-size="10" fill="#5B9CF8">A</text>
+          <text x="516" y="124" font-family="JetBrains Mono, monospace" font-size="10" fill="#E8843C">B</text>
+        </svg>
+        <div class="legend-row"><span><i style="background:var(--run-a)"></i>Run A, p95 latency</span><span><i style="background:var(--run-b)"></i>Run B, p95 latency</span><span>Example numbers, not real measurements.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Component: Safety and trust ============ -->
+<section id="safety" aria-labelledby="h-safety">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">Safety and trust</span>
+      <h2 id="h-safety">You can only test what you own. That is enforced, not promised.</h2>
+      <p class="lede">Ballast checks a challenge file at your origin before anything runs, and checks it again before every run.</p>
+    </div>
+
+    <div class="route" role="group" aria-label="How a run reaches your target">
+      <div class="rbox"><span class="label">1 · Ephemeral container</span><h3>k6 runs here</h3><p>A fresh container for each run. It has no outbound route at all.</p></div>
+      <div class="arrow" aria-hidden="true"><svg class="ic" style="width:28px;height:14px"><use href="#i-arrow"/></svg></div>
+      <div class="rbox"><span class="label">2 · Filtering proxy</span><h3>The only way out</h3><p>Allows just the host of this run. Then it checks the resolved address itself, so an internal network is never reachable.</p></div>
+      <div class="arrow" aria-hidden="true"><svg class="ic" style="width:28px;height:14px"><use href="#i-arrow"/></svg></div>
+      <div class="rbox"><span class="label">3 · Verified target</span><h3>Your environment</h3><p class="mono">staging.example.test</p><p>Ownership proven by a challenge file.</p></div>
+    </div>
+    <div class="blocked"><svg class="ic"><use href="#i-x"/></svg><span>Any other destination is refused: other hosts, private networks and internal addresses.</span></div>
+
+    <div class="trust">
+      <article class="tcard"><svg class="ic"><use href="#i-shield"/></svg><h3>Proof of ownership</h3><p>A challenge file at your origin is checked before anything runs, and again before every run.</p></article>
+      <article class="tcard"><svg class="ic"><use href="#i-seq"/></svg><h3>One run at a time</h3><p>Only one run per environment, so another test never pollutes your measurements.</p></article>
+      <article class="tcard"><svg class="ic"><use href="#i-db"/></svg><h3>Isolated by organization</h3><p>Strict data isolation per organization, enforced in the database itself.</p></article>
+      <article class="tcard"><svg class="ic"><use href="#i-meter"/></svg><h3>Hard ceilings</h3><p>Limits on virtual users and duration that cannot be raised from configuration. Rate limits per person and per organization.</p></article>
+      <article class="tcard"><svg class="ic"><use href="#i-stop"/></svg><h3>Emergency stop</h3><p>Admins can stop runs at once. A platform-wide switch stops everything.</p></article>
+      <article class="tcard"><svg class="ic"><use href="#i-log"/></svg><h3>Append-only audit log</h3><p>Who launched, refused, cancelled or approved what, including every refusal.</p></article>
+    </div>
+    <p class="mock-cap" style="margin-top:20px;max-width:70ch">Network traffic is measured twice, on the wire and as reported by the load generator, so usage can be billed fairly and trusted.</p>
+  </div>
+</section>
+
+<!-- ============ Component: Roadmap ============ -->
+<section aria-labelledby="h-road" style="padding-block:56px">
+  <div class="wrap">
+    <div class="sec-head" style="margin-bottom:24px">
+      <span class="label">Roadmap</span>
+      <h2 id="h-road" style="font-size:clamp(1.5rem,2.6vw,2rem)">What we plan to build next.</h2>
+      <p class="lede" style="font-size:1rem">None of these is available yet.</p>
+    </div>
+    <div class="road">
+      <div class="rd"><span class="tag">Next</span>Scheduled runs</div>
+      <div class="rd"><span class="tag">Next</span>Runners you host inside your own network</div>
+      <div class="rd"><span class="tag">Next</span>Infrastructure metrics alongside runs</div>
+      <div class="rd"><span class="tag">Next</span>Automated analysis of results</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Component: FAQ ============ -->
+<section id="faq" aria-labelledby="h-faq">
+  <div class="wrap">
+    <div class="sec-head"><span class="label">FAQ</span><h2 id="h-faq">Questions people ask first.</h2></div>
+    <div class="faq">
+      <details><summary>Do I need to know k6?</summary><p>No. You can draw a scenario on a canvas, import a Postman collection, an OpenAPI file, a cURL command or a HAR file, and set pass marks with one click. If you already write k6, paste a plain script instead.</p></details>
+      <details><summary>Can I test any URL?</summary><p>No, and that is on purpose. You can only test a target you prove you own. Ballast checks a challenge file at your origin before anything runs, and checks again before every run.</p></details>
+      <details><summary>Could a run ever reach an internal network?</summary><p>No. The load generator has no outbound route. Its only way out is a filtering proxy that allows the host of that run and checks the resolved address, so private networks stay out of reach.</p></details>
+      <details><summary>What happens to my secrets?</summary><p>They are encrypted and injected as environment variables. The API never returns a secret's value, only its name and dates. Live logs redact them. Imports never copy secrets from your files.</p></details>
+      <details><summary>Does a passing run mean everything is fine?</summary><p>A pass means every threshold you set held. Ballast warns you when failed requests are not watched by any threshold, so a run cannot quietly pass with 100 % errors. Verdicts come straight from k6.</p></details>
+      <details><summary>Is run comparison available?</summary><p>Not yet. It is marked Coming soon on this page. Today every run is saved with exactly what was executed, and you can re-run it in one click.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Component: Final CTA ============ -->
+<section id="start" aria-labelledby="h-final" style="padding-top:24px">
+  <div class="wrap">
+    <div class="final">
+      <h2 id="h-final">Know it holds before your users find out.</h2>
+      <p class="lede">Connect GitHub, add a project, verify your environment and run your first test.</p>
+      <a class="btn btn-primary" href="/login">Start testing with GitHub</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ============ Component: Footer ============ -->
+<div class="wrap">
+  <footer>
+    <a class="brand" href="#top" style="font-size:1rem"><svg viewBox="330 360 595 525" aria-hidden="true" style="width:22px;height:20px"><rect x="538" y="363" width="177" height="64"/><path d="M471 452H782L836 562L626 494L418 562Z"/><path d="M334 615L610 531V723H390Z"/><path d="M643 531L919 615L862 723H643Z"/><path d="M404 753H850L779 881H474Z"/></svg>Ballast</a>
+    <span>Load testing built on k6.</span>
+    <nav aria-label="Footer"><a href="#how">How it works</a><a href="#features">Features</a><a href="#safety">Safety</a><a href="#faq">FAQ</a></nav>
+  </footer>
+</div>
+
+<script>
+(function(){
+  // copy button with fallback
+  document.querySelectorAll('[data-copy]').forEach(function(b){
+    b.addEventListener('click',function(){
+      var el=document.querySelector(b.getAttribute('data-copy')),label=b.querySelector('span'),txt=el.textContent;
+      function done(t){label.textContent=t;setTimeout(function(){label.textContent='Copy'},1600)}
+      function sel(){var r=document.createRange();r.selectNodeContents(el);var s=getSelection();s.removeAllRanges();s.addRange(r);done('Selected')}
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){done('Copied')},sel)}else{sel()}
+    });
+  });
+  // number explanations
+  var box=document.getElementById('explainBox');
+  document.querySelectorAll('.info').forEach(function(i){
+    i.addEventListener('click',function(){box.textContent=i.getAttribute('data-explain')});
+  });
+  // load profiles
+  var P=[
+    {n:'Smoke',pts:'0,36 120,36',t:'A handful of users for a short time. Use it to check that the scenario works before you add real load.'},
+    {n:'Load',pts:'0,40 24,14 96,14 120,40',t:'Ramps up to the traffic you expect on a normal busy day, holds it, then ramps down.'},
+    {n:'Stress',pts:'0,40 18,40 18,32 42,32 42,24 66,24 66,16 90,16 90,6 108,6 108,40',t:'Raises the load in steps beyond normal until something starts to give. It shows where your limit is.'},
+    {n:'Spike',pts:'0,36 40,36 50,6 64,6 74,36 120,36',t:'A sudden surge, then back to normal. It shows whether the system recovers after a rush.'},
+    {n:'Soak',pts:'0,40 10,18 110,18 120,40',t:'Moderate load held for a long time. It reveals slow leaks, such as memory that never comes back.'}
+  ],btns=document.getElementById('profBtns'),line=document.getElementById('profLine'),nm=document.getElementById('profName'),tx=document.getElementById('profText');
+  function pick(i){
+    line.setAttribute('points',P[i].pts);nm.textContent=P[i].n;tx.textContent=P[i].t;
+    Array.prototype.forEach.call(btns.children,function(b,j){b.className='pill'+(j===i?' on':'');b.setAttribute('aria-pressed',j===i?'true':'false')});
+  }
+  P.forEach(function(p,i){
+    var b=document.createElement('button');b.type='button';b.textContent=p.n;b.style.cursor='pointer';
+    b.addEventListener('click',function(){pick(i)});btns.appendChild(b);
+  });
+  pick(1);
+})();
+</script>
+
+</body></html>

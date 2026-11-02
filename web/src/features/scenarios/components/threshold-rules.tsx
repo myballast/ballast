@@ -8,7 +8,9 @@ import { EmptyState } from "@/components/states";
 import { Button } from "@/components/ui/button";
 
 import { addThreshold, deleteThreshold, updateThreshold, type ThresholdState } from "../actions";
+import type { EndpointChoice } from "../threshold-presets";
 import type { Threshold } from "../types";
+import { GuidedForm, QuickStart } from "./threshold-guided";
 
 const field =
   "h-9 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -23,13 +25,18 @@ export function ThresholdRules({
   scenarioId,
   thresholds,
   editable,
+  endpoints = [],
 }: {
   projectId: string;
   scenarioId: string;
   thresholds: Threshold[];
   editable: boolean;
+  // The requests of the scenario, when it is drawn as a graph, so that a rule can be
+  // narrowed to one of them without typing its name.
+  endpoints?: EndpointChoice[];
 }) {
   const [editing, setEditing] = useState<string | null>(null);
+  const [byHand, setByHand] = useState(false);
 
   return (
     <div className="flex flex-col gap-4">
@@ -37,13 +44,15 @@ export function ThresholdRules({
         <EmptyState
           icon={Gauge}
           title="No threshold"
-          description="A threshold is a rule k6 judges at the end of a run, such as p(95)<300 on http_req_duration. Without one, a run passes as long as it ends."
+          description="A threshold is a pass-or-fail rule for a run, such as “95 % of requests answer in under 500 ms”. Without one, a run passes as long as it ends, even if every request failed. Start with the first two below."
           action={
             editable ? (
               // The form is the next thing on the page; the link takes the keyboard
               // to its first field, where a button that only scrolled would not.
               <Button
-                onClick={() => document.getElementById("new-threshold")?.querySelector("input")?.focus()}
+                onClick={() =>
+                  document.getElementById("new-threshold")?.querySelector<HTMLElement>("button, input, select")?.focus()
+                }
               >
                 Add a threshold
               </Button>
@@ -98,8 +107,24 @@ export function ThresholdRules({
       )}
 
       {editable && (
-        <div id="new-threshold" className="rounded-xl border p-4">
-          <RuleForm submit={addThreshold.bind(null, projectId, scenarioId)} label="Add threshold" clearOnDone />
+        <div id="new-threshold" className="flex flex-col gap-4 rounded-xl border p-4">
+          <QuickStart projectId={projectId} scenarioId={scenarioId} thresholds={thresholds} />
+
+          <div className="flex flex-col gap-3 border-t pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-[11px] tracking-wider text-muted-foreground uppercase">
+                {byHand ? "Write it by hand" : "Build your own"}
+              </h3>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setByHand((v) => !v)}>
+                {byHand ? "Build it with choices" : "Write it by hand"}
+              </Button>
+            </div>
+            {byHand ? (
+              <RuleForm submit={addThreshold.bind(null, projectId, scenarioId)} label="Add threshold" clearOnDone />
+            ) : (
+              <GuidedForm projectId={projectId} scenarioId={scenarioId} endpoints={endpoints} />
+            )}
+          </div>
         </div>
       )}
     </div>

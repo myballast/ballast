@@ -52,6 +52,8 @@ import {
   type Position,
 } from "../graph-model";
 import { emptyHistory, redo, remember, undo, type History } from "../history";
+import { endpointChoices } from "@/features/scenarios/threshold-presets";
+
 import { describe, infoOf, newNode } from "../kinds";
 import { Dock, type ProfileDraft, type Target } from "./dock";
 import { EmptyState } from "./empty-state";
@@ -855,6 +857,7 @@ function BuilderView({
           projectId={projectId}
           scenarioId={scenario.id}
           thresholds={thresholds}
+          endpoints={endpointChoices(graph)}
           canEdit={canEdit}
           draft={profileDraft}
           onDraft={setProfileDraft}
