@@ -1,4 +1,5 @@
 import { Menu } from "lucide-react";
+import { cookies } from "next/headers";
 
 import type { Me } from "@/features/auth/api";
 import type { ShellScope } from "@/features/shell/types";
@@ -7,13 +8,20 @@ import { Brand } from "@/components/brand/brand";
 import { AppHeader } from "./app-header";
 import { Nav } from "./nav";
 import { OrgSelector } from "./org-selector";
+import { SidebarFrame, SidebarToggle } from "./sidebar";
+import { sidebarCookie, type SidebarPreference } from "./sidebar-state";
 import { UserMenu } from "./user-menu";
 
 // On narrow screens the brand is already in the top bar the menu opens from.
 function SidebarContent({ me, scope, brand = true }: { me: Me; scope: ShellScope | null; brand?: boolean }) {
   return (
-    <div className="flex h-full flex-col gap-6 p-4">
-      {brand && <Brand />}
+    <div className="flex h-full flex-col gap-6 p-4 group-data-[collapsed=true]/sidebar:gap-4 group-data-[collapsed=true]/sidebar:p-2">
+      {brand && (
+        <div className="flex items-center justify-between gap-1 group-data-[collapsed=true]/sidebar:flex-col group-data-[collapsed=true]/sidebar:gap-3">
+          <Brand />
+          <SidebarToggle />
+        </div>
+      )}
       <OrgSelector organization={me.organization} organizations={me.organizations} />
       <Nav project={scope?.project} />
       <div className="mt-auto border-t pt-3">
@@ -29,7 +37,7 @@ function SidebarContent({ me, scope, brand = true }: { me: Me; scope: ShellScope
 //
 // scope is the project the page belongs to, if it does: its section of the
 // sidebar, the role in the footer and the names in the breadcrumb.
-export function AppShell({
+export async function AppShell({
   me,
   scope = null,
   children,
@@ -38,6 +46,9 @@ export function AppShell({
   scope?: ShellScope | null;
   children: React.ReactNode;
 }) {
+  const saved = (await cookies()).get(sidebarCookie)?.value;
+  const preference: SidebarPreference | undefined = saved === "collapsed" || saved === "open" ? saved : undefined;
+
   return (
     <div className="flex min-h-svh flex-1">
       {/* The first stop for the keyboard: the sidebar is a dozen of them, and the page
@@ -49,9 +60,9 @@ export function AppShell({
         Skip to the content
       </a>
 
-      <aside className="sticky top-0 hidden h-svh w-sidebar shrink-0 border-r bg-sidebar text-sidebar-foreground md:block">
+      <SidebarFrame preference={preference}>
         <SidebarContent me={me} scope={scope} />
-      </aside>
+      </SidebarFrame>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <details className="group border-b bg-sidebar md:hidden">

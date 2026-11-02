@@ -23,13 +23,16 @@ export function OrgSelector({
 
   return (
     <details className="group relative">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md border bg-background/40 px-2.5 py-2 text-sm hover:bg-sidebar-accent [&::-webkit-details-marker]:hidden">
+      <summary
+        title={organization.name}
+        className="flex cursor-pointer list-none items-center gap-2 rounded-md border bg-background/40 px-2.5 py-2 text-sm hover:bg-sidebar-accent group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-0 [&::-webkit-details-marker]:hidden"
+      >
         <Building2 aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate">{organization.name}</span>
-        <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate group-data-[collapsed=true]/sidebar:sr-only">{organization.name}</span>
+        <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground group-data-[collapsed=true]/sidebar:hidden" />
       </summary>
 
-      <div className="absolute inset-x-0 top-full z-20 mt-1 rounded-md border bg-popover p-1">
+      <div className="absolute top-full left-0 z-20 mt-1 min-w-56 rounded-md border bg-popover p-1 group-data-[collapsed=true]/sidebar:w-60">
         <p className="px-2 pt-1 pb-1.5 text-[11px] tracking-wider text-muted-foreground uppercase">Organizations</p>
         <p className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm" aria-current="true">
           <span className="min-w-0 flex-1 truncate">{organization.name}</span>

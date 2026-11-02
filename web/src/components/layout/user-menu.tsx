@@ -9,14 +9,14 @@ import { signOut } from "@/features/auth/actions";
 // takes its place.
 export function UserMenu({ user, role }: { user: { name: string; email: string }; role?: string }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
+    <div className="flex items-center gap-2.5 rounded-md px-2 py-2 group-data-[collapsed=true]/sidebar:flex-col group-data-[collapsed=true]/sidebar:px-0">
       <span
         aria-hidden
         className="grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-xs font-medium"
       >
         {initial(user)}
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 group-data-[collapsed=true]/sidebar:sr-only">
         <p className="truncate text-sm">{user.name || user.email}</p>
         <p className="data truncate text-[11px] text-muted-foreground">{role ?? user.email}</p>
       </div>

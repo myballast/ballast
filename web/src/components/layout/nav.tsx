@@ -1,5 +1,6 @@
 "use client";
 
+import { FolderKanban, LayoutDashboard, Play, Server, Users, Workflow } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { NavGroup, NavItem } from "./nav-item";
@@ -20,30 +21,30 @@ export function Nav({ project }: { project?: { id: string; name: string } }) {
     exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 
   return (
-    <nav aria-label="Main" className="flex flex-col gap-6">
+    <nav aria-label="Main" className="flex flex-col gap-6 group-data-[collapsed=true]/sidebar:gap-3">
       <NavGroup title="Workspace">
-        <NavItem href="/projects" active={active("/projects", base !== null)}>
+        <NavItem href="/projects" icon={FolderKanban} active={active("/projects", base !== null)}>
           Projects
         </NavItem>
       </NavGroup>
 
       {project && base && (
         <NavGroup title={project.name}>
-          <NavItem href={base} active={active(base, true)}>
+          <NavItem href={base} icon={LayoutDashboard} active={active(base, true)}>
             Overview
           </NavItem>
-          <NavItem href={`${base}/scenarios`} active={active(`${base}/scenarios`, false)}>
+          <NavItem href={`${base}/scenarios`} icon={Workflow} active={active(`${base}/scenarios`, false)}>
             Scenarios
           </NavItem>
           {/* A run's own page is /runs/<id>, outside the project's address, and
               is still a run of the project: the entry stays lit on it. */}
-          <NavItem href={`${base}/runs`} active={active(`${base}/runs`, false) || pathname.startsWith("/runs/")}>
+          <NavItem href={`${base}/runs`} icon={Play} active={active(`${base}/runs`, false) || pathname.startsWith("/runs/")}>
             Runs
           </NavItem>
-          <NavItem href={`${base}/environments`} active={active(`${base}/environments`, false)}>
+          <NavItem href={`${base}/environments`} icon={Server} active={active(`${base}/environments`, false)}>
             Environments
           </NavItem>
-          <NavItem href={`${base}/members`} active={active(`${base}/members`, false)}>
+          <NavItem href={`${base}/members`} icon={Users} active={active(`${base}/members`, false)}>
             Members
           </NavItem>
         </NavGroup>

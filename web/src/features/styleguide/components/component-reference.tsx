@@ -1,4 +1,4 @@
-import { CircleCheck, CircleX, Trash2, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, FolderKanban, LayoutDashboard, Server, Trash2, TriangleAlert, Users, Workflow } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
 import { Breadcrumb } from "@/components/layout/breadcrumb";
@@ -628,24 +628,43 @@ export function ComponentReference() {
       </Section>
 
       <Section title="Shell: sidebar, role and breadcrumb">
-        <div className="flex w-60 flex-col gap-6 rounded-xl border bg-sidebar p-4">
-          <NavGroup title="Workspace">
-            <NavItem href="#">Projects</NavItem>
-          </NavGroup>
-          <NavGroup title="storefront">
-            <NavItem href="#" active>
-              Overview
-            </NavItem>
-            <NavItem href="#">Scenarios</NavItem>
-            <NavItem href="#">Environments</NavItem>
-          </NavGroup>
-          <NavGroup title="A project with a very long name that has to be cut">
-            <NavItem href="#">Overview</NavItem>
-          </NavGroup>
-          <div className="border-t pt-3">
-            <UserMenu user={{ name: "youssef", email: "youssef@example.test" }} role="maintainer" />
-            <UserMenu user={{ name: "youssef", email: "youssef@example.test" }} />
-          </div>
+        <div className="flex flex-wrap items-start gap-4">
+          {[false, true].map((collapsed) => (
+            <div
+              key={String(collapsed)}
+              data-collapsed={collapsed}
+              className={`group/sidebar flex flex-col gap-6 rounded-xl border bg-sidebar p-4 data-[collapsed=true]:w-14 data-[collapsed=true]:gap-3 data-[collapsed=true]:p-2 ${collapsed ? "" : "w-60"}`}
+            >
+              <p className="text-xs text-muted-foreground group-data-[collapsed=true]/sidebar:sr-only">
+                {collapsed ? "Collapsed" : "Open"}
+              </p>
+              <NavGroup title="Workspace">
+                <NavItem href="#" icon={FolderKanban}>
+                  Projects
+                </NavItem>
+              </NavGroup>
+              <NavGroup title="storefront">
+                <NavItem href="#" icon={LayoutDashboard} active>
+                  Overview
+                </NavItem>
+                <NavItem href="#" icon={Workflow}>
+                  Scenarios
+                </NavItem>
+                <NavItem href="#" icon={Server}>
+                  Environments
+                </NavItem>
+              </NavGroup>
+              <NavGroup title="A project with a very long name that has to be cut">
+                <NavItem href="#" icon={Users}>
+                  Members
+                </NavItem>
+              </NavGroup>
+              <div className="border-t pt-3">
+                <UserMenu user={{ name: "youssef", email: "youssef@example.test" }} role="maintainer" />
+                {!collapsed && <UserMenu user={{ name: "youssef", email: "youssef@example.test" }} />}
+              </div>
+            </div>
+          ))}
         </div>
         {shellPaths.map((path) => (
           <div key={path} className="flex flex-col gap-1">
