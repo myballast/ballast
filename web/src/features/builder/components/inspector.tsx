@@ -3,10 +3,12 @@
 import { Trash2, X } from "lucide-react";
 import { useId } from "react";
 
+import { InfoTip } from "@/components/info-tip";
 import { Button } from "@/components/ui/button";
 import type { GraphNode } from "@/features/scenarios/types";
 import { cn } from "@/lib/utils";
 
+import { fieldHelp, kindHelp } from "../help";
 import { describe, infoOf } from "../kinds";
 import type { Available } from "../variables";
 import { AvailableVariables } from "./available-variables";
@@ -18,13 +20,16 @@ import { RequestPanel } from "./request-panel";
 const input =
   "data h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: (id: string) => React.ReactNode }) {
+function Field({ label, hint, help, children }: { label: string; hint?: string; help?: string; children: (id: string) => React.ReactNode }) {
   const id = useId();
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-[11px] tracking-wider text-muted-foreground uppercase">
-        {label}
-      </label>
+      <span className="flex items-center gap-1.5">
+        <label htmlFor={id} className="text-[11px] tracking-wider text-muted-foreground uppercase">
+          {label}
+        </label>
+        {help && <InfoTip label={label}>{help}</InfoTip>}
+      </span>
       {children(id)}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
@@ -69,7 +74,10 @@ export function Inspector({
           <KindIcon icon={info.icon} className="size-3.5" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm">{info.label}</div>
+          <div className="flex items-center gap-1.5 text-sm">
+            <span className="truncate">{info.label}</span>
+            <InfoTip label={info.label}>{kindHelp[node.kind]}</InfoTip>
+          </div>
           <div className="data truncate text-[11px] text-muted-foreground" title={title}>
             {node.id}
           </div>
@@ -81,7 +89,7 @@ export function Inspector({
 
       <div key={`${node.id}:${revision}`} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
         <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-4">
-          <Field label="Label" hint="A name for people. It is written in the script as a comment.">
+          <Field label="Label" help={fieldHelp.label} hint="A name for people. It is written in the script as a comment.">
             {(id) => (
               <input id={id} className={input} value={node.label ?? ""} onChange={(e) => onChange({ label: e.target.value }, "label")} />
             )}

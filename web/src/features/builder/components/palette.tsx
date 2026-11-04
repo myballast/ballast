@@ -2,6 +2,9 @@
 
 import { cn } from "@/lib/utils";
 
+import { InfoTip } from "@/components/info-tip";
+
+import { kindHelp } from "../help";
 import { kindInfo } from "../kinds";
 import type { NodeKind } from "@/features/scenarios/types";
 import { KindIcon } from "./kind-icon";
@@ -17,7 +20,7 @@ export function Palette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
     const step = keys[event.key];
     if (!step) return;
 
-    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button[draggable]"));
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (at < 0) return;
 
@@ -31,7 +34,7 @@ export function Palette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
       {/* The arrow keys are handled on the list that holds the buttons. */}
       <ul className="flex flex-col gap-1.5" onKeyDown={move}>
         {kindInfo.map((info) => (
-          <li key={info.kind}>
+          <li key={info.kind} className="flex items-center gap-1">
             <button
               type="button"
               draggable
@@ -42,13 +45,14 @@ export function Palette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
               onClick={() => onAdd(info.kind)}
               title={info.hint}
               aria-label={`Add ${info.label} node. ${info.hint}`}
-              className="flex w-full cursor-grab items-center gap-2 rounded-lg border bg-card px-2 py-1.5 text-left text-[13px] hover:bg-muted active:cursor-grabbing"
+              className="flex min-w-0 flex-1 cursor-grab items-center gap-2 rounded-lg border bg-card px-2 py-1.5 text-left text-[13px] hover:bg-muted active:cursor-grabbing"
             >
               <span className={cn("flex size-5 items-center justify-center rounded", info.tone.tint, info.tone.text)}>
                 <KindIcon icon={info.icon} className="size-3.5" />
               </span>
               {info.label}
             </button>
+            <InfoTip label={info.label}>{kindHelp[info.kind]}</InfoTip>
           </li>
         ))}
       </ul>

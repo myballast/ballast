@@ -4,7 +4,9 @@ import { CircleAlert } from "lucide-react";
 
 import type { GraphNode } from "@/features/scenarios/types";
 
+import { fieldHelp } from "../help";
 import { extractProblem } from "../request-validation";
+import { TipLabel } from "./tip-label";
 
 const input =
   "data h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
@@ -43,9 +45,9 @@ export function ExtractPanel({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <label htmlFor="extract-source" className="text-[11px] tracking-wider text-muted-foreground uppercase">
+        <TipLabel htmlFor="extract-source" help={fieldHelp.extractSource}>
           Read from
-        </label>
+        </TipLabel>
         <select
           id="extract-source"
           className={input}
@@ -68,9 +70,9 @@ export function ExtractPanel({
 
       {source !== "status" && (
         <div className="flex flex-col gap-1">
-          <label htmlFor="extract-from" className="text-[11px] tracking-wider text-muted-foreground uppercase">
+          <TipLabel htmlFor="extract-from" help={fieldHelp.extractFrom}>
             {source === "body" ? "Path" : "Header name"}
-          </label>
+          </TipLabel>
           <input
             id="extract-from"
             className={input}
@@ -85,9 +87,9 @@ export function ExtractPanel({
       )}
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="extract-variable" className="text-[11px] tracking-wider text-muted-foreground uppercase">
+        <TipLabel htmlFor="extract-variable" help={fieldHelp.extractVariable}>
           Target variable
-        </label>
+        </TipLabel>
         <input
           id="extract-variable"
           className={input}

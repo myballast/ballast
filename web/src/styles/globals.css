@@ -276,6 +276,8 @@
 :root .react-flow.builder-flow {
   --xy-background-color: var(--background);
   --xy-background-pattern-dots-color-default: var(--border);
+  --blueprint-dot: color-mix(in oklch, var(--foreground) 24%, transparent);
+  --blueprint-line: color-mix(in oklch, var(--foreground) 7%, transparent);
   --xy-edge-stroke-default: var(--muted-foreground);
   --xy-edge-stroke-selected-default: var(--brand);
   --xy-edge-label-color-default: var(--muted-foreground);

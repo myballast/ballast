@@ -1,7 +1,12 @@
 "use client";
 
+import { useState } from "react";
+
 import { Dock, type ProfileDraft } from "@/features/builder/components/dock";
+import { BuilderHelp } from "@/features/builder/components/builder-help";
 import { Palette } from "@/features/builder/components/palette";
+import { PathField } from "@/features/builder/components/path-field";
+import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { ProblemsPanel, type Problem } from "@/features/builder/components/problems-panel";
 import { ScriptPanel, type Draft } from "@/features/builder/components/script-panel";
 
@@ -60,6 +65,63 @@ function DockSample({ draft, canEdit, dirty, target }: { draft: ProfileDraft; ca
   );
 }
 
+const catalog: CatalogEndpoint[] = [
+  {
+    id: "1",
+    source: "Test target",
+    method: "POST",
+    path: "/auth/login",
+    tag: "Auth",
+    summary: "Log in with the single test user",
+    path_params: [],
+    headers: {},
+    content_type: "application/json",
+    body: '{"email":"{{email}}"}',
+    body_too_long: false,
+    created_at: "",
+  },
+  {
+    id: "2",
+    source: "Test target",
+    method: "POST",
+    path: "/echo",
+    tag: "Load testing",
+    summary: "Echo the JSON body",
+    path_params: [],
+    headers: {},
+    content_type: "application/json",
+    body: "",
+    body_too_long: false,
+    created_at: "",
+  },
+  {
+    id: "3",
+    source: "Test target",
+    method: "GET",
+    path: "/products/{id}",
+    tag: "Catalog",
+    summary: "One product",
+    path_params: ["id"],
+    headers: {},
+    content_type: "",
+    body: "",
+    body_too_long: false,
+    created_at: "",
+  },
+];
+
+function PathSample() {
+  const [path, setPath] = useState("/");
+  return (
+    <div className="flex max-w-md items-center rounded-md border bg-background pl-2 text-xs focus-within:ring-2 focus-within:ring-ring">
+      <span aria-hidden className="data shrink-0 text-muted-foreground">
+        $baseUrl
+      </span>
+      <PathField id="styleguide-path" value={path} endpoints={catalog} onChange={setPath} onPick={(e) => setPath(e.path)} />
+    </div>
+  );
+}
+
 export function BuilderSamples() {
   const drafts: { label: string; draft: Draft }[] = [
     { label: "Nothing changed since the last save", draft: { kind: "same" } },
@@ -70,6 +132,15 @@ export function BuilderSamples() {
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-muted-foreground">Path of a request · the catalog is offered as it is typed (click the field).</p>
+        <PathSample />
+        <p className="text-xs text-muted-foreground">The “?” over the canvas: how the builder works, and its shortcuts.</p>
+        <div className="h-16">
+          <BuilderHelp />
+        </div>
+      </div>
+
       <div className="flex max-w-xs flex-col gap-2">
         <p className="text-xs text-muted-foreground">Palette · each kind in its accent, always with its icon and its name.</p>
         <Palette onAdd={() => {}} />

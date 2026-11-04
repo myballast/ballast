@@ -18,11 +18,12 @@ import {
   type EdgeChange,
   type NodeChange,
 } from "@xyflow/react";
-import { Play, Plus, Redo2, Undo2 } from "lucide-react";
+import { CopyPlus, Play, Plus, Redo2, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 
 import { Time } from "@/components/time";
+import { InfoTip } from "@/components/info-tip";
 import { Button } from "@/components/ui/button";
 import type { CatalogEndpoint } from "@/features/endpoints/types";
 import { launchDefaultRun } from "@/features/runs/actions";
@@ -54,12 +55,15 @@ import {
 import { emptyHistory, redo, remember, undo, type History } from "../history";
 import { endpointChoices } from "@/features/scenarios/threshold-presets";
 
+import { barHelp } from "../help";
+import { copyFlow, pasteFlow, parseClip, serializeClip, type Clip } from "../flow-clipboard";
 import { describe, infoOf, newNode } from "../kinds";
 import { Dock, type ProfileDraft, type Target } from "./dock";
 import { EmptyState } from "./empty-state";
 import { ProblemsPanel, type Problem } from "./problems-panel";
 import { ScriptPanel, type Draft } from "./script-panel";
 import { Inspector } from "./inspector";
+import { BuilderHelp } from "./builder-help";
 import { Palette, dragType } from "./palette";
 import { StepNode, type StepData, type StepFlowNode } from "./step-node";
 
@@ -420,6 +424,119 @@ function BuilderView({
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // Copy, paste and duplicate act on the steps selected on the canvas. A copy also
+  // goes to the system clipboard as text, so that it can be pasted into another
+  // scenario; what is pasted is read as untrusted data, whoever wrote it.
+  const copied = useRef<{ clip: Clip; origin: Position; pastes: number } | null>(null);
+
+  function copySelection(): Clip | null {
+    const ids = new Set(selected.map((n) => n.id));
+    const clip = copyFlow(graph, ids, places(graph));
+    if (!clip) {
+      setMessage({ kind: "error", text: "Select one or more steps first. Shift and drag draws a frame around several." });
+      return null;
+    }
+    const where = places(graph);
+    const origin = {
+      x: Math.min(...selected.map((n) => where[n.id]?.x ?? 0)),
+      y: Math.min(...selected.map((n) => where[n.id]?.y ?? 0)),
+    };
+    copied.current = { clip, origin, pastes: 0 };
+    setMessage({ kind: "ok", text: `Copied ${clip.nodes.length === 1 ? "1 step" : `${clip.nodes.length} steps`}. Paste with Ctrl/Cmd+V, here or in another scenario.` });
+    return clip;
+  }
+
+  // A pasted group lands a little below and right of the one it was copied from, a
+  // bit further each time, and in the middle of the view when it comes from elsewhere.
+  function pasteClip(clip: Clip, dropped = 0) {
+    if (readOnly) return;
+
+    const mine = copied.current?.clip === clip ? copied.current : null;
+    let at: Position;
+    if (mine) {
+      mine.pastes += 1;
+      at = { x: mine.origin.x + 40 * mine.pastes, y: mine.origin.y + 40 * mine.pastes };
+    } else {
+      const rect = surface.current?.getBoundingClientRect();
+      const middle = rect ? flow.screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }) : { x: 0, y: 0 };
+      const width = Math.max(...Object.values(clip.places).map((p) => p.x));
+      const height = Math.max(...Object.values(clip.places).map((p) => p.y));
+      at = { x: middle.x - width / 2 - 112, y: middle.y - height / 2 - 40 };
+    }
+
+    const pasted = pasteFlow(graph, clip, at);
+    if (!pasted.ok) {
+      setMessage({ kind: "error", text: pasted.error });
+      return;
+    }
+
+    const unselected = Object.fromEntries(Object.entries(box).map(([key, value]) => [key, { ...value, selected: false }]));
+    const added = Object.fromEntries(pasted.ids.map((id) => [id, { position: pasted.places[id], selected: true }]));
+    apply(pasted.graph, { ...unselected, ...added });
+    setRevision((r) => r + 1);
+    setMessage({
+      kind: "ok",
+      text:
+        `Pasted ${pasted.ids.length === 1 ? "1 step" : `${pasted.ids.length} steps`}.` +
+        (dropped > 0 ? ` ${dropped === 1 ? "A credential header" : `${dropped} credential headers`} with no variable ${dropped === 1 ? "was" : "were"} left out: a credential is read from a variable.` : ""),
+    });
+  }
+
+  function duplicateSelection() {
+    const clip = copySelection();
+    if (clip) pasteClip(clip);
+  }
+
+  // Ctrl/Cmd + C, V and D on the canvas. Left alone in a field, where they mean the
+  // text, and on a text selection somewhere else on the page.
+  useEffect(() => {
+    if (tab !== "canvas") return;
+    const inField = (target: EventTarget | null) =>
+      target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable]"));
+
+    const onCopy = (event: ClipboardEvent) => {
+      if (inField(event.target) || window.getSelection()?.toString() || selected.length === 0) return;
+      const clip = copySelection();
+      if (!clip) return;
+      event.clipboardData?.setData("text/plain", serializeClip(clip));
+      event.preventDefault();
+    };
+
+    const onPaste = (event: ClipboardEvent) => {
+      if (readOnly || inField(event.target)) return;
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      const read = parseClip(text);
+      if (read.ok) {
+        event.preventDefault();
+        pasteClip(read.clip, read.dropped);
+      } else if (read.error) {
+        event.preventDefault();
+        setMessage({ kind: "error", text: read.error });
+      } else if (text === "" && copied.current) {
+        // The browser gave no text, as when the clipboard cannot be written: paste
+        // what was copied in this page.
+        event.preventDefault();
+        pasteClip(copied.current.clip);
+      }
+    };
+
+    const onKey = (event: KeyboardEvent) => {
+      if (readOnly || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "d") return;
+      if (inField(event.target) || selected.length === 0) return;
+      event.preventDefault();
+      duplicateSelection();
+    };
+
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("paste", onPaste);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("paste", onPaste);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
+
   function addNode(kind: NodeKind, at?: Position, wired = true) {
     const id = nextId(graph.nodes);
     const node = newNode(kind, id);
@@ -663,18 +780,18 @@ function BuilderView({
               </>
             )}
           </span>
-          <span
-            className="data flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs"
-            title="The default profile a run starts from"
-          >
+          <InfoTip label="the saved state">{barHelp.saved}</InfoTip>
+          <span className="data flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs">
             <span className="font-sans text-[11px] text-muted-foreground">load</span>
             {own ? profileSummary(scenario.default_profile, scenario.default_params) : `${scenario.default_profile} template`}
+            <InfoTip label="load">{barHelp.load}</InfoTip>
           </span>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {canRun && (
               <label className="flex items-center gap-2 rounded-md border px-2.5 text-[11px] text-muted-foreground">
                 target
+                <InfoTip label="the target">{barHelp.target}</InfoTip>
                 <select
                   value={environmentId}
                   onChange={(event) => setEnvironmentId(event.target.value)}
@@ -795,7 +912,10 @@ function BuilderView({
             maxZoom={1.5}
             zoomOnDoubleClick={false}
           >
-            <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} />
+            {/* A blueprint: a fine grid every 100 px under dots every 20, both in the text
+                colour at low strength, so that they follow the theme. */}
+            <Background id="grid" variant={BackgroundVariant.Lines} gap={100} lineWidth={1} color="var(--blueprint-line)" />
+            <Background id="dots" variant={BackgroundVariant.Dots} gap={20} size={1.6} color="var(--blueprint-dot)" />
             <MiniMap pannable zoomable ariaLabel="Mini map of the scenario" nodeColor={minimapColor} nodeStrokeWidth={0} nodeBorderRadius={3} />
             <ZoomPanel />
             {!readOnly && (
@@ -816,6 +936,17 @@ function BuilderView({
                 <Button variant="outline" size="icon" aria-label="Redo" onClick={goForward} disabled={history.future.length === 0}>
                   <Redo2 aria-hidden />
                 </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Duplicate the selected steps"
+                  title="Duplicate (Ctrl/Cmd+D)"
+                  onClick={duplicateSelection}
+                  disabled={selected.length === 0}
+                >
+                  <CopyPlus aria-hidden />
+                </Button>
+                <BuilderHelp />
               </Panel>
             )}
           </ReactFlow>

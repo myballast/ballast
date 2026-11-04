@@ -4,15 +4,18 @@ import { CircleAlert, ListPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { InfoTip } from "@/components/info-tip";
 import { Button } from "@/components/ui/button";
 import { EndpointPicker } from "@/features/endpoints/components/endpoint-picker";
 import type { CatalogEndpoint } from "@/features/endpoints/types";
 import type { GraphNode } from "@/features/scenarios/types";
 import { cn } from "@/lib/utils";
 
+import { fieldHelp } from "../help";
 import { headerProblems, isJson, queryProblems, requestProblems, type Row } from "../request-validation";
 import { undefinedNames, type Available } from "../variables";
 import { JsonEditor } from "./json-editor";
+import { PathField } from "./path-field";
 import type { Suggesting } from "./suggestions";
 import { TemplateField } from "./template-field";
 
@@ -23,11 +26,14 @@ const input =
 
 export type RequestChange = (patch: Partial<GraphNode>, field: string) => void;
 
-function Label({ htmlFor, children }: { htmlFor?: string; children: React.ReactNode }) {
+function Label({ htmlFor, help, children }: { htmlFor?: string; help?: string; children: string }) {
   return (
-    <label htmlFor={htmlFor} className="text-[11px] tracking-wider text-muted-foreground uppercase">
-      {children}
-    </label>
+    <span className="flex items-center gap-1.5">
+      <label htmlFor={htmlFor} className="text-[11px] tracking-wider text-muted-foreground uppercase">
+        {children}
+      </label>
+      {help && <InfoTip label={children}>{help}</InfoTip>}
+    </span>
   );
 }
 
@@ -47,6 +53,7 @@ function Problem({ id, children }: { id: string; children?: string }) {
 // to it. The value takes {{variables}}, offered as it is typed.
 function KeyValueRows({
   label,
+  help,
   addLabel,
   rows: initial,
   check,
@@ -56,6 +63,7 @@ function KeyValueRows({
   onBind,
 }: {
   label: string;
+  help?: string;
   addLabel: string;
   rows: Row[];
   // One message per row, for the rows as they stand — blank ones included.
@@ -78,7 +86,10 @@ function KeyValueRows({
 
   return (
     <fieldset className="flex min-w-0 flex-col gap-1.5" disabled={disabled}>
-      <legend className="mb-1 text-[11px] tracking-wider text-muted-foreground uppercase">{label}</legend>
+      <legend className="mb-1 flex items-center gap-1.5 text-[11px] tracking-wider text-muted-foreground uppercase">
+        {label}
+        {help && <InfoTip label={label}>{help}</InfoTip>}
+      </legend>
       {rows.map((row, index) => {
         const said = problems[index];
         const id = `${label}-${index}-problem`;
@@ -222,7 +233,9 @@ export function RequestPanel({
       )}
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="request-path">Request</Label>
+        <Label htmlFor="request-path" help={fieldHelp.request}>
+          Request
+        </Label>
         <div className="flex gap-1.5">
           <select
             aria-label="Method"
@@ -238,14 +251,14 @@ export function RequestPanel({
             <span aria-hidden className="data shrink-0 pl-2 text-xs text-muted-foreground">
               $baseUrl
             </span>
-            <input
+            <PathField
               id="request-path"
-              aria-invalid={problems.path ? true : undefined}
-              aria-describedby={problems.path ? "request-path-problem" : "request-path-hint"}
-              className="data h-8 min-w-0 flex-1 bg-transparent px-0.5 text-xs outline-none"
               value={node.path ?? ""}
-              spellCheck={false}
-              onChange={(event) => onChange({ path: event.target.value }, "path")}
+              endpoints={readOnly ? undefined : endpoints}
+              invalid={Boolean(problems.path)}
+              describedBy={problems.path ? "request-path-problem" : "request-path-hint"}
+              onChange={(path) => onChange({ path }, "path")}
+              onPick={onPickEndpoint}
             />
           </div>
         </div>
@@ -253,11 +266,13 @@ export function RequestPanel({
         <p id="request-path-hint" className="text-xs text-muted-foreground">
           The address of the environment comes first. A name between braces, as in /users/{"{id}"}, is a variable, and the
           path is the request&apos;s name tag.
+          {!readOnly && endpoints && endpoints.length > 0 && " Start typing to pick an endpoint of the catalog: its headers and body come with it."}
         </p>
       </div>
 
       <KeyValueRows
         label="Headers"
+        help={fieldHelp.headers}
         addLabel="Add a header"
         rows={headers}
         check={headerProblems}
@@ -269,6 +284,7 @@ export function RequestPanel({
 
       <KeyValueRows
         label="Query"
+        help={fieldHelp.query}
         addLabel="Add a query parameter"
         rows={query}
         check={queryProblems}
@@ -279,7 +295,9 @@ export function RequestPanel({
       />
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="request-body">{json ? "Body · json" : "Body"}</Label>
+        <Label htmlFor="request-body" help={fieldHelp.body}>
+          {json ? "Body · json" : "Body"}
+        </Label>
         <JsonEditor
           id="request-body"
           label="Body"
@@ -297,6 +315,7 @@ export function RequestPanel({
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" disabled={readOnly} checked={node.critical ?? false} onChange={(e) => onChange({ critical: e.target.checked }, "critical")} />
         Critical: the scenario stops here if this request fails
+        <InfoTip label="Critical">{fieldHelp.critical}</InfoTip>
       </label>
 
       {ghosts.length > 0 && (

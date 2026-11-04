@@ -3,6 +3,7 @@
 import { CircleAlert, X } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 
+import { InfoTip } from "@/components/info-tip";
 import { Button } from "@/components/ui/button";
 
 import { fromGuided, operatorLabels, responseStatus, responseTimeMs, toGuided, type Clause, type Guided, type Operator } from "../condition";
@@ -28,6 +29,7 @@ export function ConditionEditor({
   available,
   readOnly,
   label,
+  help,
 }: {
   value: string;
   onChange: (expression: string) => void;
@@ -35,6 +37,8 @@ export function ConditionEditor({
   available: string[];
   readOnly: boolean;
   label: string;
+  // What the field means, for the "i" beside its title.
+  help?: string;
 }) {
   const id = useId();
   const listId = `${id}-variables`;
@@ -68,7 +72,10 @@ export function ConditionEditor({
 
       {guided ? (
         <fieldset className="flex min-w-0 flex-col gap-2" disabled={readOnly}>
-          <legend className="mb-1 text-[11px] tracking-wider text-muted-foreground uppercase">{label}</legend>
+          <legend className="mb-1 flex items-center gap-1.5 text-[11px] tracking-wider text-muted-foreground uppercase">
+            {label}
+            {help && <InfoTip label={label}>{help}</InfoTip>}
+          </legend>
 
           {guided.clauses.length > 1 && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -3,8 +3,10 @@
 import { CircleAlert } from "lucide-react";
 import { useId, useState } from "react";
 
+import { InfoTip } from "@/components/info-tip";
 import type { GraphNode } from "@/features/scenarios/types";
 
+import { fieldHelp } from "../help";
 import { loopProblem, maxLoop, maxPause, pauseProblem, setVariableProblem } from "../node-validation";
 import { ConditionEditor } from "./condition-editor";
 
@@ -23,11 +25,24 @@ function Problem({ children }: { children?: string }) {
   );
 }
 
-function Label({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
+function Label({ htmlFor, help, children }: { htmlFor: string; help?: string; children: string }) {
   return (
-    <label htmlFor={htmlFor} className="text-[11px] tracking-wider text-muted-foreground uppercase">
+    <span className="flex items-center gap-1.5">
+      <label htmlFor={htmlFor} className="text-[11px] tracking-wider text-muted-foreground uppercase">
+        {children}
+      </label>
+      {help && <InfoTip label={children}>{help}</InfoTip>}
+    </span>
+  );
+}
+
+// Legend is the title of a group of fields, with an "i" when it needs one.
+function Legend({ help, children }: { help?: string; children: string }) {
+  return (
+    <legend className="mb-1 flex items-center gap-1.5 text-[11px] tracking-wider text-muted-foreground uppercase">
       {children}
-    </label>
+      {help && <InfoTip label={children}>{help}</InfoTip>}
+    </legend>
   );
 }
 
@@ -53,6 +68,7 @@ export function ConditionPanel({
     <div className="flex flex-col gap-3">
       <ConditionEditor
         label="Test"
+        help={fieldHelp.condition}
         value={node.expression ?? ""}
         available={available}
         readOnly={readOnly}
@@ -87,6 +103,7 @@ export function AssertionPanel({
     <div className="flex flex-col gap-3">
       <ConditionEditor
         label="Check"
+        help={fieldHelp.assertion}
         value={node.expression ?? ""}
         available={available}
         readOnly={readOnly}
@@ -94,7 +111,7 @@ export function AssertionPanel({
       />
 
       <fieldset className="flex flex-col gap-1.5" disabled={readOnly}>
-        <legend className="mb-1 text-[11px] tracking-wider text-muted-foreground uppercase">If it does not hold</legend>
+        <Legend help={fieldHelp.assertionFail}>If it does not hold</Legend>
         <label className="flex items-start gap-2 text-xs">
           <input type="radio" name={name} checked={!stops} onChange={() => onChange({ critical: false }, "critical")} />
           <span>
@@ -132,7 +149,7 @@ export function LoopPanel({
   return (
     <div className="flex flex-col gap-4">
       <fieldset className="flex flex-col gap-1.5" disabled={readOnly}>
-        <legend className="mb-1 text-[11px] tracking-wider text-muted-foreground uppercase">Repeat</legend>
+        <Legend>Repeat</Legend>
         <label className="flex items-center gap-2 text-xs">
           <input
             type="radio"
@@ -162,7 +179,9 @@ export function LoopPanel({
             ))}
           </datalist>
           <div className="flex flex-col gap-1">
-            <Label htmlFor={`${id}-over`}>List</Label>
+            <Label htmlFor={`${id}-over`} help={fieldHelp.loopList}>
+              List
+            </Label>
             <input
               id={`${id}-over`}
               list={`${id}-lists`}
@@ -178,7 +197,9 @@ export function LoopPanel({
             </p>
           </div>
           <div className="flex flex-col gap-1">
-            <Label htmlFor={`${id}-item`}>Each element goes in</Label>
+            <Label htmlFor={`${id}-item`} help={fieldHelp.loopItem}>
+              Each element goes in
+            </Label>
             <input
               id={`${id}-item`}
               className={input}
@@ -192,7 +213,9 @@ export function LoopPanel({
       )}
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor={`${id}-max`}>{mode === "list" ? "At most" : "Times"}</Label>
+        <Label htmlFor={`${id}-max`} help={fieldHelp.loopMax}>
+          {mode === "list" ? "At most" : "Times"}
+        </Label>
         <input
           id={`${id}-max`}
           type="number"
@@ -229,7 +252,7 @@ export function PausePanel({ node, readOnly, onChange }: { node: GraphNode; read
   return (
     <div className="flex flex-col gap-4">
       <fieldset className="flex flex-col gap-1.5" disabled={readOnly}>
-        <legend className="mb-1 text-[11px] tracking-wider text-muted-foreground uppercase">Wait</legend>
+        <Legend help={fieldHelp.wait}>Wait</Legend>
         <label className="flex items-center gap-2 text-xs">
           <input type="radio" name={`${id}-mode`} checked={!range} onChange={() => onChange({ seconds_max: 0 }, "mode")} />
           A fixed time
@@ -293,7 +316,9 @@ export function SetVariablePanel({ node, readOnly, onChange }: { node: GraphNode
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <Label htmlFor={`${id}-name`}>Variable</Label>
+        <Label htmlFor={`${id}-name`} help={fieldHelp.setVariable}>
+          Variable
+        </Label>
         <input
           id={`${id}-name`}
           className={input}
@@ -305,7 +330,9 @@ export function SetVariablePanel({ node, readOnly, onChange }: { node: GraphNode
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor={`${id}-from`}>Taken from</Label>
+        <Label htmlFor={`${id}-from`} help={fieldHelp.setFrom}>
+          Taken from
+        </Label>
         <select
           id={`${id}-from`}
           className={input}

@@ -7,6 +7,7 @@ import { memo } from "react";
 import { cn } from "@/lib/utils";
 import type { GraphNode } from "@/features/scenarios/types";
 
+import { barHelp } from "../help";
 import { describe, exits, infoOf } from "../kinds";
 import { KindIcon } from "./kind-icon";
 
@@ -48,7 +49,11 @@ function StepNodeView({ data, selected }: NodeProps<StepFlowNode>) {
           <KindIcon icon={info.icon} className="size-3.5" />
         </span>
         <span className="tracking-wider uppercase">{info.label}</span>
-        {start && <span className="data ml-auto rounded border px-1 text-[10px]">start</span>}
+        {start && (
+          <span className="data ml-auto rounded border px-1 text-[10px]" title={barHelp.start}>
+            start
+          </span>
+        )}
       </div>
       <div className="data mt-2 truncate text-[13px]" title={title}>
         {title}
