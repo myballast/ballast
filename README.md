@@ -38,8 +38,8 @@ and put its client ID and secret in `.env`. Never in `.env.example`, which is
 committed.
 
 The first sign-in creates an organization, with a first project its user
-administers. The worker only takes runs from `BALLAST_WORKER_ORG_ID` (the
-seeded organization by default) until the queue can serve every organization.
+administers. `make worker` only takes runs from `BALLAST_WORKER_ORG_ID` (the
+seeded organization by default); a worker with that variable empty serves every organization.
 
 ## Commands
 

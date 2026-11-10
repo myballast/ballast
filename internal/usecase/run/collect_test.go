@@ -466,3 +466,129 @@ func TestTheSweepSparesWhatIsStillBeingWatched(t *testing.T) {
 		t.Fatalf("the sweep called a run live if seen since %s, wanted %s", f.runs.since, want)
 	}
 }
+
+// The rule a worker serving every organization lives by. One machine runs the
+// generators of all of them, and the sweep destroys what no live run owns: so
+// what it spares has to be the live runs of every organization, not of one.
+//
+// This is the test that fails against a sweep that reads a single organization.
+// That sweep is exactly right for a worker that serves one, and exactly wrong
+// for one that serves two: it would destroy the generator of a run another
+// organization is measuring, mid-run, with nobody having decided to.
+func TestTheSweepOfAWorkerForSeveralOrganizationsSparesTheLiveRunsOfEachOfThem(t *testing.T) {
+	f := newCollectFixture(nil)
+
+	alpha, beta := uuid.New(), uuid.New()
+	alphaRun, betaRun := uuid.New(), uuid.New()
+	f.runs.liveOf = map[uuid.UUID][]uuid.UUID{
+		alpha: {alphaRun},
+		beta:  {betaRun},
+	}
+	f.containers.destroyed = 1
+
+	destroyed, err := f.service.SweepOrganizations(context.Background(), []uuid.UUID{alpha, beta})
+	if err != nil {
+		t.Fatalf("SweepOrganizations: %v", err)
+	}
+	if destroyed != 1 {
+		t.Fatalf("reported %d destroyed, the daemon removed 1", destroyed)
+	}
+
+	if len(f.containers.kept) != 1 {
+		t.Fatalf("the daemon was swept %d time(s), want once: two sweeps would each see half the runs",
+			len(f.containers.kept))
+	}
+	kept := f.containers.kept[0]
+	if !contains(kept, alphaRun) || !contains(kept, betaRun) {
+		t.Fatalf("the sweep spared %v; a live run of each organization (%s, %s) must be spared",
+			kept, alphaRun, betaRun)
+	}
+}
+
+// A run this machine cannot account for is destroyed only when the machine can
+// say it knows every organization that has one. A single organization whose live
+// runs cannot be read leaves a hole exactly the size of its generators.
+func TestTheSweepDestroysNothingWhenOneOrganizationCannotBeRead(t *testing.T) {
+	f := newCollectFixture(nil)
+
+	alpha, beta := uuid.New(), uuid.New()
+	f.runs.liveOf = map[uuid.UUID][]uuid.UUID{alpha: {uuid.New()}}
+	f.runs.liveFails = map[uuid.UUID]error{beta: errors.New("the database blinked")}
+	f.containers.destroyed = 5
+
+	destroyed, err := f.service.SweepOrganizations(context.Background(), []uuid.UUID{alpha, beta})
+	if err == nil {
+		t.Fatal("a sweep that could not read one organization reported success")
+	}
+	if destroyed != 0 {
+		t.Fatalf("%d container(s) were destroyed on an incomplete list of live runs", destroyed)
+	}
+	if len(f.containers.kept) != 0 {
+		t.Fatalf("the daemon was asked to destroy everything outside %v: with one organization unread, "+
+			"that list is missing runs", f.containers.kept)
+	}
+}
+
+// Said the other way round, so the fail-closed rule is not read as a rule against
+// sweeping: with every organization read and nothing live anywhere, whatever is on
+// the machine belongs to nobody, and that is the case the sweep exists for.
+func TestTheSweepDestroysEverythingWhenNoOrganizationHasALiveRun(t *testing.T) {
+	f := newCollectFixture(nil)
+
+	f.runs.liveOf = map[uuid.UUID][]uuid.UUID{}
+	f.containers.destroyed = 2
+
+	destroyed, err := f.service.SweepOrganizations(context.Background(), []uuid.UUID{uuid.New(), uuid.New()})
+	if err != nil {
+		t.Fatalf("SweepOrganizations: %v", err)
+	}
+	if destroyed != 2 {
+		t.Fatalf("destroyed %d, want 2", destroyed)
+	}
+	if len(f.containers.kept) != 1 || len(f.containers.kept[0]) != 0 {
+		t.Fatalf("spared %v, want nothing", f.containers.kept)
+	}
+}
+
+// Every organization it was given is asked about, whatever the answer for the one
+// before: skipping one would be the same hole as failing to read it.
+func TestTheSweepAsksAboutEveryOrganizationItWasGiven(t *testing.T) {
+	f := newCollectFixture(nil)
+
+	orgs := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	f.runs.liveOf = map[uuid.UUID][]uuid.UUID{}
+
+	if _, err := f.service.SweepOrganizations(context.Background(), orgs); err != nil {
+		t.Fatalf("SweepOrganizations: %v", err)
+	}
+	for _, org := range orgs {
+		if !contains(f.runs.askedAbout, org) {
+			t.Fatalf("organization %s was never asked about; asked: %v", org, f.runs.askedAbout)
+		}
+	}
+}
+
+// The single-organization sweep is the multi-organization one with a list of one,
+// so a restricted worker behaves as it always did.
+func TestTheSweepOfOneOrganizationIsUnchanged(t *testing.T) {
+	f := newCollectFixture(nil)
+
+	watched := uuid.New()
+	f.runs.live = []uuid.UUID{watched}
+
+	if _, err := f.service.Sweep(context.Background(), f.orgID); err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	if len(f.containers.kept) != 1 || !contains(f.containers.kept[0], watched) {
+		t.Fatalf("spared %v, want %s", f.containers.kept, watched)
+	}
+}
+
+func contains(ids []uuid.UUID, want uuid.UUID) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}

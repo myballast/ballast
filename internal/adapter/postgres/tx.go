@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,7 +37,23 @@ type DB struct {
 
 // Open builds a pool from dsn and checks that it answers.
 func Open(ctx context.Context, dsn string) (*DB, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	return OpenSized(ctx, dsn, 0)
+}
+
+// OpenSized is Open with a ceiling on the connections of the pool. Zero keeps the
+// driver's own default. A worker that executes several runs at once holds several
+// connections at once (each run's heartbeat and cancellation watch, on top of
+// the one that claims), and the default is sized for neither.
+func OpenSized(ctx context.Context, dsn string, maxConns int) (*DB, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("read the postgres address: %w", err)
+	}
+	if maxConns > 0 {
+		cfg.MaxConns = int32(min(maxConns, math.MaxInt32)) //nolint:gosec // clamped to the int32 range on this line
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}

@@ -101,7 +101,14 @@ func (s *Service) end(ctx context.Context, orgID uuid.UUID, orphan domain.Run) e
 }
 
 // Sweep destroys everything on this machine that belongs to a run no longer
-// being watched, and reports how many it destroyed.
+// being watched, for a worker that serves one organization. It is
+// SweepOrganizations of a list of one.
+func (s *Service) Sweep(ctx context.Context, orgID uuid.UUID) (int, error) {
+	return s.SweepOrganizations(ctx, []uuid.UUID{orgID})
+}
+
+// SweepOrganizations destroys everything on this machine that belongs to a run no
+// longer being watched, and reports how many it destroyed.
 //
 // It runs once, when a worker starts. A worker that was killed mid-run left a
 // generator behind, and that generator does not stop when its worker does: it
@@ -111,15 +118,29 @@ func (s *Service) end(ctx context.Context, orgID uuid.UUID, orphan domain.Run) e
 // this machine was down.
 //
 // Its scope is worth stating plainly, because it is what makes it correct: it
-// can see the machine this worker generates load from, and it can read one
-// organization's runs, since row-level security shows it no others. Everything
-// it cannot account for, it destroys. That holds because a worker serves one
-// organization and that machine runs its runs and nothing else — two workers
-// for two organizations sharing one would destroy each other's generators.
-func (s *Service) Sweep(ctx context.Context, orgID uuid.UUID) (int, error) {
-	live, err := s.runs.LiveRunIDs(ctx, orgID, domain.StaleBefore(s.clock.Now()))
-	if err != nil {
-		return 0, fmt.Errorf("list the live runs: %w", err)
+// sees the machine this worker generates load from, and it reads the runs of the
+// organizations it is given, one at a time, each under its own tenant. Everything
+// it cannot account for, it destroys. That holds because one worker owns one
+// Docker daemon: two workers on one daemon would destroy each other's generators,
+// whichever organizations they serve.
+//
+// What it spares is the union of the live runs of every organization it was
+// given. A worker serving three organizations that spared only one's would
+// destroy the generators of the other two while they measure. And it fails
+// closed: when the live runs of one organization cannot be read, nothing at all
+// is destroyed, because what is not known to be dead is not destroyed. Reading
+// none of them successfully is different from reading them and finding none — the
+// second is a machine with nothing alive on it, and everything on it is a leftover.
+func (s *Service) SweepOrganizations(ctx context.Context, orgIDs []uuid.UUID) (int, error) {
+	since := domain.StaleBefore(s.clock.Now())
+
+	live := make([]uuid.UUID, 0)
+	for _, orgID := range orgIDs {
+		ids, err := s.runs.LiveRunIDs(ctx, orgID, since)
+		if err != nil {
+			return 0, fmt.Errorf("list the live runs of organization %s: %w", orgID, err)
+		}
+		live = append(live, ids...)
 	}
 
 	destroyed, err := s.cleaner.DestroyExcept(ctx, live)

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/youssefmahersi/ballast/internal/domain"
+	"github.com/youssefmahersi/ballast/internal/usecase/runner"
 )
 
 // Written before the change it asks for. A deployment sends the worker SIGTERM,
@@ -60,11 +61,19 @@ func quiet() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// pollInBackground starts the loop and reports what it returned.
+// pollInBackground starts the loop for one organization and one slot, which is
+// what a worker restricted to an organization used to be, and reports what it
+// returned. The tests below are the ones that hold for any number of either.
 func pollInBackground(drain, hard context.Context, processor Processor) <-chan error {
+	slots, err := runner.NewSlots(1, 1)
+	if err != nil {
+		panic(err)
+	}
+	scope := &fixedScope{orgs: []uuid.UUID{uuid.New()}}
+
 	done := make(chan error, 1)
 	go func() {
-		done <- poll(drain, hard, processor, uuid.New(), 5*time.Millisecond, quiet())
+		done <- serve(drain, hard, processor, scope, slots, 5*time.Millisecond, quiet())
 	}()
 	return done
 }

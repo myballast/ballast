@@ -189,8 +189,8 @@ api: export BALLAST_SECRET_KEY ?= $(DEV_SECRET_KEY)
 worker: export BALLAST_SECRET_KEY ?= $(DEV_SECRET_KEY)
 
 # The organization deploy/seed/dev.sql creates, and the route that lets a
-# generator reach a server on this machine. The worker serves one organization
-# until the queue can serve them all.
+# generator reach a server on this machine. The development worker is
+# restricted to it; with the variable empty, a worker serves every organization.
 worker: export BALLAST_WORKER_ORG_ID ?= 417116f2-ad9b-4286-89cf-37930567de88
 worker: export BALLAST_EXTRA_HOST ?= host.docker.internal:host-gateway
 # A run launched here targets a server on this machine, whose address is private.

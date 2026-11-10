@@ -207,3 +207,19 @@ func boolean(key string, fallback bool) (bool, error) {
 	}
 	return parsed, nil
 }
+
+// positiveInt reads a whole number of at least one. A zero, a negative or a word
+// is refused by name: a worker with no slot would start, say it is alive, and
+// never run anything.
+func positiveInt(key string, fallback int) (int, error) {
+	raw := env(key, "")
+	if raw == "" {
+		return fallback, nil
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s is %q; it must be a whole number of at least 1", key, raw)
+	}
+	return n, nil
+}

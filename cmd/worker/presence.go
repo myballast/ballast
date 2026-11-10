@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,9 +93,13 @@ type contractGuard struct {
 	contract int
 	log      *slog.Logger
 
-	// said is the minimum already reported, so that a worker polling every second
-	// does not write the same sentence a second time every second.
-	said int
+	// said is the minimum already reported to each organization, so that a worker
+	// polling every second does not write the same sentence a second time every
+	// second. Several runs call the guard at once, and each organization has a
+	// minimum of its own: the map is the organization's, and the mutex is what
+	// makes it safe to touch from two goroutines.
+	mu   sync.Mutex
+	said map[uuid.UUID]int
 }
 
 func (g *contractGuard) ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- domain.LogLine) (bool, error) {
@@ -103,14 +108,35 @@ func (g *contractGuard) ProcessNext(ctx context.Context, orgID uuid.UUID, logs c
 		return false, err
 	}
 	if !admitted {
-		if g.said != minimum {
-			g.said = minimum
+		if g.firstTimeSaying(orgID, minimum) {
 			g.log.Warn("this worker is older than the minimum and takes no run; runs stay queued",
-				"contract", g.contract, "minimum", minimum)
+				"org_id", orgID, "contract", g.contract, "minimum", minimum)
 		}
 		return false, nil
 	}
 
-	g.said = 0
+	g.forget(orgID)
 	return g.next.ProcessNext(ctx, orgID, logs)
+}
+
+// firstTimeSaying records the minimum reported to an organization, and says
+// whether it is news.
+func (g *contractGuard) firstTimeSaying(orgID uuid.UUID, minimum int) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.said == nil {
+		g.said = make(map[uuid.UUID]int)
+	}
+	if g.said[orgID] == minimum {
+		return false
+	}
+	g.said[orgID] = minimum
+	return true
+}
+
+func (g *contractGuard) forget(orgID uuid.UUID) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.said, orgID)
 }

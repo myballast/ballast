@@ -66,6 +66,13 @@ type fakeRuns struct {
 	// live is what LiveRunIDs returns, and since what it was asked.
 	live  []uuid.UUID
 	since time.Time
+	// liveOf, when set, answers LiveRunIDs per organization instead of live, and
+	// liveFails makes one organization's answer an error. askedAbout is every
+	// organization the question was put to, in order: a worker that serves
+	// several has to ask about each of them.
+	liveOf     map[uuid.UUID][]uuid.UUID
+	liveFails  map[uuid.UUID]error
+	askedAbout []uuid.UUID
 	// What the limits read: how many runs are waiting, how many were
 	// triggered in the window, and when the oldest of them was.
 	queued         int
@@ -679,11 +686,19 @@ func (f *fakeRuns) FailOrphaned(
 	return f.err
 }
 
-func (f *fakeRuns) LiveRunIDs(_ context.Context, _ uuid.UUID, since time.Time) ([]uuid.UUID, error) {
+func (f *fakeRuns) LiveRunIDs(_ context.Context, orgID uuid.UUID, since time.Time) ([]uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.since = since
+	f.askedAbout = append(f.askedAbout, orgID)
+
+	if err := f.liveFails[orgID]; err != nil {
+		return nil, err
+	}
+	if f.liveOf != nil {
+		return f.liveOf[orgID], f.err
+	}
 	return f.live, f.err
 }
 

@@ -13,13 +13,19 @@ import (
 type Worker struct {
 	Config
 
-	// OrgID is the one organization the worker takes runs from.
-	//
-	// Row-level security keeps the application role from listing
-	// organizations, so the worker cannot find work across tenants yet. That
-	// is the PostgreSQL queue's problem to solve; until then the worker is
-	// pointed at one organization, and runs queued in any other wait.
+	// OrgID restricts the worker to one organization. Unset (the zero value),
+	// the worker serves every organization: it finds them through the two
+	// functions of migration 020, which return identifiers and nothing else.
+	// A machine that is one customer's, or a developer's, names it.
 	OrgID uuid.UUID
+
+	// MaxConcurrentRuns is how many runs this machine executes at once, and
+	// MaxRunsPerOrg how many of those one organization may hold. The first is a
+	// property of the machine: each generator is held to one CPU and 512 MB, and
+	// one more than the machine has would measure its own saturation instead of
+	// the target. The second is what keeps one customer from taking all of them.
+	MaxConcurrentRuns int
+	MaxRunsPerOrg     int
 
 	// DrainTimeout is how long a stopping worker waits for the run it is
 	// executing before cancelling it. A first signal takes no new run and lets
@@ -49,13 +55,32 @@ func LoadWorker() (Worker, error) {
 		return Worker{}, err
 	}
 
-	raw := env("BALLAST_WORKER_ORG_ID", "")
-	if raw == "" {
-		return Worker{}, fmt.Errorf("BALLAST_WORKER_ORG_ID is not set; the worker serves one organization until the queue can reach them all")
+	// Empty means every organization. A value that is not a uuid is refused
+	// rather than read as empty: a typo must not quietly widen what a machine
+	// serves from one customer to all of them.
+	var orgID uuid.UUID
+	if raw := env("BALLAST_WORKER_ORG_ID", ""); raw != "" {
+		orgID, err = uuid.Parse(raw)
+		if err != nil {
+			return Worker{}, fmt.Errorf("BALLAST_WORKER_ORG_ID is not a uuid: %w", err)
+		}
 	}
-	orgID, err := uuid.Parse(raw)
+
+	// Three runs and two per organization fit the machine this was sized for
+	// (4 cores, 8 GB): three generators at one CPU and 512 MB each, and a slot
+	// always left for somebody else.
+	maxConcurrent, err := positiveInt("BALLAST_MAX_CONCURRENT_RUNS", 3)
 	if err != nil {
-		return Worker{}, fmt.Errorf("BALLAST_WORKER_ORG_ID is not a uuid: %w", err)
+		return Worker{}, err
+	}
+	perOrg, err := positiveInt("BALLAST_MAX_RUNS_PER_ORG", 2)
+	if err != nil {
+		return Worker{}, err
+	}
+	if perOrg > maxConcurrent {
+		return Worker{}, fmt.Errorf(
+			"BALLAST_MAX_RUNS_PER_ORG is %d, above the %d runs the machine executes at once (BALLAST_MAX_CONCURRENT_RUNS); an organization would wait for slots that do not exist",
+			perOrg, maxConcurrent)
 	}
 
 	// A minute past the time limit by default: the generator is killed at
@@ -89,11 +114,22 @@ func LoadWorker() (Worker, error) {
 	}
 
 	return Worker{
-		Config:       common,
-		OrgID:        orgID,
-		DrainTimeout: drain,
-		WorkDir:      workDir,
-		ProxyImage:   env("BALLAST_PROXY_IMAGE", ""),
-		RunnerName:   name,
+		Config: common,
+		OrgID:  orgID,
+
+		MaxConcurrentRuns: maxConcurrent,
+		MaxRunsPerOrg:     perOrg,
+		DrainTimeout:      drain,
+		WorkDir:           workDir,
+		ProxyImage:        env("BALLAST_PROXY_IMAGE", ""),
+		RunnerName:        name,
 	}, nil
+}
+
+// PoolConnections is the size of the database pool: three per run that may be in
+// flight (the one doing the work, the heartbeat, the cancellation watch), plus
+// the presence, the collector and the poll. A pool smaller than that makes a run
+// wait for a connection while its own heartbeat is overdue.
+func (w Worker) PoolConnections() int {
+	return 3*w.MaxConcurrentRuns + 3
 }

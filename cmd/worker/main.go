@@ -60,7 +60,7 @@ func work(log *slog.Logger) error {
 	defer stopNow()
 	go stopWhenTold(drain, stopNow, cfg.DrainTimeout, log)
 
-	db, err := postgres.Open(hard, cfg.DatabaseURL)
+	db, err := postgres.OpenSized(hard, cfg.DatabaseURL, cfg.PoolConnections())
 	if err != nil {
 		return err
 	}
@@ -115,9 +115,10 @@ func work(log *slog.Logger) error {
 	// through a two-hour soak. The context is not the draining one, because a
 	// draining worker is alive; the deferred call ends it only after the last
 	// run is over, and before the database it writes to is closed.
+	scope := serving(cfg, db)
 	presence, err := fleet.NewPresence(
 		postgres.NewRunnerRepository(db), infra.SystemClock{},
-		cfg.OrgID, cfg.RunnerName, version, domain.RunnerContract)
+		scope, cfg.RunnerName, version, domain.RunnerContract)
 	if err != nil {
 		return err
 	}
@@ -133,6 +134,13 @@ func work(log *slog.Logger) error {
 	}()
 
 	log.Info("runner announced", "name", cfg.RunnerName, "version", version, "contract", domain.RunnerContract)
+	if cfg.OrgID == uuid.Nil {
+		log.Info("serving every organization",
+			"max_concurrent_runs", cfg.MaxConcurrentRuns, "max_runs_per_org", cfg.MaxRunsPerOrg)
+	} else {
+		log.Info("serving one organization", "org_id", cfg.OrgID,
+			"max_concurrent_runs", cfg.MaxConcurrentRuns, "max_runs_per_org", cfg.MaxRunsPerOrg)
+	}
 
 	if !cfg.AcceptingRuns {
 		// Said once, loudly, at startup. A worker that silently takes nothing
@@ -144,7 +152,14 @@ func work(log *slog.Logger) error {
 	// Before taking any work. A worker that was killed mid-run left a generator
 	// behind, and a generator does not stop when its worker does: it keeps
 	// loading somebody's target until its own time limit ends it.
-	if destroyed, err := service.Sweep(hard, cfg.OrgID); err != nil {
+	//
+	// Every organization is asked about, not only the ones with work: this
+	// daemon is this worker's alone, and what is on it belongs to a live run of
+	// some organization or to nobody. When any list cannot be read, nothing is
+	// destroyed.
+	if everyone, err := scope.Present(hard); err != nil {
+		log.Error("this machine could not be swept: the organizations could not be listed", "error", err)
+	} else if destroyed, err := service.SweepOrganizations(hard, everyone); err != nil {
 		// Loud, but not fatal. A daemon that cannot be swept is no reason to
 		// stop executing runs.
 		log.Error("this machine could not be swept", "error", err)
@@ -155,9 +170,9 @@ func work(log *slog.Logger) error {
 
 	// Under the hard context, not the draining one: a worker that is waiting for
 	// its last run is still the one that has to notice another worker's death.
-	go collect(hard, service, cfg.OrgID, cfg.CollectInterval, log)
+	go collect(hard, service, scope, cfg.CollectInterval, log)
 
-	log.Info("polling for runs", "org_id", cfg.OrgID, "interval", cfg.PollInterval)
+	log.Info("polling for runs", "interval", cfg.PollInterval)
 
 	// The service behind a guard: a worker older than the organization's minimum
 	// stays up and takes nothing, and the run it did not take stays queued.
@@ -168,7 +183,21 @@ func work(log *slog.Logger) error {
 		log:      log,
 	}
 
-	return poll(drain, hard, guarded, cfg.OrgID, cfg.PollInterval, log)
+	slots, err := fleet.NewSlots(cfg.MaxConcurrentRuns, cfg.MaxRunsPerOrg)
+	if err != nil {
+		return err
+	}
+
+	return serve(drain, hard, guarded, scope, slots, cfg.PollInterval, log)
+}
+
+// serving is which organizations this worker serves: the one it was restricted
+// to, or every one.
+func serving(cfg config.Worker, db *postgres.DB) fleet.Scope {
+	if cfg.OrgID != uuid.Nil {
+		return fleet.OnlyOrganization(cfg.OrgID)
+	}
+	return fleet.AllOrganizations(postgres.NewOrganizationDirectory(db))
 }
 
 // stopWhenTold cancels the hard context once draining has begun and the time to
@@ -199,13 +228,6 @@ func stopWhenTold(
 	stopNow()
 }
 
-// Processor is what the loop below asks of the run service: take the next queued
-// run and execute it. A name of its own so that the loop can be tested without a
-// database, a Docker daemon and every port the service holds.
-type Processor interface {
-	ProcessNext(ctx context.Context, orgID uuid.UUID, logs chan<- domain.LogLine) (bool, error)
-}
-
 // collect looks for runs whose worker has died, on its own schedule.
 //
 // A goroutine of its own rather than a step between two runs, and that is the
@@ -215,7 +237,7 @@ type Processor interface {
 func collect(
 	ctx context.Context,
 	service *run.Service,
-	orgID uuid.UUID,
+	scope Scope,
 	every time.Duration,
 	log *slog.Logger,
 ) {
@@ -229,82 +251,26 @@ func collect(
 		case <-ticker.C:
 		}
 
-		ended, err := service.Collect(ctx, orgID)
+		// The organizations with a run in flight or abandoned: those are the
+		// ones that can hold something to collect.
+		orgs, err := scope.Active(ctx)
 		if err != nil {
-			// The next tick tries again. A collector that stopped on its first
-			// failure would be a collector that stops.
-			log.Error("collecting abandoned runs failed", "error", err)
+			log.Error("the organizations to collect for could not be listed", "error", err)
 			continue
 		}
-		if ended > 0 {
-			log.Warn("runs abandoned by their worker were collected", "runs", ended)
-		}
-	}
-}
 
-// poll is the whole scheduling story for now: one organization, one run at a
-// time, a fixed wait when there is nothing to do.
-//
-// It polls a single organization because row-level security means the
-// application role cannot see, or even enumerate, any other. Finding work
-// across tenants is an unsolved question that belongs with the queue.
-//
-// It takes two contexts because stopping comes in two kinds. Cancelling drain
-// means take nothing more; the run under way is handed hard, which a first
-// signal does not touch. Cancelling hard cancels that run too.
-func poll(
-	drain context.Context,
-	hard context.Context,
-	service Processor,
-	orgID uuid.UUID,
-	interval time.Duration,
-	log *slog.Logger,
-) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		// Before claiming, and not only when idle: with a full queue the loop
-		// would otherwise never look, and a worker told to stop would take run
-		// after run.
-		if drain.Err() != nil || hard.Err() != nil {
-			log.Info("stopping")
-			return nil
-		}
-
-		// Not where the lines are stored: the service does that as they
-		// arrive, so that the live view has them. These are the same lines,
-		// forwarded here for a trace of what a run printed.
-		logs := make(chan domain.LogLine, 256)
-		drained := make(chan struct{})
-		go func() {
-			defer close(drained)
-			for line := range logs {
-				log.Debug("generator", "stream", line.Stream, "message", line.Message)
+		for _, orgID := range orgs {
+			ended, err := service.Collect(ctx, orgID)
+			if err != nil {
+				// The next tick tries again, and the next organization is not
+				// kept waiting by this one. A collector that stopped on its
+				// first failure would be a collector that stops.
+				log.Error("collecting abandoned runs failed", "org_id", orgID, "error", err)
+				continue
 			}
-		}()
-
-		worked, err := service.ProcessNext(hard, orgID, logs)
-		close(logs)
-		<-drained
-
-		if err != nil {
-			// A failed run must not take the worker down with it.
-			log.Error("processing a run failed", "error", err)
-		}
-
-		if worked {
-			continue
-		}
-
-		select {
-		case <-drain.Done():
-			log.Info("stopping")
-			return nil
-		case <-hard.Done():
-			log.Info("stopping")
-			return nil
-		case <-ticker.C:
+			if ended > 0 {
+				log.Warn("runs abandoned by their worker were collected", "org_id", orgID, "runs", ended)
+			}
 		}
 	}
 }
