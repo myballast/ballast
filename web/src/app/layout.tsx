@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
+
+import { parseTheme, systemThemeScript, themeCookie } from "@/features/theme/theme";
 
 import { Providers } from "./providers";
 import "@/styles/globals.css";
@@ -24,17 +27,31 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: themeColors.background,
-  colorScheme: "dark",
+  // The browser's own bars follow the system; the page's theme may differ when it
+  // was chosen by hand, which is the one thing a static value cannot say.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: themeColors.light.background },
+    { media: "(prefers-color-scheme: dark)", color: themeColors.background },
+  ],
 };
 
-// Dark by default: the class is set here rather than followed from the system.
-export default function RootLayout({ children }: LayoutProps<"/">) {
+// Dark by default. The theme is a cookie, read here so that the page is drawn in
+// it from the server; "system" is the one case the server cannot know, and a script
+// in the head settles it before anything is painted.
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const theme = parseTheme((await cookies()).get(themeCookie)?.value);
+
   return (
     <html
       lang="en"
-      className={`dark ${sans.variable} ${mono.variable} h-full antialiased`}
+      suppressHydrationWarning
+      className={`${theme === "dark" ? "dark " : ""}${sans.variable} ${mono.variable} h-full antialiased`}
     >
+      {theme === "system" && (
+        <head>
+          <script dangerouslySetInnerHTML={{ __html: systemThemeScript }} />
+        </head>
+      )}
       {/* Some browser extensions (a shortcut helper writes cz-shortcut-listen) add
           attributes to <body> before React loads. They are not ours to fix, and this
           silences the warning for the <body> element's own attributes only. */}

@@ -9,6 +9,8 @@ import { AppHeader } from "./app-header";
 import { Nav } from "./nav";
 import { OrgSelector } from "./org-selector";
 import { SidebarFrame, SidebarToggle } from "./sidebar";
+import { parseTheme, themeCookie } from "@/features/theme/theme";
+
 import { sidebarCookie, type SidebarPreference } from "./sidebar-state";
 import { UserMenu } from "./user-menu";
 
@@ -46,7 +48,9 @@ export async function AppShell({
   scope?: ShellScope | null;
   children: React.ReactNode;
 }) {
-  const saved = (await cookies()).get(sidebarCookie)?.value;
+  const jar = await cookies();
+  const saved = jar.get(sidebarCookie)?.value;
+  const theme = parseTheme(jar.get(themeCookie)?.value);
   const preference: SidebarPreference | undefined = saved === "collapsed" || saved === "open" ? saved : undefined;
 
   return (
@@ -76,7 +80,7 @@ export async function AppShell({
           </div>
         </details>
 
-        <AppHeader organization={me.organization.name} scope={scope} />
+        <AppHeader organization={me.organization.name} scope={scope} theme={theme} />
         <main id="content" tabIndex={-1} className="mx-auto w-full max-w-6xl px-4 py-page-y outline-none has-[.builder-wide]:max-w-none has-[.builder-wide]:px-4 has-[.builder-wide]:py-4 md:px-page-x md:has-[.builder-wide]:px-5">{children}</main>
       </div>
     </div>

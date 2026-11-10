@@ -81,31 +81,30 @@
 
 :root {
   /*
-   * The light theme. Dark is the default and the only one rendered today (the
-   * root layout sets .dark); these follow the same charter so that a theme
-   * switch, when one comes, has nothing to reinvent.
+   * The light theme. Dark is the default; the root layout sets .dark from the
+   * "theme" cookie, and the switch in the header changes it.
    */
-  --background: #fafafc;
-  --foreground: #16161e;
+  --background: #f7f7fb;
+  --foreground: #1b1b27;
   --card: #ffffff;
-  --card-foreground: #16161e;
+  --card-foreground: #1b1b27;
   --popover: #ffffff;
-  --popover-foreground: #16161e;
+  --popover-foreground: #1b1b27;
   /* The brand's violet: the logo, primary actions, the current page. Never a status. */
-  --brand: #7c4df4;
+  --brand: #6a3fd8;
   --brand-foreground: #ffffff;
   --primary: var(--brand);
   --primary-foreground: var(--brand-foreground);
-  --secondary: #f0f0f5;
-  --secondary-foreground: #2a2a36;
-  --muted: #f0f0f5;
-  --muted-foreground: #5e5e70;
-  --accent: #f0f0f5;
-  --accent-foreground: #16161e;
-  --destructive: #2a2a36;
-  --border: rgb(22 22 30 / 10%);
-  --input: rgb(22 22 30 / 14%);
-  --ring: #8b5cf6;
+  --secondary: #eeeef5;
+  --secondary-foreground: #2a2a38;
+  --muted: #eeeef5;
+  --muted-foreground: #5b5b70;
+  --accent: #eeeef5;
+  --accent-foreground: #1b1b27;
+  --destructive: #2a2a38;
+  --border: rgb(27 27 39 / 12%);
+  --input: rgb(27 27 39 / 16%);
+  --ring: #7a55e8;
   /* The colours of a JSON body in the request editor: violet, blue and orange,
      never the status colours. Only features/builder/components/json-editor.tsx
      uses them (npm run lint holds it to that). */
@@ -127,30 +126,31 @@
   --series-b: #d0691f;
   --chart-1: var(--series-a);
   --chart-2: var(--series-b);
-  --chart-3: #7c4df4;
+  --chart-3: #6a3fd8;
   --chart-4: #8a8a9c;
   --chart-5: #3a3a48;
   --radius: 0.625rem;
-  --sidebar: #f4f4f8;
-  --sidebar-foreground: #16161e;
+  --sidebar: #f0f0f6;
+  --sidebar-foreground: #1b1b27;
   --sidebar-primary: var(--brand);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e8e8ef;
-  --sidebar-accent-foreground: #16161e;
-  --sidebar-border: rgb(22 22 30 / 8%);
-  --sidebar-ring: #8b5cf6;
+  --sidebar-accent: #e4e4ee;
+  --sidebar-accent-foreground: #1b1b27;
+  --sidebar-border: rgb(27 27 39 / 10%);
+  --sidebar-ring: #7a55e8;
 
   /*
    * Green, amber and red belong to the status of a run or a threshold, and to
    * nothing else. Only components/status-badge.tsx may use them; `npm run
-   * lint` fails anywhere else. They are the same in both themes.
+   * lint` fails anywhere else. Darker on the light theme, where the bright ones
+   * would not be readable on white.
    */
-  --status-passed: #3fb950;
-  --status-warning: #d2a32b;
-  --status-failed: #f0555a;
-  --status-passed-bg: rgb(63 185 80 / 10%);
-  --status-warning-bg: rgb(210 163 43 / 10%);
-  --status-failed-bg: rgb(240 85 90 / 10%);
+  --status-passed: #1a7f37;
+  --status-warning: #9a6700;
+  --status-failed: #cf222e;
+  --status-passed-bg: rgb(26 127 55 / 10%);
+  --status-warning-bg: rgb(154 103 0 / 10%);
+  --status-failed-bg: rgb(207 34 46 / 9%);
 
   /*
    * The level of a line of a run's output: ERROR and WARN. The one place red and
@@ -174,32 +174,32 @@
 }
 
 .dark {
-  /* Values taken from the mockup, docs/web-doc/Ballast.html. */
-  --background: #0b0b0f;
-  --foreground: #e2e2ea;
-  --card: #0d0d12;
-  --card-foreground: #e2e2ea;
-  --popover: #0d0d12;
-  --popover-foreground: #e2e2ea;
+  /* A softer dark than the mockup's near-black: the surfaces step up from the page, the text is easy on the eye and the secondary text stays readable. */
+  --background: #13131a;
+  --foreground: #e6e6ef;
+  --card: #1a1a23;
+  --card-foreground: #e6e6ef;
+  --popover: #1e1e28;
+  --popover-foreground: #e6e6ef;
   /* Violet is the brand and the primary action. Never a status. */
-  --brand: #8b5cf6;
+  --brand: #a38cf9;
   --brand-foreground: #ffffff;
-  --primary: var(--brand);
+  --primary: #7b4ff0;
   --primary-foreground: var(--brand-foreground);
-  --secondary: #16161e;
-  --secondary-foreground: #d2d2de;
-  --muted: #16161e;
-  --muted-foreground: #7a7a8c;
-  --accent: #16161e;
-  --accent-foreground: #e2e2ea;
+  --secondary: #252531;
+  --secondary-foreground: #dcdce8;
+  --muted: #252531;
+  --muted-foreground: #a8a8ba;
+  --accent: #252531;
+  --accent-foreground: #e6e6ef;
   /*
    * Not red: red means a failed run. A destructive action says what it does
    * in its label and asks for confirmation; its colour stays neutral.
    */
-  --destructive: #d2d2de;
-  --border: rgb(255 255 255 / 7%);
-  --input: rgb(255 255 255 / 10%);
-  --ring: #a78bfa;
+  --destructive: #dcdce8;
+  --border: rgb(255 255 255 / 12%);
+  --input: rgb(255 255 255 / 15%);
+  --ring: #b39bfa;
   /* Node kinds of the builder, from the mockup. Not statuses: the kind is always said by an icon and a word. */
   --kind-request: #5b9cf8;
   --kind-extract: #46b8a6;
@@ -221,19 +221,31 @@
   --chart-1: var(--series-a);
   --chart-2: var(--series-b);
   --chart-3: #8b5cf6;
-  --chart-4: #4a4a5a;
+  --chart-4: #5a5a6c;
   --chart-5: #a0a0b2;
-  --sidebar: #0d0d12;
-  --sidebar-foreground: #e2e2ea;
-  --sidebar-primary: var(--brand);
+  --status-passed: #3fb950;
+  --status-warning: #d2a32b;
+  --status-failed: #f0555a;
+  --status-passed-bg: rgb(63 185 80 / 12%);
+  --status-warning-bg: rgb(210 163 43 / 12%);
+  --status-failed-bg: rgb(240 85 90 / 12%);
+  --sidebar: #16161e;
+  --sidebar-foreground: #e6e6ef;
+  --sidebar-primary: #7b4ff0;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #16161e;
-  --sidebar-accent-foreground: #e2e2ea;
-  --sidebar-border: rgb(255 255 255 / 7%);
-  --sidebar-ring: #a78bfa;
+  --sidebar-accent: #252531;
+  --sidebar-accent-foreground: #e6e6ef;
+  --sidebar-border: rgb(255 255 255 / 11%);
+  --sidebar-ring: #b39bfa;
 }
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
   * {
     @apply border-border outline-ring/50;
   }

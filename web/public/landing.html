@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><script>(function(){var m=document.cookie.match(/(?:^|; )theme=([^;]*)/),t=m?m[1]:"dark";if(t!=="light"&&t!=="system")t="dark";var d=t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.setAttribute("data-theme",d?"dark":"light")})()</script></head><body>
 <title>Ballast load testing</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Ballast runs k6 load tests from its own servers, only against targets you have proven you own, and explains the results in plain words.">
@@ -14,12 +14,12 @@
 /* Layout concept: one dark, bordered column. Every section is a component: text on one side, real-markup UI mockup on the other. No shadows; 1px borders separate surfaces. */
 :root{
   /* surfaces */
-  --bg:#0B0B0F; --card:#0D0D12; --raise:#101017; --sunk:#08080C;
-  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
+  --bg:#13131A; --card:#1A1A23; --raise:#1E1E28; --sunk:#101016;
+  --line:rgba(255,255,255,.12); --line-2:rgba(255,255,255,.2);
   /* text */
-  --text:#E7E7EE; --muted:#A3A3B5; --dim:#7F7F92;
+  --text:#E6E6EF; --muted:#B0B0C2; --dim:#8F8FA3;
   /* brand: actions, links, highlights only */
-  --brand:#8B5CF6; --brand-fill:#7B45F5; --brand-hover:#6D38E8; --on-brand:#FFFFFF;
+  --brand:#A38CF9; --brand-fill:#7B45F5; --brand-hover:#6D38E8; --on-brand:#FFFFFF;
   /* status: runs and thresholds only, always icon + word */
   --ok:#5ED070; --warn:#E6C56A; --bad:#FF7A80;
   /* comparison only */
@@ -31,7 +31,30 @@
   --sans:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
   --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --r:10px; --w:1160px;
+  /* washes, texture and glow: written as tokens so that a theme can change them */
+  --wash:rgba(255,255,255,.05); --wash-2:rgba(255,255,255,.08);
+  --dot-1:rgba(255,255,255,.11); --dot-2:rgba(255,255,255,.08); --dot-3:rgba(255,255,255,.05);
+  --header:rgba(19,19,26,.92); --glow:rgba(139,92,246,.13); --glow-2:rgba(139,92,246,.12);
+  --tag-line:rgba(139,92,246,.45); --pill-line:rgba(139,92,246,.6); --pill-bg:rgba(139,92,246,.12);
+  --code:#CFCFDC; --warn-line:rgba(230,197,106,.4); --warn-bg:rgba(230,197,106,.05);
   color-scheme:dark;
+}
+/* The light theme, chosen in the header or by the system: the same cookie as the application's. */
+html[data-theme="light"]{
+  --bg:#F7F7FB; --card:#FFFFFF; --raise:#F1F1F7; --sunk:#EEEEF5;
+  --line:rgba(27,27,39,.12); --line-2:rgba(27,27,39,.2);
+  --text:#1B1B27; --muted:#4F4F64; --dim:#6A6A80;
+  --brand:#6A3FD8; --brand-fill:#6A3FD8; --brand-hover:#5A32C0; --on-brand:#FFFFFF;
+  --ok:#1A7F37; --warn:#9A6700; --bad:#CF222E;
+  --run-a:#2F7AE5; --run-b:#D0691F;
+  --n-http:#2A8DB3; --n-extract:#1F8A79; --n-set:#4D5FD6; --n-cond:#C0457E;
+  --n-loop:#8A6A45; --n-think:#5F6C82; --n-assert:#4A6A94; --n-end:#6A6A80;
+  --wash:rgba(27,27,39,.05); --wash-2:rgba(27,27,39,.08);
+  --dot-1:rgba(27,27,39,.2); --dot-2:rgba(27,27,39,.14); --dot-3:rgba(27,27,39,.07);
+  --header:rgba(247,247,251,.92); --glow:rgba(106,63,216,.12); --glow-2:rgba(106,63,216,.1);
+  --tag-line:rgba(106,63,216,.4); --pill-line:rgba(106,63,216,.55); --pill-bg:rgba(106,63,216,.1);
+  --code:#2A2A38; --warn-line:rgba(154,103,0,.4); --warn-bg:rgba(154,103,0,.06);
+  color-scheme:light;
 }
 *{box-sizing:border-box}
 html{scroll-padding-top:72px}
@@ -50,19 +73,20 @@ button{font:inherit;color:inherit}
 .wrap{max-width:var(--w);margin:0 auto}
 .label{font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:500}
 .ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .skip{position:absolute;left:-999px;top:8px;background:var(--card);border:1px solid var(--line-2);padding:8px 12px;border-radius:8px;z-index:100}
 .skip:focus{left:8px}
 
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 18px;border-radius:9px;border:1px solid var(--line-2);background:transparent;color:var(--text);font-weight:500;font-size:.9375rem;cursor:pointer;text-decoration:none;transition:background .15s,border-color .15s}
-.btn:hover{background:rgba(255,255,255,.05);text-decoration:none}
+.btn:hover{background:var(--wash);text-decoration:none}
 .btn-primary{background:var(--brand-fill);border-color:var(--brand-fill);color:var(--on-brand)}
 .btn-primary:hover{background:var(--brand-hover);border-color:var(--brand-hover)}
 .btn-sm{height:32px;padding:0 12px;font-size:.8125rem;border-radius:8px}
 
 /* chips and tags */
 .tag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border:1px solid var(--line-2);border-radius:6px;font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;white-space:nowrap}
-.tag-brand{color:var(--brand);border-color:rgba(139,92,246,.45)}
+.tag-brand{color:var(--brand);border-color:var(--tag-line)}
 .status{display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:.8125rem;white-space:nowrap}
 .status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.bad{color:var(--bad)}
 
@@ -70,17 +94,17 @@ button{font:inherit;color:inherit}
 .hero{position:relative;isolation:isolate}
 .hero::before{content:"";position:absolute;z-index:-1;inset:16px 0 0;max-width:var(--w);margin-inline:auto;border:1px solid var(--line);border-radius:20px;
   background:
-    radial-gradient(60% 55% at 50% 0%,rgba(139,92,246,.13),transparent 70%),
-    radial-gradient(rgba(255,255,255,.11) 1px,transparent 1.3px) 0 0/14px 14px;
+    radial-gradient(60% 55% at 50% 0%,var(--glow),transparent 70%),
+    radial-gradient(var(--dot-1) 1px,transparent 1.3px) 0 0/14px 14px;
   -webkit-mask-image:radial-gradient(120% 100% at 50% 0%,#000 35%,transparent 100%);mask-image:radial-gradient(120% 100% at 50% 0%,#000 35%,transparent 100%)}
 .final{position:relative;isolation:isolate;overflow:hidden}
 .final::before{content:"";position:absolute;z-index:-1;inset:0;
   background:
-    radial-gradient(50% 70% at 0% 100%,rgba(139,92,246,.12),transparent 70%),
-    radial-gradient(rgba(255,255,255,.08) 1px,transparent 1.3px) 0 0/14px 14px;
+    radial-gradient(50% 70% at 0% 100%,var(--glow-2),transparent 70%),
+    radial-gradient(var(--dot-2) 1px,transparent 1.3px) 0 0/14px 14px;
   -webkit-mask-image:radial-gradient(110% 120% at 0% 100%,#000 25%,transparent 100%);mask-image:radial-gradient(110% 120% at 0% 100%,#000 25%,transparent 100%)}
 /* header */
-.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:rgba(11,11,15,.92);border-bottom:1px solid var(--line);margin:0 calc(-1*max(16px,env(safe-area-inset-left,0px)));padding:0 max(16px,env(safe-area-inset-left,0px))}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:var(--header);border-bottom:1px solid var(--line);margin:0 calc(-1*max(16px,env(safe-area-inset-left,0px)));padding:0 max(16px,env(safe-area-inset-left,0px))}
 .top .wrap{display:flex;align-items:center;gap:24px;height:60px}
 .brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:500;font-size:1.0625rem;letter-spacing:-.01em}
 .brand:hover{text-decoration:none}
@@ -88,8 +112,12 @@ button{font:inherit;color:inherit}
 .top nav{display:flex;gap:22px;margin-left:12px}
 .top nav a{color:var(--muted);font-size:.875rem}
 .top nav a:hover{color:var(--text);text-decoration:none}
-.top .btn{margin-left:auto}
-.top .btn + .btn{margin-left:0}
+.top .btn{margin-left:0}
+.theme{display:inline-flex;margin-left:auto;border:1px solid var(--line-2);border-radius:9px;padding:2px}
+.theme button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer}
+.theme button:hover{color:var(--text)}
+.theme button[aria-checked="true"]{background:var(--wash-2);color:var(--text)}
+@media (max-width:520px){.top .signin{display:none}}
 @media (max-width:820px){.top nav{display:none}}
 
 section{padding-block:88px}
@@ -115,10 +143,10 @@ p{text-wrap:pretty}
 .mock-bar .title{font-size:.8125rem;font-weight:500}
 .mock-bar .sp{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 .mock-body{padding:16px}
-.dots{background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);background-size:16px 16px}
+.dots{background-image:radial-gradient(var(--dot-3) 1px,transparent 1px);background-size:16px 16px}
 .mock-cap{font-size:.75rem;color:var(--dim);padding:0 2px;margin-top:10px}
 .pill{display:inline-flex;align-items:center;height:24px;padding:0 9px;border:1px solid var(--line-2);border-radius:7px;font-size:.75rem;color:var(--muted);background:transparent}
-.pill.on{color:var(--text);border-color:rgba(139,92,246,.6);background:rgba(139,92,246,.12)}
+.pill.on{color:var(--text);border-color:var(--pill-line);background:var(--pill-bg)}
 
 /* builder canvas */
 .canvas{padding:20px 16px 18px;--gx:40px;--gy:38px}
@@ -188,7 +216,7 @@ p{text-wrap:pretty}
 .prob{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;font-size:.8125rem;padding:10px 12px;border:1px solid var(--line-2);border-radius:8px;background:var(--raise)}
 .prob .ic{color:var(--warn);margin-top:2px}
 .prob .where{font-family:var(--mono);font-size:.75rem;color:var(--muted)}
-pre{margin:0;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:.75rem;line-height:1.7;overflow-x:auto;color:#CFCFDC}
+pre{margin:0;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:.75rem;line-height:1.7;overflow-x:auto;color:var(--code)}
 pre .c{color:var(--dim)}
 .code-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .code-head .btn{margin-left:auto}
@@ -245,11 +273,11 @@ td{padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
 tr:last-child td{border-bottom:0}
 td.n,th.n{text-align:right}
 .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--raise)}
-.warnbox{display:flex;gap:10px;align-items:flex-start;border:1px solid rgba(230,197,106,.4);border-radius:8px;padding:10px 12px;font-size:.8125rem;color:var(--text);background:rgba(230,197,106,.05)}
+.warnbox{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--warn-line);border-radius:8px;padding:10px 12px;font-size:.8125rem;color:var(--text);background:var(--warn-bg)}
 .warnbox .ic{color:var(--warn);margin-top:2px}
 .logs{font-size:.6875rem;line-height:1.8}
 .logs .t{color:var(--dim)}
-.logs .red{color:var(--muted);background:rgba(255,255,255,.08);border-radius:3px;padding:0 4px}
+.logs .red{color:var(--muted);background:var(--wash-2);border-radius:3px;padding:0 4px}
 .frozen{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:.75rem;color:var(--muted)}
 .frozen .mono{color:var(--text)}
 
@@ -367,7 +395,12 @@ footer a{color:var(--muted)}
       <a href="#safety">Safety</a>
       <a href="#faq">FAQ</a>
     </nav>
-    <a class="btn btn-sm" href="/login">Sign in</a>
+    <div class="theme" role="radiogroup" aria-label="Theme">
+      <button type="button" role="radio" aria-checked="false" data-theme-choice="light" title="Light"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg><span class="sr">Light</span></button>
+      <button type="button" role="radio" aria-checked="true" data-theme-choice="dark" title="Dark"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.3A5.5 5.5 0 016.7 3 5.5 5.5 0 1013 9.3z"/></svg><span class="sr">Dark</span></button>
+      <button type="button" role="radio" aria-checked="false" data-theme-choice="system" title="System"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="8" rx="1.5"/><path d="M6 14h4M8 11v3"/></svg><span class="sr">System</span></button>
+    </div>
+    <a class="btn btn-sm signin" href="/login">Sign in</a>
     <a class="btn btn-primary btn-sm" href="/login">Start testing</a>
   </div>
 </header>
@@ -784,6 +817,22 @@ thresholds: {
 </div>
 
 <script>
+(function(){
+  var root=document.documentElement,buttons=document.querySelectorAll('[data-theme-choice]');
+  function read(){var m=document.cookie.match(/(?:^|; )theme=([^;]*)/),t=m?m[1]:"dark";return t==="light"||t==="system"?t:"dark"}
+  function show(t){
+    var dark=t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);
+    root.setAttribute("data-theme",dark?"dark":"light");
+    buttons.forEach(function(b){b.setAttribute("aria-checked",String(b.getAttribute("data-theme-choice")===t))});
+  }
+  buttons.forEach(function(b){b.addEventListener("click",function(){
+    var t=b.getAttribute("data-theme-choice");
+    document.cookie="theme="+t+"; path=/; max-age=31536000; samesite=lax";
+    show(t);
+  })});
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){if(read()==="system")show("system")});
+  show(read());
+})();
 (function(){
   // copy button with fallback
   document.querySelectorAll('[data-copy]').forEach(function(b){
