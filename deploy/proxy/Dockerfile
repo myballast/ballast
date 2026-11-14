@@ -5,7 +5,7 @@
 # the address and refuse a private one, which is the half that stops a DNS
 # answer from pointing an allowed name at Ballast's own network.
 
-FROM golang:1.23-alpine AS build
+FROM golang:1.27-alpine AS build
 
 WORKDIR /src
 
