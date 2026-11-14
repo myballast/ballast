@@ -5,8 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# Superseded runs on the same ref are pointless, and this repository is private,
-# so they cost real minutes.
+# A newer push to the same ref makes an older run pointless: cancel it.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -30,6 +29,33 @@ jobs:
       # The pinned golangci-lint version lives in the Makefile, so local and CI
       # cannot drift apart. The first run on a cold cache compiles it.
       - run: make lint
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # eslint, then the colour-charter check.
+      - run: npm run lint
+
+      # `next typegen` first: the route types (PageProps, LayoutProps...) are
+      # generated, and a fresh checkout does not have them.
+      - run: npm run typecheck
+
+      - run: npm test
 
   test:
     name: test

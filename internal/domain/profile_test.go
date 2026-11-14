@@ -138,7 +138,7 @@ func TestClampToBoundaries(t *testing.T) {
 			ProfileParams{TargetVUs: 10, RampUpS: 100, PlateauS: 500, RampDownS: 0},
 		},
 		{
-			// The case the subtraction in docs/architecture.md got wrong: it
+			// The case a plain subtraction gets wrong: it
 			// would have left a ramp-down of 600 - 900 - 900 = -1200.
 			"the ramp-up alone exceeds the ceiling",
 			ProfileParams{TargetVUs: 10, RampUpS: 900, PlateauS: 900, RampDownS: 900},

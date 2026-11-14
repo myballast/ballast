@@ -87,7 +87,7 @@ func TestCanFollowsTheRole(t *testing.T) {
 }
 
 // The right role in the wrong project grants nothing. This is the mistake a
-// scope-less check would hide, and why CLAUDE.md calls one a bug.
+// scope-less check would hide, and why the project treats one as a bug.
 func TestCanIsScopedToOneProject(t *testing.T) {
 	who := someone()
 	theirs, somebodyElses := uuid.New(), uuid.New()

@@ -26,7 +26,7 @@ type Where interface {
 //
 // It is the worker's own doing and nobody else's: nothing registers a worker and
 // nothing is issued to it. Its credential is the role it already connects with
-// (docs/adr/0001-runner-connection.md).
+// (a design decision about how a worker connects).
 //
 // A worker that serves several organizations is one runner in each of them: the
 // Runners screen of an organization reads its own rows. The list is read at every

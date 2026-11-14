@@ -21,7 +21,7 @@ type transition struct {
 	from, to RunStatus
 }
 
-// Read off the state diagram in docs/uml/uml.md, by hand, and deliberately not
+// Read off the design diagram of a run, by hand, and deliberately not
 // derived from the transitions table in run_status.go. A test that builds its
 // expectations from the table it is checking proves only that the table equals
 // itself.

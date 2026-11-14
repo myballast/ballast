@@ -4,12 +4,12 @@
 # static binaries and nothing they could be talked into running.
 #
 # There are three. /api is the service. /migrate applies the schema and exits; the
-# platform runs it before it starts a new version (see docs/migrations.md). It
+# platform runs it before it starts a new version. It
 # lives in this image because a pre-deploy command runs in the service's own
 # image, and it is a binary rather than a tool because this image has no shell
 # and no checkout to read the migrations from: they are embedded in it.
 # /storagecheck proves the object store answers to the application's own
-# credentials from where the API runs (see ops/storage/README.md).
+# credentials from where the API runs.
 
 FROM golang:1.23-alpine AS build
 

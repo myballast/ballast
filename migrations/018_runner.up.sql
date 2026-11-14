@@ -3,8 +3,8 @@
 -- A worker writes one row about itself and keeps it fresh: it is the only thing
 -- that knows it is alive. Nothing is registered by anybody else and nothing is
 -- issued to it -- its credential is the database role it already connects with
--- (docs/adr/0001-runner-connection.md), and a revocable runner token belongs to
--- the design that ADR sets aside.
+-- (a design decision about how a worker connects), and a revocable runner token
+-- belongs to the design that decision sets aside.
 --
 -- "Online" is not stored. A row says what the worker last said and when; whether
 -- that is recent enough is decided when somebody reads it, so that a worker that

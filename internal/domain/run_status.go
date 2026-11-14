@@ -2,7 +2,7 @@ package domain
 
 // RunStatus is where a run stands in its lifecycle.
 //
-// The state machine below is the one drawn in docs/uml/uml.md. It lives here
+// The state machine below is the one in the design diagram of a run. It lives here
 // rather than in a service because it is a business rule: a run that has
 // finished must not start again, and that has to hold whatever the database,
 // the worker or the HTTP layer happen to believe on a given day.

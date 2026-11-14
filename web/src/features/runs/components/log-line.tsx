@@ -25,7 +25,7 @@ const levels = {
 // level if it has one, and the text.
 //
 // This is the one place in Ballast where red and amber appear outside a status
-// — the level of a line of output (CLAUDE.md, "Charte graphique"). They have
+// — the level of a line of output (an exception of the colour charter). They have
 // tokens of their own, log-error and log-warn, and `npm run lint` keeps them
 // out of every other file.
 export function LogLine({

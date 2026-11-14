@@ -1,4 +1,4 @@
-// Enforces the colour charter (CLAUDE.md, "Charte graphique"):
+// Enforces the colour charter of the project:
 //
 //   - green, amber and red mean the status of a run or a threshold, and
 //     nothing else, so the status tokens may only be used by the component
@@ -7,7 +7,7 @@
 //     own (log-error, log-warn) which only the component that draws a line may
 //     use;
 //   - the colours of the kinds of node of the builder (kind-*), an exception
-//     written in CLAUDE.md, may only be used by the builder's own components;
+//     of the charter, may only be used by the builder's own components;
 //   - no raw Tailwind red, green or amber anywhere, which would be a status
 //     colour that escaped the tokens;
 //   - no colour written in hex in a component: colours are tokens, set in

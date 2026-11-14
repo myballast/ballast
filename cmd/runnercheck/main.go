@@ -1,7 +1,7 @@
 // Command runnercheck says whether a runner is what it should be, as the Runners
 // screen would say it.
 //
-// It exists for the deployment tests (ops/tests/runner-test.sh), which have to know
+// It exists for the deployment tests, which have to know
 // whether a worker is online, draining or offline *as Ballast sees it* — which is
 // to say from the database, with the same rule the screen applies — and not merely
 // whether its container is up. It is built into the worker's image so that it

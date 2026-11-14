@@ -96,7 +96,7 @@ func Up(ctx context.Context, rawURL string, files fs.FS, log *slog.Logger) error
 // Left alone, the next deployment — the one that carries the fix — would stop
 // at "dirty" before reading it. That is only right when nothing of the failed
 // migration remains, and it holds here because every migration is one
-// transaction (see docs/migrations.md): a statement that fails undoes the whole
+// transaction: a statement that fails undoes the whole
 // file. A migration that commits half of itself would make this wrong, which is
 // why the rule is written down.
 func resetFailedVersion(target string, files fs.FS) error {

@@ -154,7 +154,7 @@
 
   /*
    * The level of a line of a run's output: ERROR and WARN. The one place red and
-   * amber appear outside a status (CLAUDE.md, "Charte graphique"), with tokens
+   * amber appear outside a status (an exception of the colour charter), with tokens
    * of their own so that a failed run and an error line are not the same
    * colour by accident. Only features/runs/components/log-line.tsx may use
    * them; `npm run lint` fails anywhere else. The level is always written out
