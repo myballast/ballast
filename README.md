@@ -1,18 +1,34 @@
-# Ballast
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/banner-dark.svg">
+  <img alt="Ballast: build load tests without code" src="assets/readme/banner-light.svg" width="100%">
+</picture>
 
-Build load tests without code. Ballast runs [k6](https://k6.io) load tests as a
-service, for several projects at once: a user picks a project, a scenario and a
-target environment, queues a run, and reads the results in plain words.
+**Ballast runs [k6](https://k6.io) load tests as a service, for several projects
+at once.** A user picks a project, a scenario and a target environment, queues a
+run, and reads the results in plain words. No infrastructure code, and no way to
+aim load at a server you do not own.
 
-- **Visual scenario builder** — draw a test on a canvas (requests, variables,
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/features-dark.svg">
+  <img alt="A visual builder, safe by design, and results you can read" src="assets/readme/features-light.svg" width="100%">
+</picture>
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/flow-dark.svg">
+  <img alt="An example scenario: an HTTP request, an extraction, a condition and an assertion, then a Passed verdict" src="assets/readme/flow-light.svg" width="100%">
+</picture>
+
+- **Visual scenario builder**: draw a test on a canvas (requests, variables,
   conditions, loops, assertions), or write a k6 script. Ballast generates the
   same script from the same graph, byte for byte.
 - **Import** what you already have: OpenAPI, Postman collections, cURL and HAR.
   Secrets found in a file are never copied.
-- **Safe by design** — load is only ever sent to environments whose ownership
+- **Safe by design**: load is only ever sent to environments whose ownership
   has been verified; the load generator runs in an isolated container with no
   route of its own to the network; hard limits on virtual users and duration.
-- **Results you can read** — thresholds, p95/p99, error rate, throughput, and
+- **Results you can read**: thresholds, p95/p99, error rate, throughput, and
   every number explained.
 
 ## Status
