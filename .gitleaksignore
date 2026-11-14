@@ -1,0 +1,18 @@
+# Fake tokens, public development keys and a made-up JWT used by the tests and the fixtures.
+# One line per finding: commit:file:rule:line.
+11e684187976284835dfdec25e8892326c0f041d:web/src/features/styleguide/components/component-reference.tsx:generic-api-key:62
+1f5deab4f43f0e3b2fc7f78c2723e5a9201d8fce:internal/adapter/verifier/http_test.go:generic-api-key:26
+38a9e78b944a14dfc16f65baaffbbfe8d197ee42:Makefile:generic-api-key:154
+469c6c6b317121c34046d941e1a681d5068ea073:internal/infra/config/config_test.go:generic-api-key:14
+635cbb07ad2f3759bc539154360c17feebe2de7f:internal/adapter/k6/testdata/summary.json:jwt:296
+7a586b94a0db37bdfb039d02d2bac94aff8b9978:cmd/api/import_formats_pipeline_test.go:curl-auth-user:37
+7a586b94a0db37bdfb039d02d2bac94aff8b9978:cmd/api/import_formats_pipeline_test.go:generic-api-key:17
+7a586b94a0db37bdfb039d02d2bac94aff8b9978:internal/adapter/curl/reader_test.go:curl-auth-user:191
+7a586b94a0db37bdfb039d02d2bac94aff8b9978:internal/adapter/curl/reader_test.go:curl-auth-user:217
+7a586b94a0db37bdfb039d02d2bac94aff8b9978:internal/adapter/curl/reader_test.go:curl-auth-user:231
+7a586b94a0db37bdfb039d02d2bac94aff8b9978:internal/adapter/curl/reader_test.go:stripe-access-token:179
+a44d978dd73a880e57386e0d66f0319a0773d810:internal/domain/collection_test.go:aws-access-token:284
+a44d978dd73a880e57386e0d66f0319a0773d810:internal/usecase/catalog/service_test.go:github-pat:246
+a44d978dd73a880e57386e0d66f0319a0773d810:internal/usecase/scenario/import_collection_test.go:github-pat:14
+eb7875e0c44e9be67c1e3ed56f061842bf4f0a35:internal/infra/config/devsecrets.go:generic-api-key:16
+eb7875e0c44e9be67c1e3ed56f061842bf4f0a35:internal/infra/config/devsecrets_test.go:generic-api-key:13
