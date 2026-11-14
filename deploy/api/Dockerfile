@@ -11,7 +11,7 @@
 # /storagecheck proves the object store answers to the application's own
 # credentials from where the API runs.
 
-FROM golang:1.23-alpine AS build
+FROM golang:1.27-alpine AS build
 
 WORKDIR /src
 
