@@ -54,6 +54,40 @@ down: stop ## Stop the API, the worker, the front-end and the local services
 	# and `make down` would never touch it again.
 	docker compose down --remove-orphans
 
+## --- Self-hosting ---------------------------------------------------------
+
+# The whole application from images, for someone who runs Ballast rather than
+# works on it: compose.selfhost.yaml. A project of its own, with its own
+# database, so nothing here touches the development one.
+#
+# Run with an empty environment on purpose. This Makefile exports every value of
+# the development .env to its recipes, and Compose prefers the shell's values to
+# --env-file: without env -i, the development OAuth app and keys would quietly
+# become the self-hosted instance's. Only what finds the Docker daemon is kept.
+SELFHOST := env -i PATH="$$PATH" HOME="$$HOME" $${DOCKER_HOST:+DOCKER_HOST="$$DOCKER_HOST"} \
+	$${DOCKER_CONTEXT:+DOCKER_CONTEXT="$$DOCKER_CONTEXT"} \
+	docker compose -f compose.selfhost.yaml --env-file .env.selfhost
+
+.PHONY: selfhost
+selfhost: ## Build and start the whole application on http://localhost:3000
+	sh deploy/selfhost/init-env.sh
+	$(SELFHOST) --profile build build
+	$(SELFHOST) up --detach
+	@echo ""
+	@echo "Ballast is starting on http://localhost:3000"
+	@echo "  make selfhost-logs   follow what it does"
+	@echo "  make selfhost-down   stop it (a run in progress is allowed to finish)"
+
+.PHONY: selfhost-logs
+selfhost-logs: ## Follow the logs of the self-hosted application
+	$(SELFHOST) logs --follow
+
+# Not `down -v`: the volume is the database. The worker drains first, so this
+# waits for a run in progress to end, up to an hour and six minutes.
+.PHONY: selfhost-down
+selfhost-down: ## Stop the self-hosted application, keeping its data
+	$(SELFHOST) down --remove-orphans
+
 ## --- Database -------------------------------------------------------------
 
 .PHONY: migrate

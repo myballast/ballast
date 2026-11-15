@@ -1,0 +1,144 @@
+# Ballast, all of it, on one machine: `make selfhost`.
+#
+# This is not compose.yaml. That one starts the development dependencies and
+# leaves the API, the worker and the front end to `make dev`; this one runs the
+# whole application from images, the way someone who is not working on Ballast
+# would. Its project name is its own, so its database is not the development
+# one and `make selfhost-down` cannot touch it.
+#
+# Read by `make selfhost`, which writes .env.selfhost first. Every value with
+# `:?` refuses to start without it, rather than starting with a guess.
+#
+# What this does NOT give you, on purpose:
+#   - TLS. The front end is published on 127.0.0.1 only. To reach it from
+#     anywhere else, put a reverse proxy with a certificate in front of it and
+#     set BALLAST_PUBLIC_URL and BALLAST_WEB_URL to its https address.
+#   - Object storage. Nothing in a run writes an artifact yet.
+name: ballast-selfhost
+
+x-database: &database
+  BALLAST_DATABASE_URL: postgres://ballast_app:${BALLAST_APP_PASSWORD:?run make selfhost}@postgres:5432/ballast?sslmode=disable
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      # Owner role: runs the migrations and owns the tables. The application
+      # connects as ballast_app, created by the init script below.
+      POSTGRES_USER: ballast
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make selfhost}
+      POSTGRES_DB: ballast
+      BALLAST_APP_PASSWORD: ${BALLAST_APP_PASSWORD:?run make selfhost}
+    # Not published: only the services below reach it, over this project's
+    # own network. That is also why the connections are not encrypted here --
+    # nothing between them leaves the machine. A database reached over a
+    # network you do not own takes sslmode=verify-full, as in production.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./ops/sql:/ops/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ballast -d ballast"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # Applies the schema as the owner role, then exits. The API and the worker
+  # wait for it to have succeeded.
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/api/Dockerfile
+    image: ballast/api:selfhost
+    entrypoint: ["/migrate"]
+    environment:
+      MIGRATE_DATABASE_URL: postgres://ballast:${POSTGRES_PASSWORD:?run make selfhost}@postgres:5432/ballast?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: ballast/api:selfhost
+    environment:
+      <<: *database
+      BALLAST_SECRET_KEY: ${BALLAST_SECRET_KEY:?run make selfhost}
+      BALLAST_SESSION_SECRET: ${BALLAST_SESSION_SECRET:?run make selfhost}
+      # The browser only ever talks to the front end, which relays /auth/* to
+      # the API: both addresses are the front end's.
+      BALLAST_PUBLIC_URL: ${BALLAST_PUBLIC_URL:-http://localhost:3000}
+      BALLAST_WEB_URL: ${BALLAST_WEB_URL:-http://localhost:3000}
+      BALLAST_GITHUB_CLIENT_ID: ${BALLAST_GITHUB_CLIENT_ID:-}
+      BALLAST_GITHUB_CLIENT_SECRET: ${BALLAST_GITHUB_CLIENT_SECRET:-}
+      BALLAST_GOOGLE_CLIENT_ID: ${BALLAST_GOOGLE_CLIENT_ID:-}
+      BALLAST_GOOGLE_CLIENT_SECRET: ${BALLAST_GOOGLE_CLIENT_SECRET:-}
+    # Not published: the front end is the one door.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web/Dockerfile
+    image: ballast/web:selfhost
+    environment:
+      BALLAST_API_URL: http://api:8080
+    ports:
+      - "127.0.0.1:${BALLAST_HTTP_PORT:-3000}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/worker/Dockerfile
+    image: ballast/worker:selfhost
+    # The user who owns the run directory on the host, in the group of the
+    # Docker socket. Both are machine-specific, so make selfhost finds them.
+    user: "${BALLAST_SELFHOST_UID:?run make selfhost}:${BALLAST_SELFHOST_GID:?run make selfhost}"
+    group_add:
+      - "${BALLAST_DOCKER_GID:?run make selfhost}"
+    environment:
+      <<: *database
+      BALLAST_SECRET_KEY: ${BALLAST_SECRET_KEY:?run make selfhost}
+      BALLAST_RUNNER_NAME: selfhost
+      BALLAST_PROXY_IMAGE: ballast/egress-proxy:selfhost
+      BALLAST_WORK_DIR: ${BALLAST_SELFHOST_WORK_DIR:?run make selfhost}
+      # Empty: the proxy refuses every private, loopback and link-local
+      # address. Naming a range here lets a user's script reach it.
+      BALLAST_EGRESS_ALLOWED_CIDRS: ""
+    volumes:
+      # The worker starts each run's containers through the host's daemon.
+      # Whoever holds this socket can do anything root can on the host: this
+      # container runs nothing but the worker binary, and nothing else in
+      # this file is given it.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mounted at the SAME path it has on the host. The worker writes a
+      # run's script here, then asks the daemon to mount that path into the
+      # generator: the daemon reads the host's path, not this container's.
+      - ${BALLAST_SELFHOST_WORK_DIR:?run make selfhost}:${BALLAST_SELFHOST_WORK_DIR:?run make selfhost}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # The first signal drains: the worker lets the run in progress finish,
+    # then exits. Compose's default of ten seconds would kill a measurement
+    # half way. One hour and six minutes: the longest run, plus its margin,
+    # plus a minute, which is the worker's own BALLAST_DRAIN_TIMEOUT default.
+    stop_grace_period: 66m
+    restart: unless-stopped
+
+  # Built, never started: the worker starts one per run, on that run's own
+  # network, from this image. `make selfhost` builds it through this profile.
+  egress-proxy:
+    build:
+      context: .
+      dockerfile: deploy/proxy/Dockerfile
+    image: ballast/egress-proxy:selfhost
+    profiles: ["build"]
+
+volumes:
+  pgdata:
