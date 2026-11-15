@@ -8,6 +8,8 @@ at once.** A user picks a project, a scenario and a target environment, queues a
 run, and reads the results in plain words. No infrastructure code, and no way to
 aim load at a server you do not own.
 
+<img alt="A scenario drawn on the canvas, the k6 script Ballast generates from it, a run with its live output, and the verdict: every threshold met" src="assets/readme/demo.gif" width="100%">
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/readme/features-dark.svg">
   <img alt="A visual builder, safe by design, and results you can read" src="assets/readme/features-light.svg" width="100%">
