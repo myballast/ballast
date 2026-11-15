@@ -6,6 +6,7 @@
 .env
 .env.*
 !.env.example
+.selfhost/
 
 # History, and the credentials a remote may carry.
 .git

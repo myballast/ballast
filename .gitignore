@@ -11,6 +11,10 @@ coverage.*
 .env
 .env.*
 !.env.example
+!.env.selfhost.example
+
+# make selfhost: each run's script, written by the containerized worker
+/.selfhost/
 *.local
 
 # Front-end
