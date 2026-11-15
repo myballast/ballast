@@ -10,6 +10,9 @@ aim load at a server you do not own.
 
 <img alt="A scenario drawn on the canvas, the k6 script Ballast generates from it, a run with its live output, and the verdict: every threshold met" src="assets/readme/demo.gif" width="100%">
 
+**Try it at [myballast.pro](https://myballast.pro)**: free during the beta, sign in
+with GitHub or Google. Or [run it yourself](#self-hosting).
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/readme/features-dark.svg">
   <img alt="A visual builder, safe by design, and results you can read" src="assets/readme/features-light.svg" width="100%">
@@ -35,8 +38,22 @@ aim load at a server you do not own.
 
 ## Status
 
-Ballast is under active development. The API and the database schema can still
-change between versions.
+Ballast is in public beta and under active development. The hosted version at
+myballast.pro is free during the beta; a paid plan will come later, and
+self-hosting stays free. The API and the database schema can still change
+between versions.
+
+## Limits
+
+- **200 virtual users and one hour per run.** These are constants in the code, not
+  settings: Ballast is built for realistic multi-step API scenarios, not for
+  simulating a million users.
+- **One region.** Load leaves from Ballast's own servers.
+- **HTTP and HTTPS only.**
+- **Targets must be reachable from the internet** and their ownership proved
+  before any run.
+- **No run comparison or trends yet**: each run has its own verdict.
+- **A young project**, built by one person.
 
 ## Self-hosting
 
