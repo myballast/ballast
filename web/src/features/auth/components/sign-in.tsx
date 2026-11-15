@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { buttonVariants } from "@/components/ui/button";
 
 import { loginURL } from "../login-url";
@@ -55,6 +57,12 @@ export function SignIn({
           ))}
         </div>
       )}
+
+      <p className="text-xs text-muted-foreground">
+        Free during the beta. By signing in, you accept the{" "}
+        <Link href="/terms" className="text-brand hover:underline">terms of use</Link> and the{" "}
+        <Link href="/privacy" className="text-brand hover:underline">privacy policy</Link>.
+      </p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { CircleCheck, CircleX, FolderKanban, LayoutDashboard, Server, Trash2, TriangleAlert, Users, Workflow } from "lucide-react";
 
+import { BetaBadge } from "@/components/beta-badge";
 import { Logo } from "@/components/brand/logo";
 import { Breadcrumb } from "@/components/layout/breadcrumb";
 import { NavGroup, NavItem } from "@/components/layout/nav-item";
@@ -515,6 +516,14 @@ export function ComponentReference() {
           <Logo className="size-16 text-brand" title="Ballast, 64 px" />
           <Logo className="size-16 text-foreground" title="Ballast, following the text colour" />
           <Logo className="size-16 text-muted-foreground" title="Ballast, muted" />
+        </div>
+      </Section>
+
+      <Section title="Beta badge — next to the name">
+        <div className="flex items-center gap-2.5">
+          <Logo className="text-brand" />
+          <span className="text-[15px] font-medium tracking-wide">Ballast</span>
+          <BetaBadge />
         </div>
       </Section>
 
