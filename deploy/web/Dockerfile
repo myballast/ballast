@@ -3,7 +3,7 @@
 # Built from the repository root, like the others:
 #   docker build -f deploy/web/Dockerfile -t ballast-web .
 
-FROM node:22-alpine AS deps
+FROM node:25-alpine AS deps
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ WORKDIR /app
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 
 WORKDIR /app
 
@@ -25,7 +25,7 @@ COPY web/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 
 WORKDIR /app
 
