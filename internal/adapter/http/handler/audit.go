@@ -55,14 +55,15 @@ func (h *Audit) InProject(w http.ResponseWriter, r *http.Request) {
 	response := dto.AuditListResponse{Entries: make([]dto.AuditEntry, 0, len(entries))}
 	for _, entry := range entries {
 		response.Entries = append(response.Entries, dto.AuditEntry{
-			Action:     string(entry.Action),
-			Outcome:    string(entry.Outcome),
-			ActorID:    idOrEmpty(entry.ActorID),
-			ProjectID:  idOrEmpty(entry.ProjectID),
-			TargetType: entry.TargetType,
-			TargetID:   idOrEmpty(entry.TargetID),
-			Details:    entry.Details,
-			At:         entry.At,
+			Action:       string(entry.Action),
+			Outcome:      string(entry.Outcome),
+			ActorID:      idOrEmpty(entry.ActorID),
+			ActorTokenID: idOrEmpty(entry.ActorTokenID),
+			ProjectID:    idOrEmpty(entry.ProjectID),
+			TargetType:   entry.TargetType,
+			TargetID:     idOrEmpty(entry.TargetID),
+			Details:      entry.Details,
+			At:           entry.At,
 		})
 	}
 

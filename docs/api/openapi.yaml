@@ -21,6 +21,14 @@ info:
     `HttpOnly`, so browser scripts cannot read it; the front end's server
     forwards it. A request without a valid session gets `401`.
 
+    A pipeline authenticates with an API token instead, as `Authorization:
+    Bearer <token>`, on the few routes that say so (`security` lists `bearer`
+    next to `session`). A token belongs to one project and may read it and
+    launch runs there, nothing more. A request that carries an `Authorization`
+    header is judged by it alone: a valid cookie does not rescue a bad token, and
+    a token in the URL is never read. A token that is unknown, expired or revoked
+    gets the same `401` as no credential at all.
+
     **Origin.** A request that carries an `Origin` header comes from a browser
     page, and is answered `403` for every route unless the origin is the front
     end's or the API's own; the front end's origin also gets the CORS headers
@@ -445,8 +453,19 @@ paths:
         run does not fit inside — either because it is shut now, or because the
         run would still be generating load after it closes. The length compared
         is the clamped one. Both refusals are logged.
+
+        A pipeline launches a run with an API token, and meets every guardrail a
+        person meets: the same verified target, the same ceilings, the same window,
+        the same platform switch. The run is recorded with the token and no person
+        (`triggered_by` names the token), and so is every journal entry about it.
+        A token's hourly limit counts the runs that token launched; the
+        organization's limits count all of them. A scenario of another project is
+        refused: a token holds the permission in its own project only.
       operationId: enqueueRun
       x-ballast-permission: run_test
+      security:
+        - session: []
+        - bearer: []
       requestBody:
         required: true
         content:
@@ -3652,6 +3671,15 @@ components:
       description: |
         A JWT set by the sign-in flow. It names the user and the organization
         and carries no permission.
+    bearer:
+      type: http
+      scheme: bearer
+      description: |
+        An API token, `blt_` followed by 43 characters, created by a project's
+        administrator and shown once. It names one project and holds two
+        permissions there — reading it and launching runs — and nothing else. Only
+        the routes whose `security` lists it accept it, and it is read from the
+        `Authorization` header and nowhere else.
 
   parameters:
     InvitationToken:
@@ -5129,6 +5157,8 @@ components:
             - member.invited
             - member.joined
             - invitation.revoked
+            - api_token.created
+            - api_token.revoked
         outcome:
           type: string
           description: Whether it was allowed.
@@ -5137,7 +5167,16 @@ components:
           type: string
           format: uuid
           description: |
-            Who did it. Absent when Ballast itself acted with nobody behind it.
+            The person who did it. Absent when a token did it (see
+            `actor_token_id`) and when Ballast itself acted with nobody behind it.
+        actor_token_id:
+          type: string
+          format: uuid
+          description: |
+            The API token that did it, when a pipeline acted. Never present together
+            with `actor_id`; an entry with neither is Ballast acting alone. The id
+            is kept even after the token is gone, so that what a credential did
+            outlives it.
         project_id:
           type: string
           format: uuid

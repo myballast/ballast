@@ -26,12 +26,18 @@ type Run struct {
 	Profile         ProfileKind
 	ProfileParams   ProfileParams
 	Status          RunStatus
-	TriggeredBy     *uuid.UUID
-	ErrorMessage    string
-	CreatedAt       time.Time
-	StartedAt       *time.Time
-	EndedAt         *time.Time
-	HeartbeatAt     *time.Time
+	// TriggeredBy is the person who launched the run. Nil for a run a pipeline
+	// launched, and also for one whose person has since left: the foreign key
+	// clears it. TriggeredByToken is what tells the first from the second.
+	TriggeredBy *uuid.UUID
+	// TriggeredByToken is the API token that launched the run, when one did. Never
+	// set together with TriggeredBy.
+	TriggeredByToken *uuid.UUID
+	ErrorMessage     string
+	CreatedAt        time.Time
+	StartedAt        *time.Time
+	EndedAt          *time.Time
+	HeartbeatAt      *time.Time
 	// CancelRequestedAt is when somebody asked this run to stop. It is a
 	// request and not an ending: for a run being executed, the status that says
 	// the load has stopped is written by the worker that stopped it.
@@ -66,6 +72,14 @@ func NewRun(
 		Status:          StatusQueued,
 		TriggeredBy:     triggeredBy,
 	}
+}
+
+// By says who launched the run: a person, or a token, or nobody. It replaces
+// whoever was named before, so that a run never remembers both.
+func (r Run) By(actor Actor) Run {
+	r.TriggeredBy = actor.UserID
+	r.TriggeredByToken = actor.TokenID
+	return r
 }
 
 // Verdict is the run status these results call for.

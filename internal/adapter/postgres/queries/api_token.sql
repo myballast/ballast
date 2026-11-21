@@ -45,3 +45,7 @@ ORDER BY t.created_at DESC, t.id DESC;
 -- name: RevokeApiToken :execrows
 UPDATE api_token SET revoked_at = $4
 WHERE org_id = $1 AND project_id = $2 AND id = $3 AND revoked_at IS NULL;
+
+-- How a token is called, for the screen that says which pipeline launched a run.
+-- name: ApiTokenName :one
+SELECT name FROM api_token WHERE org_id = $1 AND id = $2;

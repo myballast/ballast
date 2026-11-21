@@ -81,11 +81,14 @@ func toDomainRun(row sqlc.Run) (domain.Run, error) {
 		ProfileParams:   params,
 		Status:          domain.RunStatus(row.Status),
 		TriggeredBy:     row.TriggeredBy,
-		ErrorMessage:    derefString(row.ErrorMessage),
-		CreatedAt:       row.CreatedAt,
-		StartedAt:       row.StartedAt,
-		EndedAt:         row.EndedAt,
-		HeartbeatAt:     row.HeartbeatAt,
+		// A pipeline's run names its token and no person; the two are never both,
+		// and the schema says so.
+		TriggeredByToken: row.TriggeredByToken,
+		ErrorMessage:     derefString(row.ErrorMessage),
+		CreatedAt:        row.CreatedAt,
+		StartedAt:        row.StartedAt,
+		EndedAt:          row.EndedAt,
+		HeartbeatAt:      row.HeartbeatAt,
 
 		CancelRequestedAt: row.CancelRequestedAt,
 	}, nil
@@ -129,10 +132,11 @@ func (r *RunRepository) Create(ctx context.Context, run domain.Run) (domain.Run,
 			// The column is an integer and the check constraint keeps it
 			// positive; a scenario version large enough to overflow would
 			// mean a script edited two billion times.
-			ScenarioVersion: int32(run.ScenarioVersion), //nolint:gosec // bounded by the schema
-			Profile:         string(run.Profile),
-			ProfileParams:   params,
-			TriggeredBy:     run.TriggeredBy,
+			ScenarioVersion:  int32(run.ScenarioVersion), //nolint:gosec // bounded by the schema
+			Profile:          string(run.Profile),
+			ProfileParams:    params,
+			TriggeredBy:      run.TriggeredBy,
+			TriggeredByToken: run.TriggeredByToken,
 		})
 		if err != nil {
 			return fmt.Errorf("insert the run: %w", err)

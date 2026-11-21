@@ -7,10 +7,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 
 	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
@@ -27,11 +32,16 @@ import (
 
 // tokenRoutes is every route that accepts a bearer token, written out.
 //
-// It is empty on purpose, and the ticket that opens a route edits this list in
-// the same change as the table. A test that only checked "the declared routes are
+// A ticket that opens a route edits this list in the same change as the table. A test that only checked "the declared routes are
 // reasonable" would pass whatever the table said; this one fails the moment a
 // route is opened without anybody having decided to.
-var tokenRoutes = []string{}
+var tokenRoutes = []string{
+	// A pipeline launches a run (#21). The route's own declaration is what makes
+	// it safe: the project comes from the scenario, so the authorizer is asked
+	// whether this token may run a test in that project, and a token of another
+	// project is refused there.
+	"POST /runs",
+}
 
 func TestExactlyTheDecidedRoutesAcceptATokenForNow(t *testing.T) {
 	var got []string
@@ -177,6 +187,118 @@ func TestTokenManagementIsForProjectAdministrators(t *testing.T) {
 	for key, found := range want {
 		if !found {
 			t.Errorf("%s is not declared", key)
+		}
+	}
+}
+
+// acceptingTokens knows one secret, and counts how often it was asked.
+type acceptingTokens struct {
+	secret string
+	calls  int
+}
+
+func (a *acceptingTokens) Authenticate(_ context.Context, secret string) (domain.Identity, error) {
+	a.calls++
+	if secret != a.secret {
+		return domain.Identity{}, domain.ErrUnauthenticated
+	}
+	return domain.Identity{OrgID: uuid.New(), TokenID: uuid.New()}, nil
+}
+
+func routerWithTokens(t *testing.T, tokens *acceptingTokens) http.Handler {
+	t.Helper()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sessions, err := session.NewManager([]byte(strings.Repeat("k", 32)), "https://ballast.test", time.Hour, infra.SystemClock{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	web, _ := url.Parse("http://web.test")
+
+	return httpadapter.NewRouter(nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions,
+		func(context.Context) error { return nil }, web, log,
+		httpadapter.WithTokens(tokens))
+}
+
+const aSecret = "blt_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"
+
+// The route that opened to tokens authenticates them and reaches its handler. The
+// services are nil here on purpose, so the body is one the handler refuses before
+// it would touch one: a 400 about the scenario is the proof that the token was
+// accepted, that the request got past authentication, and that nothing below
+// was asked.
+func TestARouteOpenedToTokensAuthenticatesOneAndReachesItsHandler(t *testing.T) {
+	tokens := &acceptingTokens{secret: aSecret}
+	router := routerWithTokens(t, tokens)
+
+	request := httptest.NewRequest(http.MethodPost, "/runs", strings.NewReader("{}"))
+	request.Header.Set("Authorization", "Bearer "+aSecret)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "scenario_id is not a uuid") {
+		t.Errorf("status %d: %s, want the handler's own 400 about the scenario", recorder.Code, recorder.Body)
+	}
+	if tokens.calls != 1 {
+		t.Errorf("the token was authenticated %d times, want once", tokens.calls)
+	}
+}
+
+func TestARouteOpenedToTokensRefusesAnotherTokenWith401(t *testing.T) {
+	tokens := &acceptingTokens{secret: aSecret}
+	router := routerWithTokens(t, tokens)
+
+	request := httptest.NewRequest(http.MethodPost, "/runs", strings.NewReader("{}"))
+	request.Header.Set("Authorization", "Bearer blt_"+strings.Repeat("Z", 43))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Errorf("status %d, want 401", recorder.Code)
+	}
+}
+
+// What the table says about each route is what the spec says too: a route that
+// accepts a token documents it, and a route that does not, does not. A spec that
+// advertised a way in the router refuses is as wrong as one that hid a way in.
+func TestTheSpecDocumentsATokenOnExactlyTheRoutesThatAcceptOne(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Clean("../../../docs/api/openapi.yaml"))
+	if err != nil {
+		t.Fatalf("read the spec: %v", err)
+	}
+
+	var doc struct {
+		Paths map[string]map[string]yaml.Node `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("the spec is not valid YAML: %v", err)
+	}
+
+	acceptsToken := map[string]bool{}
+	for path, item := range doc.Paths {
+		for method, node := range item {
+			var op struct {
+				Security []map[string][]string `yaml:"security"`
+			}
+			if err := node.Decode(&op); err != nil {
+				continue
+			}
+			for _, alternative := range op.Security {
+				if _, ok := alternative["bearer"]; ok {
+					acceptsToken[strings.ToUpper(method)+" "+path] = true
+				}
+			}
+		}
+	}
+
+	for _, route := range httpadapter.Routes() {
+		key := route.Method + " " + route.Path
+		switch {
+		case route.AllowToken && !acceptsToken[key]:
+			t.Errorf("%s accepts a token and the spec does not say so", key)
+		case !route.AllowToken && acceptsToken[key]:
+			t.Errorf("the spec says %s accepts a token and the router refuses one", key)
 		}
 	}
 }

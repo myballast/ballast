@@ -78,9 +78,14 @@ func Routes() []Route {
 
 		// Runs. The project is on the scenario for a run being queued, and on
 		// the row itself for one being read; neither is in the path.
+		// The one route a pipeline reaches with a token. The project is on the
+		// scenario, so the service asks whether this token may run a test in it;
+		// a token of another project is refused there, and every guardrail of a
+		// run applies to it as to a person.
 		{
 			Method: "POST", Path: "/runs",
 			Scope: ScopeDerived, Permission: domain.PermRunTest,
+			AllowToken: true,
 		},
 		{
 			Method: "GET", Path: "/runs/{id}",

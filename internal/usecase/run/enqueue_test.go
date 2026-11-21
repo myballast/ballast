@@ -81,6 +81,15 @@ type fakeRuns struct {
 	oldest         time.Time
 	oldestFound    bool
 	oldestErr      error
+	// The same for a token: what its window holds, which token and since when it
+	// was asked about, and when its oldest run was. tokenName is what the token
+	// is called, and "" once it is gone.
+	tokenTriggered   Triggered
+	tokenAskedAbout  uuid.UUID
+	tokenSince       time.Time
+	tokenOldest      time.Time
+	tokenOldestFound bool
+	tokenName        string
 	// What a usage reading asked for, and what it was given.
 	usage        domain.Usage
 	usageAsked   int
@@ -802,4 +811,27 @@ func (f *fakeRuns) OldestSince(
 	defer f.mu.Unlock()
 
 	return f.oldest, f.oldestFound, f.oldestErr
+}
+
+func (f *fakeRuns) TriggeredByTokenSince(
+	_ context.Context, _, tokenID uuid.UUID, since time.Time,
+) (Triggered, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.tokenAskedAbout, f.tokenSince = tokenID, since
+	return f.tokenTriggered, f.err
+}
+
+func (f *fakeRuns) OldestByTokenSince(
+	_ context.Context, _, _ uuid.UUID, _ time.Time,
+) (time.Time, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.tokenOldest, f.tokenOldestFound, f.oldestErr
+}
+
+func (f *fakeRuns) TokenName(context.Context, uuid.UUID, uuid.UUID) (string, error) {
+	return f.tokenName, f.err
 }

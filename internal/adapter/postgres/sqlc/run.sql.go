@@ -103,7 +103,7 @@ const cancelEveryQueuedRun = `-- name: CancelEveryQueuedRun :many
 UPDATE run
 SET status = 'cancelled', ended_at = $2, error_message = $3, cancel_requested_at = $2
 WHERE org_id = $1 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type CancelEveryQueuedRunParams struct {
@@ -146,6 +146,7 @@ func (q *Queries) CancelEveryQueuedRun(ctx context.Context, arg CancelEveryQueue
 			&i.DataReceivedBytes,
 			&i.TrafficMeasured,
 			&i.Number,
+			&i.TriggeredByToken,
 		); err != nil {
 			return nil, err
 		}
@@ -161,7 +162,7 @@ const cancelQueuedRun = `-- name: CancelQueuedRun :one
 UPDATE run
 SET status = 'cancelled', ended_at = $3, error_message = $4, cancel_requested_at = $3
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type CancelQueuedRunParams struct {
@@ -207,6 +208,7 @@ func (q *Queries) CancelQueuedRun(ctx context.Context, arg CancelQueuedRunParams
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }
@@ -226,6 +228,35 @@ func (q *Queries) CountQueuedRuns(ctx context.Context, orgID uuid.UUID) (int64, 
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const countTriggeredByTokenSince = `-- name: CountTriggeredByTokenSince :one
+SELECT
+    count(*)::bigint                                          AS by_org,
+    count(*) FILTER (WHERE triggered_by_token = $2)::bigint   AS by_token
+FROM run
+WHERE org_id = $1 AND created_at >= $3
+`
+
+type CountTriggeredByTokenSinceParams struct {
+	OrgID            uuid.UUID
+	TriggeredByToken *uuid.UUID
+	CreatedAt        time.Time
+}
+
+type CountTriggeredByTokenSinceRow struct {
+	ByOrg   int64
+	ByToken int64
+}
+
+// The same question for a pipeline: how many runs were triggered since an
+// instant, by the organization and by one API token. A token has no person, so
+// the second figure is the token's and not the person's.
+func (q *Queries) CountTriggeredByTokenSince(ctx context.Context, arg CountTriggeredByTokenSinceParams) (CountTriggeredByTokenSinceRow, error) {
+	row := q.db.QueryRow(ctx, countTriggeredByTokenSince, arg.OrgID, arg.TriggeredByToken, arg.CreatedAt)
+	var i CountTriggeredByTokenSinceRow
+	err := row.Scan(&i.ByOrg, &i.ByToken)
+	return i, err
 }
 
 const countTriggeredSince = `-- name: CountTriggeredSince :one
@@ -263,20 +294,21 @@ const createRun = `-- name: CreateRun :one
 
 INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
-    scenario_version, profile, profile_params, triggered_by, status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued')
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+    scenario_version, profile, profile_params, triggered_by, triggered_by_token, status
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued')
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type CreateRunParams struct {
-	OrgID           uuid.UUID
-	ProjectID       uuid.UUID
-	ScenarioID      uuid.UUID
-	EnvironmentID   uuid.UUID
-	ScenarioVersion int32
-	Profile         string
-	ProfileParams   []byte
-	TriggeredBy     *uuid.UUID
+	OrgID            uuid.UUID
+	ProjectID        uuid.UUID
+	ScenarioID       uuid.UUID
+	EnvironmentID    uuid.UUID
+	ScenarioVersion  int32
+	Profile          string
+	ProfileParams    []byte
+	TriggeredBy      *uuid.UUID
+	TriggeredByToken *uuid.UUID
 }
 
 // Every statement here runs inside InTenantTx, so row-level security already
@@ -296,6 +328,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		arg.Profile,
 		arg.ProfileParams,
 		arg.TriggeredBy,
+		arg.TriggeredByToken,
 	)
 	var i Run
 	err := row.Scan(
@@ -322,6 +355,7 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }
@@ -330,7 +364,7 @@ const failOrphanedRun = `-- name: FailOrphanedRun :one
 UPDATE run
 SET status = 'errored', ended_at = $3, error_message = $4
 WHERE org_id = $1 AND id = $2 AND status = 'orphaned'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type FailOrphanedRunParams struct {
@@ -376,6 +410,7 @@ func (q *Queries) FailOrphanedRun(ctx context.Context, arg FailOrphanedRunParams
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }
@@ -384,7 +419,7 @@ const finishRun = `-- name: FinishRun :one
 UPDATE run
 SET status = $3, ended_at = $4, error_message = $5
 WHERE org_id = $1 AND id = $2 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type FinishRunParams struct {
@@ -430,6 +465,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) (Run, erro
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }
@@ -470,7 +506,7 @@ func (q *Queries) GetEnvironment(ctx context.Context, arg GetEnvironmentParams) 
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number FROM run WHERE org_id = $1 AND id = $2
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token FROM run WHERE org_id = $1 AND id = $2
 `
 
 type GetRunParams struct {
@@ -505,6 +541,7 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (Run, error) {
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }
@@ -609,7 +646,7 @@ func (q *Queries) InsertRunThresholds(ctx context.Context, arg InsertRunThreshol
 }
 
 const listOrphanedRuns = `-- name: ListOrphanedRuns :many
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number FROM run
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token FROM run
 WHERE org_id = $1 AND status = 'orphaned'
 ORDER BY created_at
 `
@@ -649,6 +686,7 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 			&i.DataReceivedBytes,
 			&i.TrafficMeasured,
 			&i.Number,
+			&i.TriggeredByToken,
 		); err != nil {
 			return nil, err
 		}
@@ -661,10 +699,15 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 }
 
 const listProjectRuns = `-- name: ListProjectRuns :many
-SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number,
-       COALESCE(NULLIF(u.name, ''), u.email, '')::text AS triggered_by_name
+SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number, run.triggered_by_token,
+       COALESCE(
+           NULLIF(u.name, ''), u.email,
+           CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
+           ''
+       )::text AS triggered_by_name
 FROM run
 LEFT JOIN app_user u ON u.org_id = run.org_id AND u.id = run.triggered_by
+LEFT JOIN api_token t ON t.org_id = run.org_id AND t.id = run.triggered_by_token
 WHERE run.org_id = $1 AND run.project_id = $2
   AND ($3::text IS NULL OR run.status = $3::text)
   AND ($4::uuid IS NULL OR run.scenario_id = $4::uuid)
@@ -704,7 +747,9 @@ type ListProjectRunsRow struct {
 // for a page of a few dozen costs next to nothing.
 //
 // Who started the run is joined in rather than asked for afterwards, since one
-// run has at most one: the name, or the email of someone who has none.
+// run has at most one: the name, or the email of someone who has none — or, for a
+// run a pipeline launched, the name of its API token, said as a token's so that a
+// person called the same is not taken for it.
 func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams) ([]ListProjectRunsRow, error) {
 	rows, err := q.db.Query(ctx, listProjectRuns,
 		arg.OrgID,
@@ -747,6 +792,7 @@ func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams
 			&i.Run.DataReceivedBytes,
 			&i.Run.TrafficMeasured,
 			&i.Run.Number,
+			&i.Run.TriggeredByToken,
 			&i.TriggeredByName,
 		); err != nil {
 			return nil, err
@@ -760,10 +806,15 @@ func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams
 }
 
 const listProjectRunsAfter = `-- name: ListProjectRunsAfter :many
-SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number,
-       COALESCE(NULLIF(u.name, ''), u.email, '')::text AS triggered_by_name
+SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number, run.triggered_by_token,
+       COALESCE(
+           NULLIF(u.name, ''), u.email,
+           CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
+           ''
+       )::text AS triggered_by_name
 FROM run
 LEFT JOIN app_user u ON u.org_id = run.org_id AND u.id = run.triggered_by
+LEFT JOIN api_token t ON t.org_id = run.org_id AND t.id = run.triggered_by_token
 WHERE run.org_id = $1 AND run.project_id = $2
   AND ($3::text IS NULL OR run.status = $3::text)
   AND ($4::uuid IS NULL OR run.scenario_id = $4::uuid)
@@ -835,6 +886,7 @@ func (q *Queries) ListProjectRunsAfter(ctx context.Context, arg ListProjectRunsA
 			&i.Run.DataReceivedBytes,
 			&i.Run.TrafficMeasured,
 			&i.Run.Number,
+			&i.Run.TriggeredByToken,
 			&i.TriggeredByName,
 		); err != nil {
 			return nil, err
@@ -848,7 +900,7 @@ func (q *Queries) ListProjectRunsAfter(ctx context.Context, arg ListProjectRunsA
 }
 
 const listQueuedRuns = `-- name: ListQueuedRuns :many
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number FROM run
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token FROM run
 WHERE org_id = $1 AND status = 'queued'
 ORDER BY created_at, id
 LIMIT $2
@@ -894,6 +946,7 @@ func (q *Queries) ListQueuedRuns(ctx context.Context, arg ListQueuedRunsParams) 
 			&i.DataReceivedBytes,
 			&i.TrafficMeasured,
 			&i.Number,
+			&i.TriggeredByToken,
 		); err != nil {
 			return nil, err
 		}
@@ -1097,7 +1150,7 @@ func (q *Queries) LiveRunIDs(ctx context.Context, arg LiveRunIDsParams) ([]uuid.
 }
 
 const nextClaimableRun = `-- name: NextClaimableRun :one
-SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at, r.cancel_requested_at, r.ingress_bytes, r.data_sent_bytes, r.data_received_bytes, r.traffic_measured, r.number FROM run AS r
+SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at, r.cancel_requested_at, r.ingress_bytes, r.data_sent_bytes, r.data_received_bytes, r.traffic_measured, r.number, r.triggered_by_token FROM run AS r
 WHERE r.org_id = $1 AND r.status = 'queued'
   AND NOT EXISTS (
     SELECT 1 FROM environment_lock AS held
@@ -1151,8 +1204,29 @@ func (q *Queries) NextClaimableRun(ctx context.Context, arg NextClaimableRunPara
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
+}
+
+const oldestRunByTokenSince = `-- name: OldestRunByTokenSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND triggered_by_token = $2 AND created_at >= $3
+ORDER BY created_at
+LIMIT 1
+`
+
+type OldestRunByTokenSinceParams struct {
+	OrgID            uuid.UUID
+	TriggeredByToken *uuid.UUID
+	CreatedAt        time.Time
+}
+
+func (q *Queries) OldestRunByTokenSince(ctx context.Context, arg OldestRunByTokenSinceParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, oldestRunByTokenSince, arg.OrgID, arg.TriggeredByToken, arg.CreatedAt)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
 const oldestRunByUserSince = `-- name: OldestRunByUserSince :one
@@ -1212,7 +1286,7 @@ UPDATE run
 SET status = 'orphaned'
 WHERE org_id = $1 AND status = 'running'
   AND (heartbeat_at IS NULL OR heartbeat_at <= $2)
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type OrphanStaleRunsParams struct {
@@ -1267,6 +1341,7 @@ func (q *Queries) OrphanStaleRuns(ctx context.Context, arg OrphanStaleRunsParams
 			&i.DataReceivedBytes,
 			&i.TrafficMeasured,
 			&i.Number,
+			&i.TriggeredByToken,
 		); err != nil {
 			return nil, err
 		}
@@ -1450,7 +1525,7 @@ const rejectQueuedRun = `-- name: RejectQueuedRun :one
 UPDATE run
 SET status = 'rejected', ended_at = $3, error_message = $4
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type RejectQueuedRunParams struct {
@@ -1497,6 +1572,7 @@ func (q *Queries) RejectQueuedRun(ctx context.Context, arg RejectQueuedRunParams
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }
@@ -1526,7 +1602,7 @@ const requestEveryRunningCancellation = `-- name: RequestEveryRunningCancellatio
 UPDATE run
 SET cancel_requested_at = coalesce(cancel_requested_at, $2)
 WHERE org_id = $1 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type RequestEveryRunningCancellationParams struct {
@@ -1570,6 +1646,7 @@ func (q *Queries) RequestEveryRunningCancellation(ctx context.Context, arg Reque
 			&i.DataReceivedBytes,
 			&i.TrafficMeasured,
 			&i.Number,
+			&i.TriggeredByToken,
 		); err != nil {
 			return nil, err
 		}
@@ -1585,7 +1662,7 @@ const requestRunCancellation = `-- name: RequestRunCancellation :one
 UPDATE run
 SET cancel_requested_at = coalesce(cancel_requested_at, $3)
 WHERE org_id = $1 AND id = $2 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type RequestRunCancellationParams struct {
@@ -1627,6 +1704,7 @@ func (q *Queries) RequestRunCancellation(ctx context.Context, arg RequestRunCanc
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }
@@ -1690,7 +1768,7 @@ const startRun = `-- name: StartRun :one
 UPDATE run
 SET status = 'running', started_at = $3, heartbeat_at = $3
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
 `
 
 type StartRunParams struct {
@@ -1728,6 +1806,7 @@ func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (Run, error)
 		&i.DataReceivedBytes,
 		&i.TrafficMeasured,
 		&i.Number,
+		&i.TriggeredByToken,
 	)
 	return i, err
 }

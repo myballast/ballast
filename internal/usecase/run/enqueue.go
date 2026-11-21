@@ -33,7 +33,7 @@ func (s *Service) admit(ctx context.Context, actor domain.Identity) error {
 	// looked at — and nothing is written.
 	if !s.accepting {
 		s.log.WarnContext(ctx, "run refused: this installation is not accepting new runs",
-			"org_id", actor.OrgID, "user_id", actor.UserID)
+			"org_id", actor.OrgID, "user_id", actor.UserID, "token_id", actor.TokenID)
 		// No project: nothing about the request was read, because during an
 		// incident the answer does not depend on it. The entry belongs to the
 		// organization, and every project's journal shows it.
@@ -76,7 +76,7 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	}
 	if !allowed {
 		s.log.InfoContext(ctx, "run refused for want of permission",
-			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID,
+			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID, "token_id", cmd.Actor.TokenID,
 			"project_id", scenario.ProjectID, "scenario_id", scenario.ID)
 		s.record(ctx, refused(cmd.Actor,
 			"the caller may not run tests in this project", s.clock.Now()).
@@ -174,16 +174,19 @@ func (s *Service) queue(
 		return domain.Run{}, err
 	}
 
+	// Who launched it is a person or an API token, and the run says which: a
+	// pipeline's run has no person, and must not read as the run of a member who
+	// has since left.
 	created, err := s.runs.Create(ctx, domain.NewRun(
-		actor.OrgID, scenario, environment, profile, params, &actor.UserID,
-	))
+		actor.OrgID, scenario, environment, profile, params, nil,
+	).By(actor.Actor()))
 	if err != nil {
 		return domain.Run{}, err
 	}
 
 	queued := domain.Allow(
-		actor.OrgID, &actor.UserID, domain.ActionRunQueued, domain.TargetRun, now,
-	).InProject(scenario.ProjectID).On(created.ID).
+		actor.OrgID, nil, domain.ActionRunQueued, domain.TargetRun, now,
+	).By(actor.Actor()).InProject(scenario.ProjectID).On(created.ID).
 		With("environment_id", environment.ID.String()).
 		With("profile", string(profile)).
 		With("target_vus", strconv.Itoa(params.TargetVUs)).
@@ -269,10 +272,19 @@ func (s *Service) Detail(
 	}
 
 	detail := Listed{Run: found}
-	if found.TriggeredBy != nil {
+	switch {
+	case found.TriggeredBy != nil:
 		if detail.TriggeredByName, err = s.runs.UserName(ctx, who.OrgID, *found.TriggeredBy); err != nil {
 			return Listed{}, domain.RunResults{}, err
 		}
+	case found.TriggeredByToken != nil:
+		// Said as a token's, with its name: a person of the same name must not be
+		// mistaken for a pipeline, and the other way round.
+		name, err := s.runs.TokenName(ctx, who.OrgID, *found.TriggeredByToken)
+		if err != nil {
+			return Listed{}, domain.RunResults{}, err
+		}
+		detail.TriggeredByName = tokenLabel(name)
 	}
 	return detail, results, nil
 }
@@ -346,4 +358,13 @@ func (s *Service) checkScenario(ctx context.Context, actor domain.Identity, scen
 		}
 	}
 	return nil
+}
+
+// tokenLabel is how a run launched by an API token says so. A token that has no
+// name any more is still a token's run.
+func tokenLabel(name string) string {
+	if name == "" {
+		return "an API token"
+	}
+	return "API token " + name
 }

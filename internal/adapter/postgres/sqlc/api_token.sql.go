@@ -58,6 +58,23 @@ func (q *Queries) ApiTokenByID(ctx context.Context, arg ApiTokenByIDParams) (Api
 	return i, err
 }
 
+const apiTokenName = `-- name: ApiTokenName :one
+SELECT name FROM api_token WHERE org_id = $1 AND id = $2
+`
+
+type ApiTokenNameParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// How a token is called, for the screen that says which pipeline launched a run.
+func (q *Queries) ApiTokenName(ctx context.Context, arg ApiTokenNameParams) (string, error) {
+	row := q.db.QueryRow(ctx, apiTokenName, arg.OrgID, arg.ID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const countLiveApiTokens = `-- name: CountLiveApiTokens :one
 SELECT count(*) FROM api_token
 WHERE org_id = $1 AND project_id = $2 AND revoked_at IS NULL

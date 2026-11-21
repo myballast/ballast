@@ -34,16 +34,17 @@ type AppUser struct {
 }
 
 type AuditLog struct {
-	ID         uuid.UUID
-	OrgID      uuid.UUID
-	ActorID    *uuid.UUID
-	Action     string
-	TargetType string
-	TargetID   *uuid.UUID
-	Metadata   []byte
-	CreatedAt  time.Time
-	Outcome    string
-	ProjectID  *uuid.UUID
+	ID           uuid.UUID
+	OrgID        uuid.UUID
+	ActorID      *uuid.UUID
+	Action       string
+	TargetType   string
+	TargetID     *uuid.UUID
+	Metadata     []byte
+	CreatedAt    time.Time
+	Outcome      string
+	ProjectID    *uuid.UUID
+	ActorTokenID *uuid.UUID
 }
 
 type CatalogEndpoint struct {
@@ -176,6 +177,7 @@ type Run struct {
 	DataReceivedBytes int64
 	TrafficMeasured   bool
 	Number            int32
+	TriggeredByToken  *uuid.UUID
 }
 
 type RunArtifact struct {

@@ -13,7 +13,7 @@ import (
 )
 
 const listProjectAudit = `-- name: ListProjectAudit :many
-SELECT id, org_id, actor_id, action, target_type, target_id, metadata, created_at, outcome, project_id FROM audit_log
+SELECT id, org_id, actor_id, action, target_type, target_id, metadata, created_at, outcome, project_id, actor_token_id FROM audit_log
 WHERE org_id = $1
   AND (project_id = $2 OR project_id IS NULL)
 ORDER BY created_at DESC, id DESC
@@ -54,6 +54,7 @@ func (q *Queries) ListProjectAudit(ctx context.Context, arg ListProjectAuditPara
 			&i.CreatedAt,
 			&i.Outcome,
 			&i.ProjectID,
+			&i.ActorTokenID,
 		); err != nil {
 			return nil, err
 		}
@@ -68,21 +69,22 @@ func (q *Queries) ListProjectAudit(ctx context.Context, arg ListProjectAuditPara
 const recordAudit = `-- name: RecordAudit :one
 
 INSERT INTO audit_log (
-    org_id, actor_id, project_id, action, outcome, target_type, target_id, metadata, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, org_id, actor_id, action, target_type, target_id, metadata, created_at, outcome, project_id
+    org_id, actor_id, actor_token_id, project_id, action, outcome, target_type, target_id, metadata, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, org_id, actor_id, action, target_type, target_id, metadata, created_at, outcome, project_id, actor_token_id
 `
 
 type RecordAuditParams struct {
-	OrgID      uuid.UUID
-	ActorID    *uuid.UUID
-	ProjectID  *uuid.UUID
-	Action     string
-	Outcome    string
-	TargetType string
-	TargetID   *uuid.UUID
-	Metadata   []byte
-	CreatedAt  time.Time
+	OrgID        uuid.UUID
+	ActorID      *uuid.UUID
+	ActorTokenID *uuid.UUID
+	ProjectID    *uuid.UUID
+	Action       string
+	Outcome      string
+	TargetType   string
+	TargetID     *uuid.UUID
+	Metadata     []byte
+	CreatedAt    time.Time
 }
 
 // Every statement here runs inside InTenantTx, so row-level security already
@@ -96,6 +98,7 @@ func (q *Queries) RecordAudit(ctx context.Context, arg RecordAuditParams) (Audit
 	row := q.db.QueryRow(ctx, recordAudit,
 		arg.OrgID,
 		arg.ActorID,
+		arg.ActorTokenID,
 		arg.ProjectID,
 		arg.Action,
 		arg.Outcome,
@@ -116,6 +119,7 @@ func (q *Queries) RecordAudit(ctx context.Context, arg RecordAuditParams) (Audit
 		&i.CreatedAt,
 		&i.Outcome,
 		&i.ProjectID,
+		&i.ActorTokenID,
 	)
 	return i, err
 }

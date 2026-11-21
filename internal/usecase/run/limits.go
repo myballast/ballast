@@ -62,12 +62,23 @@ func (s *Service) withinLimits(ctx context.Context, who domain.Identity) error {
 
 	since := now.Add(-domain.RateWindow)
 
-	triggered, err := s.runs.TriggeredSince(ctx, who.OrgID, who.UserID, since)
+	triggered, err := s.triggeredSince(ctx, who, since)
 	if err != nil {
-		return fmt.Errorf("count the runs triggered: %w", err)
+		return err
 	}
 
-	if triggered.ByUser >= domain.MaxRunsPerUserPerWindow {
+	// A person is counted by what they have triggered, and a pipeline by what its
+	// token has: a token has no person, and a person's count is neither what holds
+	// a token nor what spares one. Both are held to the same figure.
+	if who.IsToken() {
+		if triggered.ByToken >= domain.MaxRunsPerUserPerWindow {
+			return s.refuseByLimit(ctx, who, TooManyRuns{
+				Reason: fmt.Sprintf("this token has triggered %d runs in the last %s, which is the most allowed",
+					triggered.ByToken, domain.RateWindow),
+				RetryAfter: s.untilToken(ctx, who.OrgID, who.TokenID, since, now),
+			}, "triggered_by_token", strconv.Itoa(triggered.ByToken))
+		}
+	} else if triggered.ByUser >= domain.MaxRunsPerUserPerWindow {
 		return s.refuseByLimit(ctx, who, TooManyRuns{
 			Reason: fmt.Sprintf("you have triggered %d runs in the last %s, which is the most allowed",
 				triggered.ByUser, domain.RateWindow),
@@ -75,6 +86,8 @@ func (s *Service) withinLimits(ctx context.Context, who domain.Identity) error {
 		}, "triggered_by_user", strconv.Itoa(triggered.ByUser))
 	}
 
+	// The organization's own total counts whoever launched the runs: a token is one
+	// way into the organization, and not a way round its limit.
 	if triggered.ByOrg >= domain.MaxRunsPerOrgPerWindow {
 		return s.refuseByLimit(ctx, who, TooManyRuns{
 			Reason: fmt.Sprintf(
@@ -85,6 +98,24 @@ func (s *Service) withinLimits(ctx context.Context, who domain.Identity) error {
 	}
 
 	return nil
+}
+
+// triggeredSince is the count the caller's limit is read from: the organization's
+// and that of whoever is asking.
+func (s *Service) triggeredSince(ctx context.Context, who domain.Identity, since time.Time) (Triggered, error) {
+	if who.IsToken() {
+		triggered, err := s.runs.TriggeredByTokenSince(ctx, who.OrgID, who.TokenID, since)
+		if err != nil {
+			return Triggered{}, fmt.Errorf("count the runs triggered: %w", err)
+		}
+		return triggered, nil
+	}
+
+	triggered, err := s.runs.TriggeredSince(ctx, who.OrgID, who.UserID, since)
+	if err != nil {
+		return Triggered{}, fmt.Errorf("count the runs triggered: %w", err)
+	}
+	return triggered, nil
 }
 
 // until is how long before the oldest run of the window leaves it, which is
@@ -110,6 +141,24 @@ func (s *Service) until(
 	return wait
 }
 
+// untilToken is until for a token's own window: how long before the oldest run
+// the token launched leaves it.
+func (s *Service) untilToken(
+	ctx context.Context, orgID, tokenID uuid.UUID, since, now time.Time,
+) time.Duration {
+	oldest, found, err := s.runs.OldestByTokenSince(ctx, orgID, tokenID, since)
+	if err != nil || !found {
+		return 0
+	}
+
+	wait := oldest.Add(domain.RateWindow).Sub(now)
+	if wait < 0 {
+		return 0
+	}
+
+	return wait
+}
+
 // refuseByLimit records the refusal and returns it.
 //
 // In the journal as well as the log, because a limit reached is the shape of
@@ -118,7 +167,7 @@ func (s *Service) refuseByLimit(
 	ctx context.Context, who domain.Identity, refusal TooManyRuns, limit, reached string,
 ) error {
 	s.log.WarnContext(ctx, "run refused by a limit",
-		"org_id", who.OrgID, "user_id", who.UserID,
+		"org_id", who.OrgID, "user_id", who.UserID, "token_id", who.TokenID,
 		"limit", limit, "reached", reached)
 
 	s.record(ctx, refused(who, refusal.Reason, s.clock.Now()).

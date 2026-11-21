@@ -46,6 +46,15 @@ type Repository interface {
 	// say how long a caller has to wait for a slot to free up. It reports
 	// false when the window holds nothing.
 	OldestSince(ctx context.Context, orgID, userID uuid.UUID, since time.Time) (time.Time, bool, error)
+	// TriggeredByTokenSince is TriggeredSince for a pipeline: what the organization
+	// has started since an instant, and how many of those one API token did. A
+	// token has no person, and a person's count is not what holds a token.
+	TriggeredByTokenSince(ctx context.Context, orgID, tokenID uuid.UUID, since time.Time) (Triggered, error)
+	// OldestByTokenSince is OldestSince for a token's own runs.
+	OldestByTokenSince(ctx context.Context, orgID, tokenID uuid.UUID, since time.Time) (time.Time, bool, error)
+	// TokenName is how an API token is called, or "" when there is no such token
+	// any more: a run outlives the credential that launched it.
+	TokenName(ctx context.Context, orgID, tokenID uuid.UUID) (string, error)
 	// TrafficInPeriod sums what an organization moved between two instants,
 	// the first included and the second not.
 	TrafficInPeriod(ctx context.Context, orgID uuid.UUID, from, to time.Time) (domain.Usage, error)
@@ -133,6 +142,9 @@ type ProjectDirectory interface {
 type Triggered struct {
 	ByOrg  int
 	ByUser int
+	// ByToken is how many of them one API token started, and is filled only by
+	// the question that asks about a token.
+	ByToken int
 }
 
 // AuditLog records what happened, for the people who have to answer for it.
