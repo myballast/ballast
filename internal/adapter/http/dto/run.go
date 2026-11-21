@@ -16,6 +16,24 @@ type EnqueueRunRequest struct {
 	// Params is optional. Left out, the profile's own template is used, and
 	// either way the result is clamped to the environment's ceilings.
 	Params *ProfileParams `json:"params,omitempty"`
+	// CI is what a pipeline says about itself when it launches the run. Optional,
+	// and declared by the caller: nobody proves it to Ballast.
+	CI *RunCI `json:"ci,omitempty"`
+}
+
+// RunCI is the context a pipeline launched a run in: which CI, which repository,
+// branch and commit, and the link to the job. A closed set of five fields; only the
+// provider is required. Absence is spelled by leaving a key out.
+type RunCI struct {
+	// Provider is github_actions, gitlab_ci or other.
+	Provider string `json:"provider"`
+	// Repository is a path of plain names, like owner/name.
+	Repository string `json:"repository,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	// Commit is a hexadecimal hash of 7 to 64 characters, in lower case.
+	Commit string `json:"commit,omitempty"`
+	// JobURL is an https address, without credentials, query or fragment.
+	JobURL string `json:"job_url,omitempty"`
 }
 
 // ProfileParams is the shape of the load, in whole seconds.
@@ -71,6 +89,10 @@ type RunResponse struct {
 	// TriggeredBy is the name of who started the run, absent when nobody did or
 	// the person has since been removed.
 	TriggeredBy string `json:"triggered_by,omitempty"`
+	// CI is what the pipeline that launched the run said about itself, absent for
+	// a run nobody said anything about. Declared by the caller and not proved to
+	// Ballast, and frozen with the run.
+	CI *RunCI `json:"ci,omitempty"`
 	// CancelRequestedAt is set as soon as somebody asks the run to stop, and
 	// before it has stopped: a client watching a cancellation reads it here.
 	CancelRequestedAt *time.Time  `json:"cancel_requested_at,omitempty"`

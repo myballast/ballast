@@ -74,6 +74,7 @@ func (h *Run) Enqueue(w http.ResponseWriter, r *http.Request) {
 			RampDownS: body.Params.RampDownS,
 		}
 	}
+	cmd.CI = commandCI(body)
 
 	queued, err := h.runs.Enqueue(r.Context(), cmd)
 	if err != nil {
@@ -149,6 +150,7 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 		Status:            string(found.Status),
 		ErrorMessage:      found.ErrorMessage,
 		TriggeredBy:       detail.TriggeredByName,
+		CI:                toDTORunCI(found.CI),
 		CancelRequestedAt: found.CancelRequestedAt,
 		CreatedAt:         found.CreatedAt,
 		StartedAt:         found.StartedAt,
@@ -253,6 +255,12 @@ func (h *Run) writeDomainError(w http.ResponseWriter, r *http.Request, err error
 
 	case errors.Is(err, domain.ErrInvalidRunFilter):
 		writeError(w, http.StatusBadRequest, err.Error())
+
+	case errors.Is(err, domain.ErrInvalidRunCI):
+		// A mistake in what a pipeline said about itself, told as one. The reason is
+		// the domain's own sentence: it names the field and the rule, and never the
+		// value, which may be a credential.
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 
 	case errors.Is(err, domain.ErrInvalidGraph):
 		// 422, with every reason: a graph stored before a rule existed, and refused
@@ -524,4 +532,39 @@ func decodeCursor(raw string) (run.Cursor, error) {
 		return run.Cursor{}, err
 	}
 	return run.Cursor{CreatedAt: createdAt, ID: runID}, nil
+}
+
+// commandCI is what the body says the pipeline is, exactly as it said it: nil
+// when the body has no such object. Tidying it, and refusing what cannot be kept,
+// is the domain's, in one place. An object with nothing in it is still an object,
+// and is not dropped here: it is a pipeline that did not say which CI it is, and
+// the caller is told so.
+func commandCI(body dto.EnqueueRunRequest) *domain.RunCI {
+	if body.CI == nil {
+		return nil
+	}
+
+	return &domain.RunCI{
+		Provider:   domain.CIProvider(body.CI.Provider),
+		Repository: body.CI.Repository,
+		Branch:     body.CI.Branch,
+		Commit:     body.CI.Commit,
+		JobURL:     body.CI.JobURL,
+	}
+}
+
+// toDTORunCI is what a run's page says about the pipeline that launched it, or
+// nil — and so no key at all — for a run nobody said anything about.
+func toDTORunCI(ci *domain.RunCI) *dto.RunCI {
+	if ci == nil {
+		return nil
+	}
+
+	return &dto.RunCI{
+		Provider:   string(ci.Provider),
+		Repository: ci.Repository,
+		Branch:     ci.Branch,
+		Commit:     ci.Commit,
+		JobURL:     ci.JobURL,
+	}
 }

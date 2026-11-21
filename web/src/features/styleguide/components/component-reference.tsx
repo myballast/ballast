@@ -59,6 +59,7 @@ import { LogLine } from "@/features/runs/components/log-line";
 import { RerunRun } from "@/features/runs/components/rerun-run";
 import { RunFilterBar } from "@/features/runs/components/run-filters";
 import { RunHeader } from "@/features/runs/components/run-header";
+import { RunPipeline } from "@/features/runs/components/run-pipeline";
 import { RunTabs } from "@/features/runs/components/run-tabs";
 import type { RunContext } from "@/features/runs/detail";
 import type { Run } from "@/features/runs/types";
@@ -912,8 +913,56 @@ export function ComponentReference() {
 
       <Section title="Run page: header, tabs and output">
         {(["failed", "running", "passed"] as const).map((status) => (
-          <RunHeader key={status} run={sampleRun(status)} context={runContext} now={sampleNow} />
+          <RunHeader
+            key={status}
+            // The failed one was launched by a pipeline; the others by a person.
+            run={
+              status === "failed"
+                ? {
+                    ...sampleRun(status),
+                    triggered_by: "API token github-main",
+                    ci: {
+                      provider: "github_actions",
+                      repository: "myballast/ballast",
+                      branch: "main",
+                      commit: "3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345",
+                      job_url: "https://github.com/myballast/ballast/actions/runs/123456789",
+                    },
+                  }
+                : sampleRun(status)
+            }
+            context={runContext}
+            now={sampleNow}
+          />
         ))}
+        <p className="text-xs text-muted-foreground">
+          What launched the run, when a pipeline said so: declared by the pipeline and not verified, so drawn as text
+          under the word &quot;pipeline&quot;. A run nobody said anything about draws nothing (the headers above). A
+          link that is not https is not drawn as one.
+        </p>
+        <div className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+          <RunPipeline
+            ci={{
+              provider: "github_actions",
+              repository: "myballast/ballast",
+              branch: "feature/ci-metadata",
+              commit: "3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345",
+              job_url: "https://github.com/myballast/ballast/actions/runs/123456789",
+            }}
+          />
+          <RunPipeline ci={{ provider: "gitlab_ci", commit: "abcdef1" }} />
+          <RunPipeline ci={{ provider: "other" }} />
+          <RunPipeline
+            ci={{
+              provider: "other",
+              repository: "group/sub-group/a-repository-with-a-very-long-name/and-more",
+              branch: "feature/a-branch-name-that-goes-on-for-quite-a-while-longer-than-the-space-it-has-been-given",
+              commit: "abcdef1",
+              job_url: "http://not-https.example.test/job",
+            }}
+          />
+          <RunPipeline ci={{ provider: "other", repository: "<img src=x onerror=alert(1)>", branch: "main" }} />
+        </div>
         <RerunRun runId="r1" scenario="checkout-flow" version={3} profile="load" load="400 VUs · 60s / 360s / 60s" />
         <RunTabs
           initial="output"

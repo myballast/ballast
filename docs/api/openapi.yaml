@@ -454,6 +454,14 @@ paths:
         run would still be generating load after it closes. The length compared
         is the clamped one. Both refusals are logged.
 
+        A pipeline can say what it is with the optional `ci` object: which CI, which
+        repository, branch and commit, and the link to the job. It is kept with the
+        run, frozen like the profile, and shown on the run's page. It is **declared**
+        by whoever calls and proved to Ballast by nobody: do not read it as
+        verified. Only `provider` is required; a key that is not one of the five is
+        not kept. A mistake in it is a `422` that names the field and the rule, and
+        never the value, and writes and journals nothing.
+
         A pipeline launches a run with an API token, and meets every guardrail a
         person meets: the same verified target, the same ceilings, the same window,
         the same platform switch. The run is recorded with the token and no person
@@ -511,10 +519,19 @@ paths:
           $ref: "#/components/responses/InternalError"
         "422":
           description: |
-            The scenario cannot be run as it stands. Its graph is checked again here:
-            a graph stored before a rule existed, and refused by it now, comes back
-            with every reason (`findings`, each on its node). Its script is parsed
-            again too, so that one k6 could not load is found before a run exists.
+            The scenario cannot be run as it stands, or what the pipeline said about
+            itself cannot be kept.
+
+            The scenario's graph is checked again here: a graph stored before a rule
+            existed, and refused by it now, comes back with every reason (`findings`,
+            each on its node). Its script is parsed again too, so that one k6 could
+            not load is found before a run exists.
+
+            A mistake in `ci` — an unknown provider, a branch with a space or an
+            invisible character, a commit that is not a hash, a link that is not an
+            https address or that holds credentials — comes back as an `error` that
+            names the field and the rule. It never repeats the value: it may be a
+            credential.
           content:
             application/json:
               schema:
@@ -4972,10 +4989,59 @@ components:
           $ref: "#/components/schemas/ProfileKind"
         params:
           $ref: "#/components/schemas/ProfileParams"
+        ci:
+          $ref: "#/components/schemas/RunCI"
       example:
         scenario_id: 00000000-0000-4000-8000-000000000003
         environment_id: 00000000-0000-4000-8000-000000000004
         profile: smoke
+        ci:
+          provider: github_actions
+          repository: myballast/ballast
+          branch: main
+          commit: 3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345
+          job_url: https://github.com/myballast/ballast/actions/runs/123456789
+
+    RunCI:
+      type: object
+      description: |
+        What a pipeline says about itself when it launches a run. A closed set of five
+        fields, each bounded; only `provider` is required, and absence is spelled by
+        leaving a key out. It is declared by the caller and proved by nobody. Spaces
+        around a value are dropped, the commit is written in lower case, and the link
+        loses its query and its fragment.
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [github_actions, gitlab_ci, other]
+        repository:
+          type: string
+          maxLength: 200
+          pattern: '^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$'
+          description: A path of plain names, like `owner/name` or `group/sub-group/project`.
+        branch:
+          type: string
+          maxLength: 255
+          description: |
+            No space, no control character and none of the invisible ones — the
+            zero-width and directional marks, the line and paragraph separators — that
+            would make a name read as something it is not.
+        commit:
+          type: string
+          minLength: 7
+          maxLength: 64
+          pattern: '^[0-9a-f]{7,64}$'
+          description: A hexadecimal hash. Upper case is accepted and kept in lower case.
+        job_url:
+          type: string
+          format: uri
+          maxLength: 500
+          description: |
+            An `https` address with a host, in plain ASCII. Credentials in it are
+            refused, not dropped: they are a secret that leaked into a configuration.
+            The query and the fragment are dropped, since they may carry a token and
+            say nothing about which job it is.
 
     EnqueueRunResponse:
       type: object
@@ -5348,7 +5414,10 @@ components:
         ended_at: { type: string, format: date-time }
         triggered_by:
           type: string
-          description: The name of who started the run. Absent when nobody did, or when the person has since been removed.
+          description: |
+            The name of who started the run: a person's name, or `API token <name>`
+            when a pipeline did. Absent when nobody did, or when the person has since
+            been removed.
         p95_ms:
           type: number
           description: The 95th percentile of the request duration, in milliseconds, as k6 reported it. Absent while the run has no results.
@@ -5382,7 +5451,12 @@ components:
         project_id: { type: string, format: uuid }
         triggered_by:
           type: string
-          description: The name of who started the run. Absent when nobody did, or when the person has since been removed.
+          description: |
+            The name of who started the run: a person's name, or `API token <name>`
+            when a pipeline did. Absent when nobody did, or when the person has since
+            been removed.
+        ci:
+          $ref: "#/components/schemas/RunCI"
         scenario_id: { type: string, format: uuid }
         environment_id: { type: string, format: uuid }
         scenario_version:

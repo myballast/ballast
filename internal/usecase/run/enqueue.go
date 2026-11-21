@@ -23,6 +23,10 @@ type EnqueueCommand struct {
 	Profile       domain.ProfileKind
 	// Params is optional. Left empty, the profile's own template is used.
 	Params *domain.ProfileParams
+	// CI is what the pipeline that launches the run says about itself, as it said
+	// it. Optional. It is checked and tidied here (domain.ParseRunCI) before
+	// anything else is read, and a mistake in it is a mistake in the request.
+	CI *domain.RunCI
 }
 
 // admit is what stands before every way of asking for a run, and reads nothing
@@ -62,6 +66,18 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		params = *cmd.Params
 	}
 
+	// A mistake in what a pipeline says about itself is a mistake in the request,
+	// and is told as one: nothing is written and nothing is journaled, for a
+	// journal full of typing mistakes is one nobody reads.
+	var ci *domain.RunCI
+	if cmd.CI != nil {
+		parsed, err := domain.ParseRunCI(*cmd.CI)
+		if err != nil {
+			return domain.Run{}, err
+		}
+		ci = &parsed
+	}
+
 	scenario, err := s.scenarios.ScenarioByID(ctx, cmd.Actor.OrgID, cmd.ScenarioID)
 	if err != nil {
 		return domain.Run{}, err
@@ -84,7 +100,7 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		return domain.Run{}, domain.ErrForbidden
 	}
 
-	return s.queue(ctx, cmd.Actor, scenario, cmd.EnvironmentID, cmd.Profile, params, nil)
+	return s.queue(ctx, cmd.Actor, scenario, cmd.EnvironmentID, cmd.Profile, params, nil, ci)
 }
 
 // queue is what every way of asking for a run has in common once the scenario
@@ -95,7 +111,8 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 //
 // scenario carries the version the run is to freeze: the one it is, for a run
 // asked for today, and the one an earlier run froze, for a run that repeats it.
-// rerunOf is that earlier run, or nil.
+// rerunOf is that earlier run, or nil. ci is what the pipeline said about itself,
+// already checked, or nil.
 func (s *Service) queue(
 	ctx context.Context,
 	actor domain.Identity,
@@ -104,6 +121,7 @@ func (s *Service) queue(
 	profile domain.ProfileKind,
 	params domain.ProfileParams,
 	rerunOf *uuid.UUID,
+	ci *domain.RunCI,
 ) (domain.Run, error) {
 	if err := s.checkScenario(ctx, actor, scenario); err != nil {
 		return domain.Run{}, err
@@ -177,9 +195,14 @@ func (s *Service) queue(
 	// Who launched it is a person or an API token, and the run says which: a
 	// pipeline's run has no person, and must not read as the run of a member who
 	// has since left.
-	created, err := s.runs.Create(ctx, domain.NewRun(
+	toQueue := domain.NewRun(
 		actor.OrgID, scenario, environment, profile, params, nil,
-	).By(actor.Actor()))
+	).By(actor.Actor())
+	if ci != nil {
+		toQueue = toQueue.WithCI(*ci)
+	}
+
+	created, err := s.runs.Create(ctx, toQueue)
 	if err != nil {
 		return domain.Run{}, err
 	}
@@ -257,8 +280,17 @@ func (s *Service) Rerun(ctx context.Context, actor domain.Identity, runID uuid.U
 		return domain.Run{}, domain.ErrForbidden
 	}
 
+	// What the run being repeated said about the pipeline that launched it is
+	// carried over, as a copy: the page of the repeat says where what it repeats
+	// came from.
+	var ci *domain.RunCI
+	if source.CI != nil {
+		repeated := *source.CI
+		ci = &repeated
+	}
+
 	scenario := domain.Scenario{ID: source.ScenarioID, ProjectID: source.ProjectID, Version: source.ScenarioVersion}
-	return s.queue(ctx, actor, scenario, source.EnvironmentID, source.Profile, source.ProfileParams, &source.ID)
+	return s.queue(ctx, actor, scenario, source.EnvironmentID, source.Profile, source.ProfileParams, &source.ID, ci)
 }
 
 // Detail is a run, what it measured, and who started it: what the page of a run

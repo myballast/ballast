@@ -103,7 +103,7 @@ const cancelEveryQueuedRun = `-- name: CancelEveryQueuedRun :many
 UPDATE run
 SET status = 'cancelled', ended_at = $2, error_message = $3, cancel_requested_at = $2
 WHERE org_id = $1 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type CancelEveryQueuedRunParams struct {
@@ -147,6 +147,11 @@ func (q *Queries) CancelEveryQueuedRun(ctx context.Context, arg CancelEveryQueue
 			&i.TrafficMeasured,
 			&i.Number,
 			&i.TriggeredByToken,
+			&i.CiProvider,
+			&i.CiRepository,
+			&i.CiBranch,
+			&i.CiCommit,
+			&i.CiJobUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -162,7 +167,7 @@ const cancelQueuedRun = `-- name: CancelQueuedRun :one
 UPDATE run
 SET status = 'cancelled', ended_at = $3, error_message = $4, cancel_requested_at = $3
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type CancelQueuedRunParams struct {
@@ -209,6 +214,11 @@ func (q *Queries) CancelQueuedRun(ctx context.Context, arg CancelQueuedRunParams
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -294,9 +304,10 @@ const createRun = `-- name: CreateRun :one
 
 INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
-    scenario_version, profile, profile_params, triggered_by, triggered_by_token, status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued')
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+    scenario_version, profile, profile_params, triggered_by, triggered_by_token,
+    ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url, status
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'queued')
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type CreateRunParams struct {
@@ -309,6 +320,11 @@ type CreateRunParams struct {
 	ProfileParams    []byte
 	TriggeredBy      *uuid.UUID
 	TriggeredByToken *uuid.UUID
+	CiProvider       *string
+	CiRepository     *string
+	CiBranch         *string
+	CiCommit         *string
+	CiJobUrl         *string
 }
 
 // Every statement here runs inside InTenantTx, so row-level security already
@@ -329,6 +345,11 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		arg.ProfileParams,
 		arg.TriggeredBy,
 		arg.TriggeredByToken,
+		arg.CiProvider,
+		arg.CiRepository,
+		arg.CiBranch,
+		arg.CiCommit,
+		arg.CiJobUrl,
 	)
 	var i Run
 	err := row.Scan(
@@ -356,6 +377,11 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) (Run, erro
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -364,7 +390,7 @@ const failOrphanedRun = `-- name: FailOrphanedRun :one
 UPDATE run
 SET status = 'errored', ended_at = $3, error_message = $4
 WHERE org_id = $1 AND id = $2 AND status = 'orphaned'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type FailOrphanedRunParams struct {
@@ -411,6 +437,11 @@ func (q *Queries) FailOrphanedRun(ctx context.Context, arg FailOrphanedRunParams
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -419,7 +450,7 @@ const finishRun = `-- name: FinishRun :one
 UPDATE run
 SET status = $3, ended_at = $4, error_message = $5
 WHERE org_id = $1 AND id = $2 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type FinishRunParams struct {
@@ -466,6 +497,11 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) (Run, erro
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -506,7 +542,7 @@ func (q *Queries) GetEnvironment(ctx context.Context, arg GetEnvironmentParams) 
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token FROM run WHERE org_id = $1 AND id = $2
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url FROM run WHERE org_id = $1 AND id = $2
 `
 
 type GetRunParams struct {
@@ -542,6 +578,11 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (Run, error) {
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -646,7 +687,7 @@ func (q *Queries) InsertRunThresholds(ctx context.Context, arg InsertRunThreshol
 }
 
 const listOrphanedRuns = `-- name: ListOrphanedRuns :many
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token FROM run
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url FROM run
 WHERE org_id = $1 AND status = 'orphaned'
 ORDER BY created_at
 `
@@ -687,6 +728,11 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 			&i.TrafficMeasured,
 			&i.Number,
 			&i.TriggeredByToken,
+			&i.CiProvider,
+			&i.CiRepository,
+			&i.CiBranch,
+			&i.CiCommit,
+			&i.CiJobUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -699,7 +745,7 @@ func (q *Queries) ListOrphanedRuns(ctx context.Context, orgID uuid.UUID) ([]Run,
 }
 
 const listProjectRuns = `-- name: ListProjectRuns :many
-SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number, run.triggered_by_token,
+SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number, run.triggered_by_token, run.ci_provider, run.ci_repository, run.ci_branch, run.ci_commit, run.ci_job_url,
        COALESCE(
            NULLIF(u.name, ''), u.email,
            CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
@@ -793,6 +839,11 @@ func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams
 			&i.Run.TrafficMeasured,
 			&i.Run.Number,
 			&i.Run.TriggeredByToken,
+			&i.Run.CiProvider,
+			&i.Run.CiRepository,
+			&i.Run.CiBranch,
+			&i.Run.CiCommit,
+			&i.Run.CiJobUrl,
 			&i.TriggeredByName,
 		); err != nil {
 			return nil, err
@@ -806,7 +857,7 @@ func (q *Queries) ListProjectRuns(ctx context.Context, arg ListProjectRunsParams
 }
 
 const listProjectRunsAfter = `-- name: ListProjectRunsAfter :many
-SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number, run.triggered_by_token,
+SELECT run.id, run.org_id, run.project_id, run.scenario_id, run.environment_id, run.schedule_id, run.scenario_version, run.profile, run.profile_params, run.status, run.triggered_by, run.egress_bytes, run.error_message, run.created_at, run.started_at, run.ended_at, run.heartbeat_at, run.cancel_requested_at, run.ingress_bytes, run.data_sent_bytes, run.data_received_bytes, run.traffic_measured, run.number, run.triggered_by_token, run.ci_provider, run.ci_repository, run.ci_branch, run.ci_commit, run.ci_job_url,
        COALESCE(
            NULLIF(u.name, ''), u.email,
            CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
@@ -887,6 +938,11 @@ func (q *Queries) ListProjectRunsAfter(ctx context.Context, arg ListProjectRunsA
 			&i.Run.TrafficMeasured,
 			&i.Run.Number,
 			&i.Run.TriggeredByToken,
+			&i.Run.CiProvider,
+			&i.Run.CiRepository,
+			&i.Run.CiBranch,
+			&i.Run.CiCommit,
+			&i.Run.CiJobUrl,
 			&i.TriggeredByName,
 		); err != nil {
 			return nil, err
@@ -900,7 +956,7 @@ func (q *Queries) ListProjectRunsAfter(ctx context.Context, arg ListProjectRunsA
 }
 
 const listQueuedRuns = `-- name: ListQueuedRuns :many
-SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token FROM run
+SELECT id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url FROM run
 WHERE org_id = $1 AND status = 'queued'
 ORDER BY created_at, id
 LIMIT $2
@@ -947,6 +1003,11 @@ func (q *Queries) ListQueuedRuns(ctx context.Context, arg ListQueuedRunsParams) 
 			&i.TrafficMeasured,
 			&i.Number,
 			&i.TriggeredByToken,
+			&i.CiProvider,
+			&i.CiRepository,
+			&i.CiBranch,
+			&i.CiCommit,
+			&i.CiJobUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -1150,7 +1211,7 @@ func (q *Queries) LiveRunIDs(ctx context.Context, arg LiveRunIDsParams) ([]uuid.
 }
 
 const nextClaimableRun = `-- name: NextClaimableRun :one
-SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at, r.cancel_requested_at, r.ingress_bytes, r.data_sent_bytes, r.data_received_bytes, r.traffic_measured, r.number, r.triggered_by_token FROM run AS r
+SELECT r.id, r.org_id, r.project_id, r.scenario_id, r.environment_id, r.schedule_id, r.scenario_version, r.profile, r.profile_params, r.status, r.triggered_by, r.egress_bytes, r.error_message, r.created_at, r.started_at, r.ended_at, r.heartbeat_at, r.cancel_requested_at, r.ingress_bytes, r.data_sent_bytes, r.data_received_bytes, r.traffic_measured, r.number, r.triggered_by_token, r.ci_provider, r.ci_repository, r.ci_branch, r.ci_commit, r.ci_job_url FROM run AS r
 WHERE r.org_id = $1 AND r.status = 'queued'
   AND NOT EXISTS (
     SELECT 1 FROM environment_lock AS held
@@ -1205,6 +1266,11 @@ func (q *Queries) NextClaimableRun(ctx context.Context, arg NextClaimableRunPara
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -1286,7 +1352,7 @@ UPDATE run
 SET status = 'orphaned'
 WHERE org_id = $1 AND status = 'running'
   AND (heartbeat_at IS NULL OR heartbeat_at <= $2)
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type OrphanStaleRunsParams struct {
@@ -1342,6 +1408,11 @@ func (q *Queries) OrphanStaleRuns(ctx context.Context, arg OrphanStaleRunsParams
 			&i.TrafficMeasured,
 			&i.Number,
 			&i.TriggeredByToken,
+			&i.CiProvider,
+			&i.CiRepository,
+			&i.CiBranch,
+			&i.CiCommit,
+			&i.CiJobUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -1525,7 +1596,7 @@ const rejectQueuedRun = `-- name: RejectQueuedRun :one
 UPDATE run
 SET status = 'rejected', ended_at = $3, error_message = $4
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type RejectQueuedRunParams struct {
@@ -1573,6 +1644,11 @@ func (q *Queries) RejectQueuedRun(ctx context.Context, arg RejectQueuedRunParams
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -1602,7 +1678,7 @@ const requestEveryRunningCancellation = `-- name: RequestEveryRunningCancellatio
 UPDATE run
 SET cancel_requested_at = coalesce(cancel_requested_at, $2)
 WHERE org_id = $1 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type RequestEveryRunningCancellationParams struct {
@@ -1647,6 +1723,11 @@ func (q *Queries) RequestEveryRunningCancellation(ctx context.Context, arg Reque
 			&i.TrafficMeasured,
 			&i.Number,
 			&i.TriggeredByToken,
+			&i.CiProvider,
+			&i.CiRepository,
+			&i.CiBranch,
+			&i.CiCommit,
+			&i.CiJobUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -1662,7 +1743,7 @@ const requestRunCancellation = `-- name: RequestRunCancellation :one
 UPDATE run
 SET cancel_requested_at = coalesce(cancel_requested_at, $3)
 WHERE org_id = $1 AND id = $2 AND status = 'running'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type RequestRunCancellationParams struct {
@@ -1705,6 +1786,11 @@ func (q *Queries) RequestRunCancellation(ctx context.Context, arg RequestRunCanc
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }
@@ -1768,7 +1854,7 @@ const startRun = `-- name: StartRun :one
 UPDATE run
 SET status = 'running', started_at = $3, heartbeat_at = $3
 WHERE org_id = $1 AND id = $2 AND status = 'queued'
-RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token
+RETURNING id, org_id, project_id, scenario_id, environment_id, schedule_id, scenario_version, profile, profile_params, status, triggered_by, egress_bytes, error_message, created_at, started_at, ended_at, heartbeat_at, cancel_requested_at, ingress_bytes, data_sent_bytes, data_received_bytes, traffic_measured, number, triggered_by_token, ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url
 `
 
 type StartRunParams struct {
@@ -1807,6 +1893,11 @@ func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (Run, error)
 		&i.TrafficMeasured,
 		&i.Number,
 		&i.TriggeredByToken,
+		&i.CiProvider,
+		&i.CiRepository,
+		&i.CiBranch,
+		&i.CiCommit,
+		&i.CiJobUrl,
 	)
 	return i, err
 }

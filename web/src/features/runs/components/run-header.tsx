@@ -10,6 +10,7 @@ import type { RunContext } from "../detail";
 import { stoppable, type Run } from "../types";
 import { CancelRun } from "./cancel-run";
 import { RerunRun } from "./rerun-run";
+import { RunPipeline } from "./run-pipeline";
 import { RunStatusBadge, RunStatusIcon } from "./run-status-badge";
 
 // The facts of the run in the monospace face the design uses for them, in the
@@ -89,6 +90,10 @@ export function RunHeader({ run, context, now }: { run: Run; context: RunContext
           </li>
         ))}
       </ul>
+
+      {/* What launched the run, when a pipeline said so. A run nobody said anything
+          about draws nothing here. */}
+      {run.ci && <RunPipeline ci={run.ci} />}
 
       {run.cancel_requested_at && stoppableNow && (
         <p className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">

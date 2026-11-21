@@ -9,8 +9,9 @@
 -- name: CreateRun :one
 INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
-    scenario_version, profile, profile_params, triggered_by, triggered_by_token, status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued')
+    scenario_version, profile, profile_params, triggered_by, triggered_by_token,
+    ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url, status
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'queued')
 RETURNING *;
 
 -- name: GetRun :one

@@ -182,7 +182,7 @@ func ValidateAPITokenName(name string) (string, error) {
 		return "", fmt.Errorf("%w: the name is longer than %d characters", ErrInvalidAPIToken, apiTokenNameMax)
 	}
 	for _, c := range name {
-		if unicode.IsControl(c) || c == ' ' || c == ' ' {
+		if unicode.IsControl(c) || c == '\u2028' || c == '\u2029' {
 			return "", fmt.Errorf("%w: the name holds a control character", ErrInvalidAPIToken)
 		}
 	}

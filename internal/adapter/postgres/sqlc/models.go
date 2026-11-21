@@ -178,6 +178,11 @@ type Run struct {
 	TrafficMeasured   bool
 	Number            int32
 	TriggeredByToken  *uuid.UUID
+	CiProvider        *string
+	CiRepository      *string
+	CiBranch          *string
+	CiCommit          *string
+	CiJobUrl          *string
 }
 
 type RunArtifact struct {

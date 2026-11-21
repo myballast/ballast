@@ -33,11 +33,16 @@ type Run struct {
 	// TriggeredByToken is the API token that launched the run, when one did. Never
 	// set together with TriggeredBy.
 	TriggeredByToken *uuid.UUID
-	ErrorMessage     string
-	CreatedAt        time.Time
-	StartedAt        *time.Time
-	EndedAt          *time.Time
-	HeartbeatAt      *time.Time
+	// CI is what the pipeline that launched the run said about itself: which CI,
+	// repository, branch and commit, and the link to the job. Nil for a run nobody
+	// said anything about. Declared by the caller and not proved to Ballast, and
+	// frozen with the run like the rest of what describes it.
+	CI           *RunCI
+	ErrorMessage string
+	CreatedAt    time.Time
+	StartedAt    *time.Time
+	EndedAt      *time.Time
+	HeartbeatAt  *time.Time
 	// CancelRequestedAt is when somebody asked this run to stop. It is a
 	// request and not an ending: for a run being executed, the status that says
 	// the load has stopped is written by the worker that stopped it.
@@ -79,6 +84,14 @@ func NewRun(
 func (r Run) By(actor Actor) Run {
 	r.TriggeredBy = actor.UserID
 	r.TriggeredByToken = actor.TokenID
+	return r
+}
+
+// WithCI says what the pipeline that launched the run said about itself. The run
+// keeps a copy: what the caller does with theirs afterwards does not rewrite what
+// was measured.
+func (r Run) WithCI(ci RunCI) Run {
+	r.CI = &ci
 	return r
 }
 
