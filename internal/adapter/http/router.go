@@ -85,7 +85,7 @@ func NewRouter(
 		opt(&options)
 	}
 
-	runHandler := handler.NewRun(runs, log)
+	runHandler := handler.NewRun(runs, web, log)
 	projectHandler := handler.NewProject(projects, log)
 	scenarioHandler := handler.NewScenario(scenarios, log)
 	catalogHandler := handler.NewCatalog(catalog, log)

@@ -101,6 +101,16 @@ type RunResponse struct {
 	EndedAt           *time.Time  `json:"ended_at,omitempty"`
 	Metrics           []Metric    `json:"metrics"`
 	Thresholds        []Threshold `json:"thresholds"`
+	// Verdict says whether the run's thresholds held: met, breached, or none.
+	// It adds up the verdicts in Thresholds, which are k6's and never
+	// recomputed. none means nothing was judged — no threshold, or no results
+	// yet — and is never to be read as success; Status says why there is none.
+	// Always present.
+	Verdict string `json:"verdict"`
+	// URL is the run's page in the web application, for a person to open from a
+	// pipeline's log. Built from the configured address of the front end, never
+	// from the request, and absent when none is configured.
+	URL string `json:"url,omitempty"`
 }
 
 // RunListResponse is returned by GET /projects/{projectId}/runs.

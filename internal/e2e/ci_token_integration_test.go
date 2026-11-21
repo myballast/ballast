@@ -563,6 +563,10 @@ func TestATokenReachesNothingButTheRouteThatOpenedToIt(t *testing.T) {
 	token := w.newToken(t, "ci-main")
 	project, someID := w.a.projectID.String(), uuid.NewString()
 
+	// Reading a run and its output, and cancelling one it launched, are not in
+	// this list any more: #23 opened those three routes, and
+	// run_read_token_integration_test.go holds what a token meets there. What is
+	// left is closed, and stays so.
 	for name, c := range map[string]struct{ method, path, body string }{
 		"read the project":          {http.MethodGet, "/projects/" + project, ""},
 		"list the members":          {http.MethodGet, "/projects/" + project + "/members", ""},
@@ -570,8 +574,6 @@ func TestATokenReachesNothingButTheRouteThatOpenedToIt(t *testing.T) {
 		"list the tokens":           {http.MethodGet, "/projects/" + project + "/api-tokens", ""},
 		"create a successor":        {http.MethodPost, "/projects/" + project + "/api-tokens", `{"name":"successor"}`},
 		"revoke itself":             {http.MethodDelete, "/projects/" + project + "/api-tokens/" + token.id.String(), ""},
-		"read a run":                {http.MethodGet, "/runs/" + someID, ""},
-		"cancel a run":              {http.MethodDelete, "/runs/" + someID, ""},
 		"repeat a run":              {http.MethodPost, "/runs/" + someID + "/rerun", ""},
 		"stop everything":           {http.MethodPost, "/runs/stop-all", ""},
 		"read the organization use": {http.MethodGet, "/usage", ""},

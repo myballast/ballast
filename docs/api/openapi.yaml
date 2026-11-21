@@ -716,8 +716,38 @@ paths:
       description: |
         Metrics and threshold verdicts are empty until the run has finished.
         Verdicts are k6's own; Ballast never recomputes them.
+
+        A pipeline reads its run with the API token that launched it: the token
+        must hold the permission to view the run's project. A token of another
+        project is answered `404`, exactly as a person without rights is, and as
+        a run that does not exist is.
+
+        **Waiting for a run.** A pipeline that launched a run with `POST /runs`
+        reads this until `status` is terminal (see `RunStatus`: `queued`,
+        `running` and `orphaned` are not), and then reads the verdict.
+
+        - `verdict` is `met`, `breached` or `none`, and says nothing until the run
+          is over. Today `passed` is `met` (or `none` when the script declares no
+          threshold), `failed` is always `breached`, and `errored`, `timeout`,
+          `cancelled` and `rejected` are `none`. `none` is never success: a
+          pipeline fails on anything but `met` unless it has decided that a run
+          with no threshold is acceptable.
+        - `url` is the run's page, to print for a person.
+        - Answers that end the wait: `401` means the token is unknown, revoked or
+          expired, and retrying will not change it; `404` means the run is not
+          visible to this token — another project, a run it did not launch, or one
+          that does not exist — and will not become visible. Both are final.
+        - Answers worth retrying after a pause: `503` (Ballast could not check the
+          token at that moment — its own failure, never a verdict on the token) and
+          other `5xx`. A `401` is never a transient failure.
+        - Cancelling is a request: after `DELETE /runs/{id}` on a run under way,
+          keep reading until `status` is `cancelled`; `cancel_requested_at` shows
+          that the request was recorded.
       operationId: getRun
       x-ballast-permission: view_project
+      security:
+        - session: []
+        - bearer: []
       parameters:
         - name: id
           in: path
@@ -740,6 +770,15 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          description: |
+            Ballast could not check the API token at that moment: a failure on its
+            side, not a verdict on the token. Retry after a pause; a revoked or
+            unknown token is a `401`, never this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -760,8 +799,21 @@ paths:
 
         A run that has already finished answers `409`: nothing about the request
         is wrong, there is simply nothing left to stop.
+
+        **With an API token.** A pipeline that is stopped — a job cancelled, a
+        deadline reached — takes down the load it started, and only that. A token
+        holds no permission to cancel, so it is asked whether it may run a test in
+        the run's project, and the run must be one **this token launched**. A run
+        launched by a person, by another token of the same project, or in another
+        project answers `404`, exactly as a run that does not exist does, and the
+        refusal is written to the audit journal under the token's name. Cancelling
+        a run that is under way is a request here too: wait for `status` to become
+        `cancelled`.
       operationId: cancelRun
       x-ballast-permission: cancel_run
+      security:
+        - session: []
+        - bearer: []
       parameters:
         - name: id
           in: path
@@ -810,6 +862,15 @@ paths:
                 finished:
                   value:
                     error: this run has already finished
+        "503":
+          description: |
+            Ballast could not check the API token at that moment: a failure on its
+            side, not a verdict on the token. Retry after a pause; a revoked or
+            unknown token is a `401`, never this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -924,8 +985,24 @@ paths:
         values of the environment's secrets, and any `Authorization`, `Cookie`
         or `Set-Cookie` header a script printed, are replaced with `[redacted]`
         before a line is ever stored.
+
+        **Access is checked on every poll, not once.** The stream reads again about
+        once a second, and each read asks again whether the caller may see the run.
+        Revoking an API token, or removing a person from the project, therefore
+        ends a stream that is open within about a second: it receives an `error`
+        event and the connection closes. The event does not say which right was
+        withdrawn. A client that gets `error` should not reconnect blindly: ask
+        `GET /runs/{id}`, whose `401` or `404` is the final answer, and whose
+        terminal `status` means the run is over.
+
+        With an API token, the stream is open to the token of the run's project.
+        A run it cannot see answers `404` before any event is sent, as for a run
+        that does not exist.
       operationId: followRunLogs
       x-ballast-permission: view_project
+      security:
+        - session: []
+        - bearer: []
       parameters:
         - name: id
           in: path
@@ -965,6 +1042,15 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          description: |
+            Ballast could not check the API token at that moment: a failure on its
+            side, not a verdict on the token. Retry after a pause; a revoked or
+            unknown token is a `401`, never this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -5308,7 +5394,32 @@ components:
 
     RunStatus:
       type: string
-      description: "`orphaned` is not terminal: the worker died mid-run and the run still has to be cleaned up."
+      description: |
+        Where a run stands. A client that waits for a run reads this to know when to
+        stop.
+
+        **Not terminal — keep waiting:**
+
+        - `queued` — accepted, waiting for a worker and for the environment to be free.
+        - `running` — a generator is loading the target.
+        - `orphaned` — the worker died mid-run and the run still has to be cleaned
+          up. It becomes `errored` once its containers are destroyed. It is **not**
+          an ending: the load may still be running until then.
+
+        **Terminal — the run is over and will not change again:**
+
+        - `passed` — it ran and every threshold held, or it had none.
+        - `failed` — it ran and at least one threshold was breached.
+        - `errored` — it could not be run or measured; `error_message` says why.
+        - `timeout` — it was killed at the environment's maximum duration.
+        - `cancelled` — somebody cancelled it, an emergency stop did, or the worker
+          executing it was told to stop before it finished.
+        - `rejected` — it waited in the queue and could no longer start, because its
+          environment no longer allowed it; `error_message` says why. It never ran.
+        - `skipped` — reserved by the state machine; no run reaches it today.
+
+        The list above is the whole set at this version. A client that meets a
+        status it does not know should stop and report it, rather than guess.
       enum: [queued, running, passed, failed, errored, timeout, cancelled, rejected, skipped, orphaned]
 
     ProjectStatsResponse:
@@ -5442,6 +5553,7 @@ components:
         - created_at
         - metrics
         - thresholds
+        - verdict
       properties:
         id: { type: string, format: uuid }
         number:
@@ -5490,6 +5602,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Threshold"
+        verdict:
+          type: string
+          enum: [met, breached, none]
+          description: |
+            Whether the run's thresholds held, in one word for a pipeline to read.
+            It adds up the verdicts in `thresholds`, which are k6's and never
+            recomputed by Ballast: `met` when at least one threshold was judged and
+            every one held, `breached` when at least one did not.
+
+            `none` means nothing was judged: the run has no threshold, or has not
+            produced results (queued, running, `errored`, `cancelled`). It is **not**
+            success, and a pipeline must not treat it as such; `status` says why
+            there is none. Always present.
+        url:
+          type: string
+          format: uri
+          description: |
+            The run's page in the web application, to print in a pipeline's log for
+            a person to open. Built from the configured address of the front end and
+            never from the request. Absent when none is configured.
 
     Metric:
       type: object

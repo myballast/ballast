@@ -87,6 +87,16 @@ func (r Run) By(actor Actor) Run {
 	return r
 }
 
+// LaunchedByToken reports whether this API token is the one that launched the
+// run. A run launched by a person, by another token, or by nobody is not.
+//
+// It is what lets a pipeline take down its own load without being able to stop
+// anybody else's: a token holds the permission to run a test and not the one to
+// cancel, and the right to cancel a run it started is read from the run.
+func (r Run) LaunchedByToken(id uuid.UUID) bool {
+	return id != uuid.Nil && r.TriggeredByToken != nil && *r.TriggeredByToken == id
+}
+
 // WithCI says what the pipeline that launched the run said about itself. The run
 // keeps a copy: what the caller does with theirs afterwards does not rewrite what
 // was measured.
@@ -102,10 +112,8 @@ func (r Run) WithCI(ci RunCI) Run {
 // failure is enough to fail the run, and a run with no threshold at all has
 // nothing to fail.
 func (r RunResults) Verdict() RunStatus {
-	for _, threshold := range r.Thresholds {
-		if !threshold.Passed {
-			return StatusFailed
-		}
+	if VerdictOf(r.Thresholds) == VerdictBreached {
+		return StatusFailed
 	}
 	return StatusPassed
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -27,12 +28,14 @@ import (
 // or a parameter naming an organization would be a hole, not a feature.
 type Run struct {
 	runs *run.Service
-	log  *slog.Logger
+	// web is where the front end lives, for the link to a run's page.
+	web *url.URL
+	log *slog.Logger
 }
 
 // NewRun returns the handler.
-func NewRun(runs *run.Service, log *slog.Logger) *Run {
-	return &Run{runs: runs, log: log}
+func NewRun(runs *run.Service, web *url.URL, log *slog.Logger) *Run {
+	return &Run{runs: runs, web: web, log: log}
 }
 
 // Enqueue handles POST /runs.
@@ -131,6 +134,33 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 		h.writeDomainError(w, r, err)
 		return
 	}
+
+	writeJSON(w, http.StatusOK, toDTORun(detail, results, h.web))
+}
+
+// runPageURL is the address of a run's page in the web application.
+//
+// It is built from the configured address of the front end and from nothing the
+// request says: the Host header is the caller's to choose, and a link in an API
+// response that follows it would be a link to wherever the caller pointed. With
+// no configured address there is no link, rather than a guessed one. What else
+// the configured address carries — a query, a fragment — is not part of where
+// the front end lives and is dropped.
+func runPageURL(web *url.URL, id uuid.UUID) string {
+	if web == nil {
+		return ""
+	}
+
+	page := *web
+	page.RawQuery = ""
+	page.Fragment = ""
+	page.RawFragment = ""
+	return page.JoinPath("runs", id.String()).String()
+}
+
+// toDTORun is the response of GET /runs/{id}, a pure function of what the
+// service returned so that a test reads it without a router.
+func toDTORun(detail run.Listed, results domain.RunResults, web *url.URL) dto.RunResponse {
 	found := detail.Run
 
 	response := dto.RunResponse{
@@ -157,6 +187,8 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 		EndedAt:           found.EndedAt,
 		Metrics:           make([]dto.Metric, 0, len(results.Metrics)),
 		Thresholds:        make([]dto.Threshold, 0, len(results.Thresholds)),
+		Verdict:           string(domain.VerdictOf(results.Thresholds)),
+		URL:               runPageURL(web, found.ID),
 	}
 
 	for _, metric := range results.Metrics {
@@ -175,7 +207,7 @@ func (h *Run) ByID(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	return response
 }
 
 // Cancel handles DELETE /runs/{id}.

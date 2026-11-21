@@ -41,6 +41,17 @@ var tokenRoutes = []string{
 	// whether this token may run a test in that project, and a token of another
 	// project is refused there.
 	"POST /runs",
+	// A pipeline waits for its run and reads how it went (#23): the run, and its
+	// output as a stream. Both are reads of one run, take the permission to view
+	// its project, and resolve it at every request, so that revoking a token cuts
+	// a stream that is open.
+	"GET /runs/{id}",
+	"GET /runs/{id}/logs",
+	// A pipeline that is stopped takes down the load it started (#23). The route
+	// asks a person for the permission to cancel, and asks a token for the one it
+	// holds, to run a test; the service then lets a token cancel only a run it
+	// launched itself.
+	"DELETE /runs/{id}",
 }
 
 func TestExactlyTheDecidedRoutesAcceptATokenForNow(t *testing.T) {
@@ -76,10 +87,52 @@ func TestARouteThatAcceptsATokenIsOneATokenCanSatisfy(t *testing.T) {
 		default:
 			t.Errorf("%s accepts a token with scope %d: a token has one project, and only a route that names one can check it", key, route.Scope)
 		}
-		if !allowed.Has(route.Permission) || route.Permission == 0 {
-			t.Errorf("%s needs permission %d, which a token does not hold", key, int64(route.Permission))
+		// What a token is asked, which is the route's permission unless the route
+		// says it asks a token for another.
+		needed := route.PermissionForToken()
+		if needed == 0 || domain.PermissionSet(needed)&^allowed != 0 {
+			t.Errorf("%s asks a token for permission %d, which a token does not hold", key, int64(needed))
 		}
 	}
+}
+
+// A route may ask a token for a permission other than the one it asks a person
+// for, and that is the only difference it may make. It is for a route whose
+// service adds a condition of its own — a token cancels the runs it launched —
+// so it is said on a route that opened to tokens and nowhere else, and on one
+// whose service decides, because a middleware would ask a token the person's
+// question and always refuse it.
+func TestARoutesPermissionForATokenIsSaidOnlyWhereItCanBeHonoured(t *testing.T) {
+	for _, route := range httpadapter.Routes() {
+		if route.TokenPermission == 0 {
+			continue
+		}
+		key := route.Method + " " + route.Path
+
+		if !route.AllowToken {
+			t.Errorf("%s names a permission for tokens and is not open to them", key)
+		}
+		if route.Scope != httpadapter.ScopeDerived {
+			t.Errorf("%s names a permission for tokens with scope %d: only a route whose service decides can honour it", key, route.Scope)
+		}
+	}
+}
+
+func TestACancellationIsAskedOfATokenAsTheRightToRunATest(t *testing.T) {
+	for _, route := range httpadapter.Routes() {
+		if route.Method != "DELETE" || route.Path != "/runs/{id}" {
+			continue
+		}
+
+		if route.Permission != domain.PermCancelRun {
+			t.Errorf("a person is asked for permission %d, want the one to cancel", int64(route.Permission))
+		}
+		if route.TokenPermission != domain.PermRunTest {
+			t.Errorf("a token is asked for permission %d, want the one to run a test: it has no other", int64(route.TokenPermission))
+		}
+		return
+	}
+	t.Fatal("DELETE /runs/{id} is not declared")
 }
 
 // Nothing that manages an organization, a member, a secret or a token is ever
