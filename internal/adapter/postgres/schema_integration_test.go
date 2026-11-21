@@ -15,6 +15,7 @@ import (
 // none. Against an empty database they would all pass while proving nothing.
 // This one fails instead.
 var expectedTables = []string{
+	"api_token",
 	"app_user",
 	"audit_log",
 	"catalog_endpoint",

@@ -43,6 +43,11 @@ type Route struct {
 	// Reason says why a ScopeNone route needs no permission. Written out so
 	// that "none" reads as a decision rather than as an omission.
 	Reason string
+	// AllowToken lets a pipeline reach the route with an API token instead of a
+	// session. False by default and on purpose: a token holds two permissions in
+	// one project, so only a route that names a project and asks for one of them
+	// can be opened, and a test reads the list of those routes written out.
+	AllowToken bool
 }
 
 // PermissionName is the name this route's permission goes by in the API

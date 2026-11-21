@@ -52,6 +52,16 @@ func OriginGuard(allowed []string, log *slog.Logger) func(http.Handler) http.Han
 				return
 			}
 
+			// The guard exists because a cookie rides along on a request that a
+			// page of another site makes. A bearer token does not: only code that
+			// holds the secret can send it, so a request carrying one is not a
+			// forged one, and it is not asked where it came from. Anything that
+			// merely has an Authorization header is not that, and is asked.
+			if _, _, ok := bearerToken(r); ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// What differs by origin must not be cached for another.
 			w.Header().Add("Vary", "Origin")
 

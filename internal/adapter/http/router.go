@@ -33,6 +33,20 @@ type Probe func(context.Context) error
 // the first looks like an API that is merely slow.
 const readyTimeout = 2 * time.Second
 
+// RouterOption adds something the router can do without, so that a caller that
+// has no use for it is not made to say so.
+type RouterOption func(*routerOptions)
+
+type routerOptions struct {
+	tokens middleware.TokenAuthenticator
+}
+
+// WithTokens lets the routes that opted in accept an API token. Without it, no
+// route does, whatever the table says: a token is a request with no session.
+func WithTokens(tokens middleware.TokenAuthenticator) RouterOption {
+	return func(o *routerOptions) { o.tokens = tokens }
+}
+
 // NewRouter wires the HTTP surface.
 //
 // net/http's own multiplexer, not a third-party router: since Go 1.22 it
@@ -62,7 +76,13 @@ func NewRouter(
 	ready Probe,
 	web *url.URL,
 	log *slog.Logger,
+	opts ...RouterOption,
 ) http.Handler {
+	var options routerOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	runHandler := handler.NewRun(runs, log)
 	projectHandler := handler.NewProject(projects, log)
 	scenarioHandler := handler.NewScenario(scenarios, log)
@@ -177,7 +197,13 @@ func NewRouter(
 		"POST /projects/{projectId}/environments/{environmentId}/approve":     environmentHandler.Approve,
 	}
 
+	// Two ways in. The first knows only sessions; the second knows tokens as
+	// well, and is used by the routes whose declaration says so.
 	authenticate := middleware.Authenticate(sessions, log)
+	authenticateOrToken := authenticate
+	if options.tokens != nil {
+		authenticateOrToken = middleware.AuthenticateOrToken(sessions, options.tokens, log)
+	}
 
 	mux := http.NewServeMux()
 	for _, route := range Routes() {
@@ -189,7 +215,12 @@ func NewRouter(
 		}
 		delete(handlers, pattern)
 
-		mux.Handle(pattern, wrap(route, http.Handler(next), authenticate, permissions, log))
+		auth := authenticate
+		if route.AllowToken {
+			auth = authenticateOrToken
+		}
+
+		mux.Handle(pattern, wrap(route, http.Handler(next), auth, permissions, log))
 	}
 
 	for pattern := range handlers {

@@ -19,9 +19,18 @@ var ErrIncompleteIdentity = errors.New("incomplete identity")
 // It carries no permission. Permissions are resolved against the database on
 // every request, so that a revoked role takes effect immediately rather than
 // when a session happens to expire.
+//
+// It is either a person or an API token, never both. A token has no person: its
+// UserID is empty, and TokenID says which token is asking.
 type Identity struct {
-	UserID uuid.UUID
-	OrgID  uuid.UUID
+	UserID  uuid.UUID
+	OrgID   uuid.UUID
+	TokenID uuid.UUID
+}
+
+// IsToken reports whether the caller is an API token and not a person.
+func (i Identity) IsToken() bool {
+	return i.TokenID != uuid.Nil
 }
 
 // ExternalIdentity is a person as an identity provider describes them.

@@ -10,6 +10,20 @@ import (
 	"github.com/google/uuid"
 )
 
+type ApiToken struct {
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	ProjectID  uuid.UUID
+	Name       string
+	Prefix     string
+	TokenHash  string
+	CreatedBy  *uuid.UUID
+	ExpiresAt  time.Time
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+	CreatedAt  time.Time
+}
+
 type AppUser struct {
 	ID        uuid.UUID
 	OrgID     uuid.UUID

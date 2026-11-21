@@ -35,6 +35,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 	"github.com/youssefmahersi/ballast/internal/infra/logging"
 	"github.com/youssefmahersi/ballast/internal/infra/oidc"
+	"github.com/youssefmahersi/ballast/internal/usecase/apitoken"
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
@@ -76,7 +77,11 @@ func serve(log *slog.Logger) error {
 	defer db.Close()
 
 	memberships := postgres.NewMembershipRepository(db)
-	permissions := authz.NewService(memberships, log)
+	// API tokens are read here and nowhere else in this process: the repository
+	// serves both the permission check (by id, under the organization) and the
+	// authentication of a request (by hash, before the organization is known).
+	apiTokens := postgres.NewAPITokenRepository(db)
+	permissions := authz.NewService(memberships, log).WithTokens(apiTokens, infra.SystemClock{})
 
 	// One journal, written by three services: who launched or was refused a
 	// run, who proved and approved a target, who changed somebody's role.
@@ -204,7 +209,8 @@ func serve(log *slog.Logger) error {
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: originGuard(cfg, log)(httpadapter.NewRouter(service, projects, scenarios, catalogs, environments,
-			invitations, journalReader, runners, signIn, permissions, sessions, db.Ping, cfg.WebURL, log)),
+			invitations, journalReader, runners, signIn, permissions, sessions, db.Ping, cfg.WebURL, log,
+			httpadapter.WithTokens(apitoken.NewService(apiTokens, infra.SystemClock{}, log)))),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
