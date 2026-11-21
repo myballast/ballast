@@ -40,6 +40,11 @@ const (
 	ActionMemberJoined AuditAction = "member.joined"
 	// ActionInvitationRevoked is an invitation withdrawn before it was used.
 	ActionInvitationRevoked AuditAction = "invitation.revoked"
+	// ActionAPITokenCreated is a credential for a pipeline written: its prefix
+	// and its expiry, and never the secret nor the name somebody gave it.
+	ActionAPITokenCreated AuditAction = "api_token.created"
+	// ActionAPITokenRevoked is a token withdrawn. It stops working at once.
+	ActionAPITokenRevoked AuditAction = "api_token.revoked"
 )
 
 // AuditOutcome says whether what was attempted was allowed.
@@ -61,6 +66,7 @@ const (
 	TargetEnvironment = "environment"
 	TargetMembership  = "membership"
 	TargetInvitation  = "invitation"
+	TargetAPIToken    = "api_token"
 	TargetOrg         = "organization"
 )
 

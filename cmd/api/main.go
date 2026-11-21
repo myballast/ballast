@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -82,6 +83,9 @@ func serve(log *slog.Logger) error {
 	// authentication of a request (by hash, before the organization is known).
 	apiTokens := postgres.NewAPITokenRepository(db)
 	permissions := authz.NewService(memberships, log).WithTokens(apiTokens, infra.SystemClock{})
+	// Managing tokens is a project administrator's work, and its secrets come from
+	// the system's randomness.
+	tokenManager := apitoken.NewManager(apiTokens, permissions, infra.SystemClock{}, rand.Reader, log)
 
 	// One journal, written by three services: who launched or was refused a
 	// run, who proved and approved a target, who changed somebody's role.
@@ -209,7 +213,7 @@ func serve(log *slog.Logger) error {
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: originGuard(cfg, log)(httpadapter.NewRouter(service, projects, scenarios, catalogs, environments,
-			invitations, journalReader, runners, signIn, permissions, sessions, db.Ping, cfg.WebURL, log,
+			invitations, journalReader, runners, tokenManager, signIn, permissions, sessions, db.Ping, cfg.WebURL, log,
 			httpadapter.WithTokens(apitoken.NewService(apiTokens, infra.SystemClock{}, log)))),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

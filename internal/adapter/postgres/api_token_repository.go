@@ -19,6 +19,7 @@ import (
 // what they need from it.
 var (
 	_ apitoken.Repository = (*APITokenRepository)(nil)
+	_ apitoken.Registry   = (*APITokenRepository)(nil)
 	_ authz.Tokens        = (*APITokenRepository)(nil)
 )
 
@@ -111,5 +112,116 @@ func (r *APITokenRepository) Touch(ctx context.Context, orgID, tokenID uuid.UUID
 			return fmt.Errorf("record the use of the API token: %w", err)
 		}
 		return nil
+	})
+}
+
+// Create writes the token and its journal entry in one transaction: if the entry
+// cannot be written, the token does not exist.
+//
+// The ceiling is checked in that same transaction, behind a lock on the project's
+// row. A count taken outside it would let two creations at once both find room;
+// with the lock, the second waits for the first and then counts it.
+func (r *APITokenRepository) Create(
+	ctx context.Context, token domain.APIToken, tokenHash string, entry domain.AuditEntry,
+) error {
+	return r.db.InTenantTx(ctx, token.OrgID, func(tx pgx.Tx) error {
+		q := sqlc.New(tx)
+
+		// A project of another organization is not there to be locked, which is
+		// the same answer as a project that does not exist.
+		_, err := q.LockProjectForApiTokens(ctx, sqlc.LockProjectForApiTokensParams{
+			OrgID: token.OrgID, ID: token.ProjectID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock the project: %w", err)
+		}
+
+		live, err := q.CountLiveApiTokens(ctx, sqlc.CountLiveApiTokensParams{
+			OrgID: token.OrgID, ProjectID: token.ProjectID,
+		})
+		if err != nil {
+			return fmt.Errorf("count the live tokens: %w", err)
+		}
+		if live >= domain.MaxAPITokensPerProject {
+			return domain.ErrTooManyAPITokens
+		}
+
+		if err := q.InsertApiToken(ctx, sqlc.InsertApiTokenParams{
+			ID:        token.ID,
+			OrgID:     token.OrgID,
+			ProjectID: token.ProjectID,
+			Name:      token.Name,
+			Prefix:    token.Prefix,
+			TokenHash: tokenHash,
+			CreatedBy: token.CreatedBy,
+			ExpiresAt: token.ExpiresAt,
+			CreatedAt: token.CreatedAt,
+		}); err != nil {
+			return fmt.Errorf("write the API token: %w", err)
+		}
+
+		return insertAudit(ctx, tx, entry)
+	})
+}
+
+// List returns the tokens of a project, revoked ones included, newest first. A
+// project of another organization has none here: row-level security hides them,
+// and nobody learns from an error that it exists.
+func (r *APITokenRepository) List(
+	ctx context.Context, orgID, projectID uuid.UUID,
+) ([]apitoken.Listed, error) {
+	listed := []apitoken.Listed{}
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		rows, err := sqlc.New(tx).ListApiTokens(ctx, sqlc.ListApiTokensParams{OrgID: orgID, ProjectID: projectID})
+		if err != nil {
+			return fmt.Errorf("list the API tokens: %w", err)
+		}
+
+		for _, row := range rows {
+			listed = append(listed, apitoken.Listed{
+				APIToken: domain.APIToken{
+					ID:         row.ID,
+					OrgID:      row.OrgID,
+					ProjectID:  row.ProjectID,
+					Name:       row.Name,
+					Prefix:     row.Prefix,
+					CreatedBy:  row.CreatedBy,
+					ExpiresAt:  row.ExpiresAt,
+					LastUsedAt: row.LastUsedAt,
+					RevokedAt:  row.RevokedAt,
+					CreatedAt:  row.CreatedAt,
+				},
+				CreatedByName: row.CreatedByName,
+			})
+		}
+		return nil
+	})
+
+	return listed, err
+}
+
+// Revoke writes the date of the revocation and its journal entry in one
+// transaction. A token that was already revoked, or that is not in this
+// organization and project, matches no row: that is a not found, and no entry is
+// written for it — the journal says a token was revoked once because it was.
+func (r *APITokenRepository) Revoke(
+	ctx context.Context, token domain.APIToken, at time.Time, entry domain.AuditEntry,
+) error {
+	return r.db.InTenantTx(ctx, token.OrgID, func(tx pgx.Tx) error {
+		affected, err := sqlc.New(tx).RevokeApiToken(ctx, sqlc.RevokeApiTokenParams{
+			OrgID: token.OrgID, ProjectID: token.ProjectID, ID: token.ID, RevokedAt: &at,
+		})
+		if err != nil {
+			return fmt.Errorf("revoke the API token: %w", err)
+		}
+		if affected == 0 {
+			return domain.ErrNotFound
+		}
+
+		return insertAudit(ctx, tx, entry)
 	})
 }

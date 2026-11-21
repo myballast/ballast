@@ -58,6 +58,165 @@ func (q *Queries) ApiTokenByID(ctx context.Context, arg ApiTokenByIDParams) (Api
 	return i, err
 }
 
+const countLiveApiTokens = `-- name: CountLiveApiTokens :one
+SELECT count(*) FROM api_token
+WHERE org_id = $1 AND project_id = $2 AND revoked_at IS NULL
+`
+
+type CountLiveApiTokensParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+// What has not been revoked counts against the ceiling, expired or not.
+func (q *Queries) CountLiveApiTokens(ctx context.Context, arg CountLiveApiTokensParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countLiveApiTokens, arg.OrgID, arg.ProjectID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const insertApiToken = `-- name: InsertApiToken :exec
+INSERT INTO api_token (id, org_id, project_id, name, prefix, token_hash, created_by, expires_at, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+`
+
+type InsertApiTokenParams struct {
+	ID        uuid.UUID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	Name      string
+	Prefix    string
+	TokenHash string
+	CreatedBy *uuid.UUID
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+func (q *Queries) InsertApiToken(ctx context.Context, arg InsertApiTokenParams) error {
+	_, err := q.db.Exec(ctx, insertApiToken,
+		arg.ID,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.Name,
+		arg.Prefix,
+		arg.TokenHash,
+		arg.CreatedBy,
+		arg.ExpiresAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const listApiTokens = `-- name: ListApiTokens :many
+SELECT t.id, t.org_id, t.project_id, t.name, t.prefix, t.created_by, t.expires_at,
+       t.last_used_at, t.revoked_at, t.created_at,
+       coalesce(u.name, '')::text AS created_by_name
+FROM api_token t
+LEFT JOIN app_user u ON u.org_id = t.org_id AND u.id = t.created_by
+WHERE t.org_id = $1 AND t.project_id = $2
+ORDER BY t.created_at DESC, t.id DESC
+`
+
+type ListApiTokensParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+type ListApiTokensRow struct {
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	ProjectID     uuid.UUID
+	Name          string
+	Prefix        string
+	CreatedBy     *uuid.UUID
+	ExpiresAt     time.Time
+	LastUsedAt    *time.Time
+	RevokedAt     *time.Time
+	CreatedAt     time.Time
+	CreatedByName string
+}
+
+// The name of whoever made it, when they still exist: a token outlives its
+// author, and the join must not drop it.
+func (q *Queries) ListApiTokens(ctx context.Context, arg ListApiTokensParams) ([]ListApiTokensRow, error) {
+	rows, err := q.db.Query(ctx, listApiTokens, arg.OrgID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListApiTokensRow{}
+	for rows.Next() {
+		var i ListApiTokensRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.Name,
+			&i.Prefix,
+			&i.CreatedBy,
+			&i.ExpiresAt,
+			&i.LastUsedAt,
+			&i.RevokedAt,
+			&i.CreatedAt,
+			&i.CreatedByName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockProjectForApiTokens = `-- name: LockProjectForApiTokens :one
+SELECT id FROM project WHERE org_id = $1 AND id = $2 FOR UPDATE
+`
+
+type LockProjectForApiTokensParams struct {
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+// The project row is locked before the count, so that two creations at once wait
+// for each other and the second one sees the first. Without it, both would read
+// the same count and both would find room.
+func (q *Queries) LockProjectForApiTokens(ctx context.Context, arg LockProjectForApiTokensParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockProjectForApiTokens, arg.OrgID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const revokeApiToken = `-- name: RevokeApiToken :execrows
+UPDATE api_token SET revoked_at = $4
+WHERE org_id = $1 AND project_id = $2 AND id = $3 AND revoked_at IS NULL
+`
+
+type RevokeApiTokenParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+	RevokedAt *time.Time
+}
+
+// The date of the revocation, once. Whoever loses a race for it, or asks again,
+// matches no row.
+func (q *Queries) RevokeApiToken(ctx context.Context, arg RevokeApiTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeApiToken,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.ID,
+		arg.RevokedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const touchApiToken = `-- name: TouchApiToken :exec
 UPDATE api_token SET last_used_at = $3
 WHERE org_id = $1 AND id = $2

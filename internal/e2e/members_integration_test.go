@@ -157,7 +157,7 @@ func newMembersWorld(ctx context.Context, t *testing.T) membersWorld {
 		nil, projects, nil, nil, nil, invitations,
 		audit.NewService(journal, permissions, log),
 		nil,
-		auth.NewService(accounts, nil, infra.SystemClock{}, log),
+		nil, auth.NewService(accounts, nil, infra.SystemClock{}, log),
 		permissions, w.sessions, db.Ping, web, log,
 	))
 	t.Cleanup(w.api.Close)

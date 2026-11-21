@@ -109,7 +109,7 @@ func TestEveryRouteThatDidNotOptInRefusesATokenWithoutAskingAboutIt(t *testing.T
 	ready := func(context.Context) error { return nil }
 	tokens := &countingTokens{}
 
-	router := httpadapter.NewRouter(nil, nil, nil, nil, nil, nil, nil, nil,
+	router := httpadapter.NewRouter(nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, ready, web, log,
 		httpadapter.WithTokens(tokens))
 
@@ -143,5 +143,40 @@ func TestEveryRouteThatDidNotOptInRefusesATokenWithoutAskingAboutIt(t *testing.T
 	}
 	if tokens.calls != 0 {
 		t.Errorf("token authentication was asked %d times by routes that did not opt in", tokens.calls)
+	}
+}
+
+// Managing tokens is for the people who manage the project, and only for them.
+// Whatever else changes, these three routes are declared with that permission and
+// with the project in the path, so that the middleware enforces the declaration
+// instead of leaving it to the service to remember.
+func TestTokenManagementIsForProjectAdministrators(t *testing.T) {
+	want := map[string]bool{
+		"GET /projects/{projectId}/api-tokens":              false,
+		"POST /projects/{projectId}/api-tokens":             false,
+		"DELETE /projects/{projectId}/api-tokens/{tokenId}": false,
+	}
+
+	for _, route := range httpadapter.Routes() {
+		key := route.Method + " " + route.Path
+		if _, ok := want[key]; !ok {
+			continue
+		}
+		want[key] = true
+
+		if route.Scope != httpadapter.ScopePath || route.ProjectParam != "projectId" {
+			t.Errorf("%s: scope %d, project %q, want the project from the path", key, route.Scope, route.ProjectParam)
+		}
+		if route.Permission != domain.PermManageProject {
+			t.Errorf("%s needs permission %d, want managing the project", key, int64(route.Permission))
+		}
+		if route.AllowToken {
+			t.Errorf("%s accepts a token: a token must never manage tokens", key)
+		}
+	}
+	for key, found := range want {
+		if !found {
+			t.Errorf("%s is not declared", key)
+		}
 	}
 }

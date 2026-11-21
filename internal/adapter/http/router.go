@@ -11,6 +11,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/http/handler"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/middleware"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
+	"github.com/youssefmahersi/ballast/internal/usecase/apitoken"
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/catalog"
@@ -70,6 +71,7 @@ func NewRouter(
 	invitations *invitation.Service,
 	journal *audit.Service,
 	runners *runner.Service,
+	apiTokens *apitoken.Manager,
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
 	sessions *session.Manager,
@@ -91,6 +93,7 @@ func NewRouter(
 	invitationHandler := handler.NewInvitation(invitations, sessions, log)
 	auditHandler := handler.NewAudit(journal, log)
 	runnerHandler := handler.NewRunner(runners, log)
+	apiTokenHandler := handler.NewAPIToken(apiTokens, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
 
 	handlers := map[string]http.HandlerFunc{
@@ -148,11 +151,15 @@ func NewRouter(
 		"GET /projects/{projectId}/invitations":                   invitationHandler.List,
 		"POST /projects/{projectId}/invitations":                  invitationHandler.Create,
 		"DELETE /projects/{projectId}/invitations/{invitationId}": invitationHandler.Revoke,
-		"GET /projects/{projectId}/permissions":                   projectHandler.Permissions,
-		"PUT /projects/{projectId}/favorite":                      projectHandler.Favorite,
-		"DELETE /projects/{projectId}/favorite":                   projectHandler.Unfavorite,
-		"PUT /projects/{projectId}/members/{userId}":              projectHandler.SetMemberRole,
-		"DELETE /projects/{projectId}/members/{userId}":           projectHandler.RemoveMember,
+
+		"GET /projects/{projectId}/api-tokens":              apiTokenHandler.List,
+		"POST /projects/{projectId}/api-tokens":             apiTokenHandler.Create,
+		"DELETE /projects/{projectId}/api-tokens/{tokenId}": apiTokenHandler.Revoke,
+		"GET /projects/{projectId}/permissions":             projectHandler.Permissions,
+		"PUT /projects/{projectId}/favorite":                projectHandler.Favorite,
+		"DELETE /projects/{projectId}/favorite":             projectHandler.Unfavorite,
+		"PUT /projects/{projectId}/members/{userId}":        projectHandler.SetMemberRole,
+		"DELETE /projects/{projectId}/members/{userId}":     projectHandler.RemoveMember,
 
 		"GET /projects/{projectId}/scenarios":                                          scenarioHandler.List,
 		"POST /projects/{projectId}/scenarios":                                         scenarioHandler.Create,

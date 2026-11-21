@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -366,5 +367,122 @@ func TestAnIdentityIsATokenWhenItCarriesOne(t *testing.T) {
 	}
 	if token.UserID != uuid.Nil {
 		t.Error("a token identity carries a user")
+	}
+}
+
+// --- The journal and the limit ---------------------------------------------------
+
+// What the journal says about tokens is part of the data: a word renamed makes
+// every entry already written unreadable by whoever looks for the new one.
+func TestTheWordsTheJournalUsesForTokensAreFrozen(t *testing.T) {
+	if ActionAPITokenCreated != "api_token.created" {
+		t.Errorf("creating a token is recorded as %q", ActionAPITokenCreated)
+	}
+	if ActionAPITokenRevoked != "api_token.revoked" {
+		t.Errorf("revoking a token is recorded as %q", ActionAPITokenRevoked)
+	}
+	if TargetAPIToken != "api_token" {
+		t.Errorf("the target of those entries is %q", TargetAPIToken)
+	}
+}
+
+// Without a ceiling, creating tokens is a point of unlimited writing, and a
+// project that has twenty live credentials has lost track of them.
+func TestAProjectHoldsAtMostTwentyLiveTokens(t *testing.T) {
+	if MaxAPITokensPerProject != 20 {
+		t.Errorf("the ceiling is %d, want 20", MaxAPITokensPerProject)
+	}
+	if !errors.Is(ErrTooManyAPITokens, ErrTooManyAPITokens) || errors.Is(ErrTooManyAPITokens, ErrInvalidAPIToken) {
+		t.Error("the ceiling must be its own error: it is a conflict with what exists, not a mistake in the request")
+	}
+}
+
+func journaled() (APIToken, uuid.UUID, time.Time) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	token := APIToken{
+		ID:        uuid.New(),
+		OrgID:     uuid.New(),
+		ProjectID: uuid.New(),
+		// A name a person chose, and so free text: not for the journal.
+		Name:      "deploy key of the payments team",
+		Prefix:    "blt_Ab3dEf9h",
+		ExpiresAt: now.Add(90 * 24 * time.Hour),
+	}
+	return token, uuid.New(), now
+}
+
+func keysOf(details map[string]string) []string {
+	keys := make([]string, 0, len(details))
+	for k := range details {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// The journal is read by more people than write to it, and an entry is about
+// what was done, not about the words somebody typed. The details of the entry
+// are a closed set, and the name of the token is not in it: the token's own row
+// holds the name, and the entry points at the row.
+func TestCreatingATokenIsRecordedWithAClosedSetOfDetails(t *testing.T) {
+	token, actor, now := journaled()
+
+	entry := APITokenCreatedEntry(&actor, token, now)
+
+	if entry.Action != ActionAPITokenCreated || entry.Outcome != Allowed || entry.TargetType != TargetAPIToken {
+		t.Errorf("entry is %q / %q / %q", entry.Action, entry.Outcome, entry.TargetType)
+	}
+	if entry.OrgID != token.OrgID || entry.ProjectID == nil || *entry.ProjectID != token.ProjectID {
+		t.Errorf("the entry belongs to org %s project %v, want %s %s", entry.OrgID, entry.ProjectID, token.OrgID, token.ProjectID)
+	}
+	if entry.TargetID == nil || *entry.TargetID != token.ID {
+		t.Errorf("the entry points at %v, want the token %s", entry.TargetID, token.ID)
+	}
+	if entry.ActorID == nil || *entry.ActorID != actor || !entry.At.Equal(now) {
+		t.Errorf("author %v at %v, want %s at %v", entry.ActorID, entry.At, actor, now)
+	}
+
+	if got, want := keysOf(entry.Details), []string{"expires_at", "prefix"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("details %v, want exactly %v", got, want)
+	}
+	if entry.Details["prefix"] != token.Prefix {
+		t.Errorf("prefix %q, want %q", entry.Details["prefix"], token.Prefix)
+	}
+	if entry.Details["expires_at"] != "2027-02-18T12:00:00Z" {
+		t.Errorf("expires_at %q, want the date in UTC", entry.Details["expires_at"])
+	}
+	for k, v := range entry.Details {
+		if strings.Contains(v, token.Name) || strings.Contains(v, "payments") {
+			t.Errorf("detail %q carries the name of the token: %q", k, v)
+		}
+	}
+}
+
+func TestRevokingATokenIsRecordedWithItsPrefixOnly(t *testing.T) {
+	token, actor, now := journaled()
+
+	entry := APITokenRevokedEntry(&actor, token, now)
+
+	if entry.Action != ActionAPITokenRevoked || entry.Outcome != Allowed || entry.TargetType != TargetAPIToken {
+		t.Errorf("entry is %q / %q / %q", entry.Action, entry.Outcome, entry.TargetType)
+	}
+	if entry.TargetID == nil || *entry.TargetID != token.ID || entry.ProjectID == nil || *entry.ProjectID != token.ProjectID {
+		t.Errorf("the entry points at %v in %v, want %s in %s", entry.TargetID, entry.ProjectID, token.ID, token.ProjectID)
+	}
+	if got := keysOf(entry.Details); strings.Join(got, ",") != "prefix" {
+		t.Errorf("details %v, want exactly [prefix]", got)
+	}
+	if strings.Contains(entry.Details["prefix"], "payments") {
+		t.Error("the entry carries the name of the token")
+	}
+}
+
+// An entry with no author is Ballast acting for nobody. A person revoking a
+// token is somebody, and the builder takes the author as it is given.
+func TestTheEntryKeepsItsAuthorEvenWhenThereIsNone(t *testing.T) {
+	token, _, now := journaled()
+
+	if entry := APITokenRevokedEntry(nil, token, now); entry.ActorID != nil {
+		t.Errorf("an entry built with no author names %v", entry.ActorID)
 	}
 }

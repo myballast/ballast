@@ -24,6 +24,9 @@ import { Time } from "@/components/time";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { OrgSelector } from "@/components/layout/org-selector";
+import { CreateToken, RevealedSecret } from "@/features/api-tokens/components/create-token";
+import { TokenList } from "@/features/api-tokens/components/token-list";
+import type { ApiToken } from "@/features/api-tokens/types";
 import { InvitationCard } from "@/features/members/components/invitation-card";
 import { InviteMember } from "@/features/members/components/invite-member";
 import { MembersTable } from "@/features/members/components/members-table";
@@ -459,6 +462,49 @@ const sampleMembers: Member[] = [
   { ...sampleMember("m4", "Rin Takeda", "runner", null), name: "" },
 ];
 
+const sampleTokens: ApiToken[] = [
+  {
+    id: "t1",
+    name: "github-main",
+    prefix: "blt_Ab3dEf9h",
+    created_by: "u1",
+    created_by_name: "Ada Lovelace",
+    state: "active",
+    expires_at: "2027-01-16T09:00:00Z",
+    last_used_at: "2026-10-18T11:42:00Z",
+    created_at: "2026-10-17T09:00:00Z",
+  },
+  {
+    id: "t2",
+    name: "gitlab-nightly",
+    prefix: "blt_Qq1wEe2r",
+    created_by: "u2",
+    state: "active",
+    expires_at: "2026-12-01T09:00:00Z",
+    created_at: "2026-09-02T09:00:00Z",
+  },
+  {
+    id: "t3",
+    name: "old-jenkins",
+    prefix: "blt_Zz9yXx8w",
+    state: "expired",
+    expires_at: "2026-10-01T09:00:00Z",
+    last_used_at: "2026-09-30T22:10:00Z",
+    created_at: "2026-07-03T09:00:00Z",
+  },
+  {
+    id: "t4",
+    name: "leaked-in-a-log",
+    prefix: "blt_Mm5nBb6v",
+    created_by: "u1",
+    created_by_name: "Ada Lovelace",
+    state: "revoked",
+    expires_at: "2027-01-01T09:00:00Z",
+    revoked_at: "2026-10-16T14:00:00Z",
+    created_at: "2026-10-01T09:00:00Z",
+  },
+];
+
 const sampleInvitations: Invitation[] = [
   {
     id: "i1",
@@ -790,6 +836,25 @@ export function ComponentReference() {
           caller={{ canManage: false, role: "maintainer" }}
           now={new Date("2026-10-18T12:00:00Z")}
         />
+      </Section>
+
+      <Section title="CI tokens">
+        <p className="text-xs text-muted-foreground">
+          An active token, one whose author has no name on file, one expired and one revoked. The state is neutral: a
+          token that expired has not failed.
+        </p>
+        <div className="flex flex-wrap items-start gap-6">
+          <CreateToken projectId="checkout" full={false} limit={20} />
+          <CreateToken projectId="checkout" full limit={20} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Right after creating: the secret, shown once. This one is made up and works nowhere.
+        </p>
+        <div className="flex max-w-md flex-col rounded-xl border bg-card p-5">
+          <RevealedSecret secret="blt_EXAMPLE-NOT-A-REAL-TOKEN-0000000000000000" name="github-main" />
+        </div>
+        <TokenList projectId="checkout" tokens={sampleTokens} now={new Date("2026-10-18T12:00:00Z")} />
+        <TokenList projectId="checkout" tokens={[]} now={new Date("2026-10-18T12:00:00Z")} />
       </Section>
 
       <Section title="Members: invitations">

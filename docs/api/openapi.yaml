@@ -79,6 +79,14 @@ tags:
       Bringing people into a project. No mail is sent: the administrator is shown
       a link once and passes it on. Only the hash of its token is stored.
 
+  - name: api-tokens
+    description: |
+      The credentials a pipeline holds instead of a session. A token belongs to one
+      project and may read it and launch runs there, nothing more. It is shown
+      once, when it is created: only its hash is stored. Every token expires, and
+      revoking one stops it on the next request. Managed by the project's
+      administrators, and never by a token.
+
 security:
   - session: []
 
@@ -1513,6 +1521,148 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           description: No such open invitation in this project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/api-tokens:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [api-tokens]
+      summary: List a project's API tokens
+      description: |
+        Every token of the project, revoked and expired ones included: the ones
+        that still work first, newest first, and the revoked ones after them. The
+        secret and the hash are never returned; each token carries the start of its
+        secret (`prefix`) so that two can be told apart, and its `state`, read
+        against the clock.
+
+        `limit` is how many tokens that have not been revoked a project may hold.
+
+        Requires `admin`.
+      operationId: listApiTokens
+      x-ballast-permission: manage_project
+      responses:
+        "200":
+          description: The project's tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiTokenListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [api-tokens]
+      summary: Create an API token
+      description: |
+        Creates a token for the project and returns its secret **once**: only its
+        hash is stored, so it cannot be read back. The response is marked
+        `Cache-Control: no-store`.
+
+        A token always expires: after 90 days when `expires_at` is left out, and at
+        most a year from now when it is given. The creation is written to the
+        journal, with the prefix and the expiry and never the secret nor the name.
+
+        A project holds at most 20 tokens that have not been revoked.
+
+        Requires `admin`.
+      operationId: createApiToken
+      x-ballast-permission: manage_project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApiTokenRequest"
+      responses:
+        "201":
+          description: Created. The secret is in the body, and only here.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedApiToken"
+        "400":
+          description: The body is not valid JSON, `expires_at` is not a date, or the project id is not a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The project already holds the most tokens it may. Revoke one first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The body is far larger than a name and a date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The name is empty, too long or holds a control character, or the expiry is not in the future or is more than a year away.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/api-tokens/{tokenId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - name: tokenId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    delete:
+      tags: [api-tokens]
+      summary: Revoke an API token
+      description: |
+        Withdraws a token. It is refused on the next request, and an open log
+        stream it holds is cut. Written to the journal.
+
+        A token that does not exist, belongs to another project or organization,
+        or was already revoked is a `404`: one answer for all of them, so that
+        nobody learns what exists elsewhere.
+
+        Requires `admin`.
+      operationId: revokeApiToken
+      x-ballast-permission: manage_project
+      responses:
+        "204":
+          description: Revoked.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No live token with this id in this project.
           content:
             application/json:
               schema:
@@ -4657,6 +4807,81 @@ components:
           description: |
             The secret in the invitation link, shown this once. Only its hash is
             stored, so it cannot be read back.
+
+    ApiToken:
+      type: object
+      required: [id, name, prefix, state, expires_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 64 }
+        prefix:
+          type: string
+          description: |
+            The start of the secret: `blt_` and eight characters. Enough to tell two
+            tokens apart, and nothing to search with.
+        created_by:
+          type: string
+          format: uuid
+          description: Who created it. Absent when that person has left; the token stays.
+        created_by_name:
+          type: string
+          description: Their name, read when the list is asked for. Absent with `created_by`.
+        state:
+          type: string
+          enum: [active, expired, revoked]
+          description: |
+            Read against the clock when the list is asked for, never stored. A token
+            both revoked and expired is `revoked`.
+        expires_at: { type: string, format: date-time }
+        last_used_at:
+          type: string
+          format: date-time
+          description: |
+            When the token was last used, to the minute: it is written at most once a
+            minute. Absent for a token never used.
+        revoked_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    ApiTokenListResponse:
+      type: object
+      required: [tokens, limit]
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiToken"
+        limit:
+          type: integer
+          description: |
+            How many tokens that have not been revoked a project may hold. Said by the
+            API, so that a screen does not carry its own copy.
+
+    CreateApiTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 64
+          description: Trimmed. Not empty, and with no control character.
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            Optional. Left out, the token expires in 90 days. When given it must be in
+            the future and at most a year away.
+
+    CreatedApiToken:
+      type: object
+      required: [token, secret]
+      properties:
+        token:
+          $ref: "#/components/schemas/ApiToken"
+        secret:
+          type: string
+          description: |
+            The credential itself, shown this once. It starts with `blt_`. Only its
+            hash is stored, so it cannot be read back.
 
     MemberAddedResponse:
       type: object

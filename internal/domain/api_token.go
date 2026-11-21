@@ -46,6 +46,18 @@ const (
 	APITokenMaxTTL = 365 * 24 * time.Hour
 )
 
+// MaxAPITokensPerProject is how many tokens a project may hold that have not been
+// revoked. Without a ceiling, creating tokens is a point of unlimited writing,
+// and a project with twenty live credentials has lost track of them. A constant,
+// like the other ceilings: one that can be raised from outside is one an attacker
+// raises.
+const MaxAPITokensPerProject = 20
+
+// ErrTooManyAPITokens reports a creation refused because the project already
+// holds MaxAPITokensPerProject live tokens. A conflict with what exists, not a
+// mistake in the request.
+var ErrTooManyAPITokens = errors.New("the project already holds the most API tokens it may")
+
 // ErrInvalidAPIToken reports a token Ballast will not create: a name or an
 // expiry that is not acceptable. A mistake in the request, not a refusal.
 var ErrInvalidAPIToken = errors.New("invalid API token")
@@ -191,4 +203,26 @@ func ResolveAPITokenExpiry(requested *time.Time, now time.Time) (time.Time, erro
 		return time.Time{}, fmt.Errorf("%w: a token cannot live longer than a year", ErrInvalidAPIToken)
 	}
 	return *requested, nil
+}
+
+// APITokenCreatedEntry is the journal's line for a token that was created.
+//
+// The details are a closed set: the prefix, which tells two tokens apart, and the
+// expiry. Not the name — free text a person typed, which the journal's rules
+// keep out, and which the token's own row holds for whoever follows the entry's
+// target. And never the secret, which this function has no way to receive.
+func APITokenCreatedEntry(actor *uuid.UUID, token APIToken, at time.Time) AuditEntry {
+	return Allow(token.OrgID, actor, ActionAPITokenCreated, TargetAPIToken, at).
+		InProject(token.ProjectID).
+		On(token.ID).
+		With("prefix", token.Prefix).
+		With("expires_at", token.ExpiresAt.UTC().Format(time.RFC3339))
+}
+
+// APITokenRevokedEntry is the journal's line for a token that was revoked.
+func APITokenRevokedEntry(actor *uuid.UUID, token APIToken, at time.Time) AuditEntry {
+	return Allow(token.OrgID, actor, ActionAPITokenRevoked, TargetAPIToken, at).
+		InProject(token.ProjectID).
+		On(token.ID).
+		With("prefix", token.Prefix)
 }

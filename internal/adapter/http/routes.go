@@ -190,6 +190,21 @@ func Routes() []Route {
 			Method: "DELETE", Path: "/projects/{projectId}",
 			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
 		},
+		// The credentials a pipeline holds. Managed by the people who manage the
+		// project, and by nobody else: a token never manages tokens, whatever the
+		// table says, and a test holds that.
+		{
+			Method: "GET", Path: "/projects/{projectId}/api-tokens",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/api-tokens",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/api-tokens/{tokenId}",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
 		// A star is the caller's own and changes nothing anybody else can see or
 		// do, so belonging to the project is all it takes.
 		{
