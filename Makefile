@@ -247,6 +247,12 @@ api: ## Run the HTTP API locally
 	$(call track,api)
 	go run ./cmd/api
 
+# The command line tool a pipeline runs. It is built on its own, with nothing of the
+# server in it (a test keeps it so); bin/ is not tracked.
+.PHONY: build-cli
+build-cli: ## Build the ballast command line tool into bin/ballast
+	go build -trimpath -o bin/ballast ./cmd/ballast
+
 .PHONY: worker
 worker: ## Run the worker locally
 	$(call track,worker)
