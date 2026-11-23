@@ -253,6 +253,16 @@ api: ## Run the HTTP API locally
 build-cli: ## Build the ballast command line tool into bin/ballast
 	go build -trimpath -o bin/ballast ./cmd/ballast
 
+# A trial of what a release does, on this machine and without publishing anything: the
+# workflow that publishes runs this same script. VERSION is the tag it would be released
+# under, for example make release-cli VERSION=v0.1.0-rc.1. dist/ is not tracked.
+.PHONY: release-cli
+release-cli: ## Build the six binaries and checksums.txt of a release into dist/ (VERSION=vX.Y.Z)
+	@test -n "$(VERSION)" || { echo "VERSION is required, for example: make release-cli VERSION=v0.1.0-rc.1"; exit 1; }
+	bash ops/release/build.sh --check-version "$(VERSION)"
+	rm -rf dist
+	bash ops/release/build.sh "$(VERSION)" dist
+
 .PHONY: worker
 worker: ## Run the worker locally
 	$(call track,worker)

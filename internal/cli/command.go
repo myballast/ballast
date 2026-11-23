@@ -20,6 +20,7 @@ end, and leaves with a code a pipeline can act on.
 
 Usage:
   ballast run --scenario ID --environment ID --profile NAME [options]
+  ballast version
 
 Settings, read from the environment:
   BALLAST_URL    the address of your Ballast, for example https://ballast.example.com
@@ -84,6 +85,9 @@ func Main(
 	switch args[0] {
 	case "help", "-h", "--help":
 		_, _ = fmt.Fprint(out, usage)
+		return 0
+	case "version", "--version":
+		_, _ = fmt.Fprintln(out, versionLine())
 		return 0
 	case "run":
 		return runCommand(ctx, abort, args[1:], env, out, errs, say)

@@ -30,10 +30,6 @@ import (
 )
 
 const (
-	// userAgent says what a request comes from, so that a server's log can tell a
-	// pipeline from a browser. The version is added by the release (#25).
-	userAgent = "ballast-cli"
-
 	// defaultRequestTimeout bounds one request that is not a stream. A stream has
 	// no such bound: it lasts as long as the run does.
 	defaultRequestTimeout = 30 * time.Second
@@ -394,7 +390,7 @@ func (c *Client) do(
 	}
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", userAgent)
+	request.Header.Set("User-Agent", userAgent())
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}

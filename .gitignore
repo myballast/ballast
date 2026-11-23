@@ -3,6 +3,7 @@
 
 # Go
 /bin/
+/dist/
 *.test
 *.out
 coverage.*

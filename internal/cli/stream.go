@@ -155,7 +155,7 @@ func (c *Client) followOnce(
 	request.Header.Set("Authorization", "Bearer "+c.token)
 	request.Header.Set("Accept", "text/event-stream")
 	request.Header.Set("Cache-Control", "no-cache")
-	request.Header.Set("User-Agent", userAgent)
+	request.Header.Set("User-Agent", userAgent())
 	if *last >= 0 {
 		request.Header.Set("Last-Event-ID", strconv.FormatInt(*last, 10))
 	}

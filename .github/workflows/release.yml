@@ -1,0 +1,75 @@
+name: Release
+
+# A release is a tag, and nothing else starts one: not a branch, not a button. The tag is
+# a version (ops/release/build.sh says what that is), and its commit is on main. A test
+# (ops/release/workflow_test.go) holds this file to what is said here: the three actions
+# the organization allows, a token that can write to contents in this one job and read
+# in the rest, and every value that comes from the tag passed through the environment
+# and quoted, never written into a script.
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+# Two runs for the same tag would race to make the same draft, and a release that is
+# half-made must not be cancelled by a newer one: it is let finish, or it fails and
+# removes its own draft.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The only job, and the only place in the repository that can write to contents.
+    permissions:
+      contents: write
+    steps:
+      # The whole history, so that it can be said whether the tag is on main.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The toolchain go.mod pins, which is the one the binaries are reproducible with.
+      # No cache: a release does not read what a pull request could have written.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: The tag is a version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash ops/release/build.sh --check-version "$TAG"
+
+      # A tag is anybody's to push; a release is the maintainer's. A commit that is not on
+      # main is a commit nobody reviewed. The tag is peeled to its commit first: an
+      # annotated tag is an object of its own.
+      - name: The tag is on main
+        run: |
+          commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "release: the commit of this tag is not on main, and a release is only made from main" >&2
+            exit 1
+          fi
+
+      # What the binaries are made of passes its tests before they are made.
+      - name: Test
+        run: go test ./internal/cli/... ./internal/domain/...
+
+      # Six binaries and their sums, each built twice and compared.
+      - name: Build
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash ops/release/build.sh "$TAG" dist
+
+      # The only step that holds the token, and the last: nothing runs after it.
+      - name: Publish
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash ops/release/publish.sh "$TAG" dist
