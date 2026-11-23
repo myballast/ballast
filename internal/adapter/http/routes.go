@@ -43,6 +43,27 @@ type Route struct {
 	// Reason says why a ScopeNone route needs no permission. Written out so
 	// that "none" reads as a decision rather than as an omission.
 	Reason string
+	// AllowToken lets a pipeline reach the route with an API token instead of a
+	// session. False by default and on purpose: a token holds two permissions in
+	// one project, so only a route that names a project and asks for one of them
+	// can be opened, and a test reads the list of those routes written out.
+	AllowToken bool
+	// TokenPermission is what a token is asked for on this route when it is not
+	// what a person is asked for. Zero means the same one. It exists for a route
+	// whose service adds a condition of its own for tokens — a token holds the
+	// permission to run a test, not the one to cancel, and cancels only the runs
+	// it launched — and a test restricts it to a route that opened to tokens and
+	// whose service decides: a middleware would ask a token the person's
+	// question, and always be told no.
+	TokenPermission domain.Permission
+}
+
+// PermissionForToken is the permission a token is asked for on this route.
+func (r Route) PermissionForToken() domain.Permission {
+	if r.TokenPermission != 0 {
+		return r.TokenPermission
+	}
+	return r.Permission
 }
 
 // PermissionName is the name this route's permission goes by in the API
@@ -71,15 +92,33 @@ func Routes() []Route {
 		{Method: "GET", Path: "/auth/{provider}/callback", Scope: ScopePublic},
 		{Method: "POST", Path: "/auth/logout", Scope: ScopePublic},
 
+		// The one public route that starts a run. There is no session and no token:
+		// the signature is what authenticates it, and until the receiver has checked it
+		// the caller is nobody. The organization is in the address because that is how a
+		// request with no session says where to look under row-level security, without a
+		// fourth lookup that reads across organizations. Every guardrail of POST /runs
+		// applies after the check, in the same place.
+		{Method: "POST", Path: "/webhooks/{orgId}/{projectId}", Scope: ScopePublic},
+
 		// Runs. The project is on the scenario for a run being queued, and on
 		// the row itself for one being read; neither is in the path.
+		// The one route a pipeline reaches with a token. The project is on the
+		// scenario, so the service asks whether this token may run a test in it;
+		// a token of another project is refused there, and every guardrail of a
+		// run applies to it as to a person.
 		{
 			Method: "POST", Path: "/runs",
 			Scope: ScopeDerived, Permission: domain.PermRunTest,
+			AllowToken: true,
 		},
+		// Open to a token (#23): a pipeline that launched a run waits for it and
+		// reads how it went. The project is on the run, so the service asks
+		// whether this token may view that project; a token of another project
+		// gets the answer a person without rights gets, a run that is not there.
 		{
 			Method: "GET", Path: "/runs/{id}",
 			Scope: ScopeDerived, Permission: domain.PermViewProject,
+			AllowToken: true,
 		},
 		// A run repeated: the project is on the run being repeated, which is why
 		// there is none in the path.
@@ -87,16 +126,28 @@ func Routes() []Route {
 			Method: "POST", Path: "/runs/{id}/rerun",
 			Scope: ScopeDerived, Permission: domain.PermRunTest,
 		},
+		// Open to a token (#23), for what it started: a pipeline that is stopped
+		// takes down its own load. A token holds no permission to cancel and must
+		// not, so it is asked whether it may run a test in the run's project, and
+		// the service then requires that this token is the one that launched the
+		// run. Anybody else's run, in any project, answers as a run that is not
+		// there. It asks a request and does not declare a verdict, as for a person.
 		{
 			Method: "DELETE", Path: "/runs/{id}",
 			Scope: ScopeDerived, Permission: domain.PermCancelRun,
+			AllowToken: true, TokenPermission: domain.PermRunTest,
 		},
 		// The live log stream. Reading a run's output is reading the run, so it
 		// takes the same permission, resolved on every poll rather than once
 		// when the stream opens.
+		// Open to a token for the same reason as the run itself. The permission
+		// is resolved on every poll of the stream, and for a token that means
+		// the token's own row is read again: revoking it ends a stream that is
+		// open, within a second.
 		{
 			Method: "GET", Path: "/runs/{id}/logs",
 			Scope: ScopeDerived, Permission: domain.PermViewProject,
+			AllowToken: true,
 		},
 		// The emergency stop. Declared as ScopeAnyProject because its project
 		// is not in the path and not in a body — there is none: the service
@@ -183,6 +234,40 @@ func Routes() []Route {
 		},
 		{
 			Method: "DELETE", Path: "/projects/{projectId}",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		// The credentials a pipeline holds. Managed by the people who manage the
+		// project, and by nobody else: a token never manages tokens, whatever the
+		// table says, and a test holds that.
+		{
+			Method: "GET", Path: "/projects/{projectId}/api-tokens",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/api-tokens",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/api-tokens/{tokenId}",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		// A project's webhook: the secret a tool signs its requests with. Managed by
+		// the people who manage the project, and by nobody else: neither a token nor a
+		// webhook manages one, whatever the table says, and a test holds that.
+		{
+			Method: "GET", Path: "/projects/{projectId}/webhook",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/webhook",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/webhook/rotate",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/webhook",
 			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
 		},
 		// A star is the caller's own and changes nothing anybody else can see or

@@ -121,5 +121,5 @@ func (s *Service) record(ctx context.Context, entry domain.AuditEntry) {
 // nobody reads. What goes in is what somebody was stopped from doing.
 func refused(who domain.Identity, reason string, at time.Time) domain.AuditEntry {
 	return domain.Refuse(
-		who.OrgID, &who.UserID, domain.ActionRunRefused, domain.TargetRun, reason, at)
+		who.OrgID, nil, domain.ActionRunRefused, domain.TargetRun, reason, at).By(who.Actor())
 }

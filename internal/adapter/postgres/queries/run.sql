@@ -9,8 +9,9 @@
 -- name: CreateRun :one
 INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
-    scenario_version, profile, profile_params, triggered_by, status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued')
+    scenario_version, profile, profile_params, triggered_by, triggered_by_token,
+    ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url, triggered_by_webhook, status
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'queued')
 RETURNING *;
 
 -- name: GetRun :one
@@ -32,12 +33,20 @@ SELECT COALESCE(NULLIF(name, ''), email)::text AS name FROM app_user WHERE org_i
 -- for a page of a few dozen costs next to nothing.
 --
 -- Who started the run is joined in rather than asked for afterwards, since one
--- run has at most one: the name, or the email of someone who has none.
+-- run has at most one: the name, or the email of someone who has none — or, for a
+-- run a pipeline launched, the name of its API token, said as a token's so that a
+-- person called the same is not taken for it.
 -- name: ListProjectRuns :many
 SELECT sqlc.embed(run),
-       COALESCE(NULLIF(u.name, ''), u.email, '')::text AS triggered_by_name
+       COALESCE(
+           NULLIF(u.name, ''), u.email,
+           CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
+           CASE WHEN run.triggered_by_webhook IS NOT NULL THEN 'the project''s webhook' END,
+           ''
+       )::text AS triggered_by_name
 FROM run
 LEFT JOIN app_user u ON u.org_id = run.org_id AND u.id = run.triggered_by
+LEFT JOIN api_token t ON t.org_id = run.org_id AND t.id = run.triggered_by_token
 WHERE run.org_id = @org_id AND run.project_id = @project_id
   AND (sqlc.narg(status)::text IS NULL OR run.status = sqlc.narg(status)::text)
   AND (sqlc.narg(scenario_id)::uuid IS NULL OR run.scenario_id = sqlc.narg(scenario_id)::uuid)
@@ -55,9 +64,15 @@ LIMIT @row_limit;
 -- round to the order everything else is in.
 -- name: ListProjectRunsAfter :many
 SELECT sqlc.embed(run),
-       COALESCE(NULLIF(u.name, ''), u.email, '')::text AS triggered_by_name
+       COALESCE(
+           NULLIF(u.name, ''), u.email,
+           CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
+           CASE WHEN run.triggered_by_webhook IS NOT NULL THEN 'the project''s webhook' END,
+           ''
+       )::text AS triggered_by_name
 FROM run
 LEFT JOIN app_user u ON u.org_id = run.org_id AND u.id = run.triggered_by
+LEFT JOIN api_token t ON t.org_id = run.org_id AND t.id = run.triggered_by_token
 WHERE run.org_id = @org_id AND run.project_id = @project_id
   AND (sqlc.narg(status)::text IS NULL OR run.status = sqlc.narg(status)::text)
   AND (sqlc.narg(scenario_id)::uuid IS NULL OR run.scenario_id = sqlc.narg(scenario_id)::uuid)
@@ -360,6 +375,25 @@ SELECT
 FROM run
 WHERE org_id = $1 AND created_at >= $3;
 
+-- The same question for a pipeline: how many runs were triggered since an
+-- instant, by the organization and by one API token. A token has no person, so
+-- the second figure is the token's and not the person's.
+-- name: CountTriggeredByTokenSince :one
+SELECT
+    count(*)::bigint                                          AS by_org,
+    count(*) FILTER (WHERE triggered_by_token = $2)::bigint   AS by_token
+FROM run
+WHERE org_id = $1 AND created_at >= $3;
+
+-- The same question for a project's webhook: the organization's count, and the one of
+-- one webhook, which has no person and no token.
+-- name: CountTriggeredByWebhookSince :one
+SELECT
+    count(*)::bigint                                              AS by_org,
+    count(*) FILTER (WHERE triggered_by_webhook = $2)::bigint     AS by_webhook
+FROM run
+WHERE org_id = $1 AND created_at >= $3;
+
 -- When the earliest run of a window was created, which is what says how long
 -- until a slot frees up.
 --
@@ -382,6 +416,18 @@ LIMIT 1;
 -- name: OldestRunByUserSince :one
 SELECT created_at FROM run
 WHERE org_id = $1 AND triggered_by = $2 AND created_at >= $3
+ORDER BY created_at
+LIMIT 1;
+
+-- name: OldestRunByWebhookSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND triggered_by_webhook = $2 AND created_at >= $3
+ORDER BY created_at
+LIMIT 1;
+
+-- name: OldestRunByTokenSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND triggered_by_token = $2 AND created_at >= $3
 ORDER BY created_at
 LIMIT 1;
 

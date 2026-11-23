@@ -40,18 +40,18 @@ func (s *Service) Cancel(
 		return "", err
 	}
 
-	allowed, err := s.authz.Can(ctx, who, domain.PermCancelRun, found.ProjectID)
+	allowed, err := s.mayCancel(ctx, who, found)
 	if err != nil {
 		return "", err
 	}
 	if !allowed {
 		s.log.InfoContext(ctx, "cancellation refused for want of permission",
-			"org_id", who.OrgID, "user_id", who.UserID,
+			"org_id", who.OrgID, "user_id", who.UserID, "token_id", who.TokenID,
 			"project_id", found.ProjectID, "run_id", id)
 		s.record(ctx, domain.Refuse(
-			who.OrgID, &who.UserID, domain.ActionRunCancelled, domain.TargetRun,
-			"the caller may not cancel runs in this project", s.clock.Now(),
-		).InProject(found.ProjectID).On(id))
+			who.OrgID, nil, domain.ActionRunCancelled, domain.TargetRun,
+			"the caller may not cancel this run", s.clock.Now(),
+		).By(who.Actor()).InProject(found.ProjectID).On(id))
 		return "", domain.ErrNotFound
 	}
 
@@ -72,14 +72,36 @@ func (s *Service) Cancel(
 	// run is over when this returns, a running one has been asked to stop and
 	// is ended by the worker that stops it.
 	s.record(ctx, domain.Allow(
-		who.OrgID, &who.UserID, domain.ActionRunCancelled, domain.TargetRun, s.clock.Now(),
-	).InProject(found.ProjectID).On(id).With("result", string(outcome)))
+		who.OrgID, nil, domain.ActionRunCancelled, domain.TargetRun, s.clock.Now(),
+	).By(who.Actor()).InProject(found.ProjectID).On(id).With("result", string(outcome)))
 
 	s.log.InfoContext(ctx, "run cancelled",
 		"run_id", id, "project_id", found.ProjectID,
-		"user_id", who.UserID, "outcome", outcome)
+		"user_id", who.UserID, "token_id", who.TokenID, "outcome", outcome)
 
 	return outcome, nil
+}
+
+// mayCancel says whether the caller may cancel this run.
+//
+// A person needs the permission to cancel in the run's project. A token has no
+// such permission and must not: it would let a pipeline stop anybody's run in
+// the project. What it holds is the permission to run a test, and with it the
+// right to take down a run it launched itself — a job that is cancelled or runs
+// out of time stops its own load. Both halves are required, and both are asked
+// of the run being read, so a token of another project is refused by the first
+// and a token of the right project that is not the launcher by the second, in the
+// same words.
+func (s *Service) mayCancel(ctx context.Context, who domain.Identity, found domain.Run) (bool, error) {
+	if !who.IsToken() {
+		return s.authz.Can(ctx, who, domain.PermCancelRun, found.ProjectID)
+	}
+
+	allowed, err := s.authz.Can(ctx, who, domain.PermRunTest, found.ProjectID)
+	if err != nil || !allowed {
+		return false, err
+	}
+	return found.LaunchedByToken(who.TokenID), nil
 }
 
 // StopEverything is the emergency stop: nothing else starts, and everything

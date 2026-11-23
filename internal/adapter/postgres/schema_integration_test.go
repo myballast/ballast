@@ -15,6 +15,7 @@ import (
 // none. Against an empty database they would all pass while proving nothing.
 // This one fails instead.
 var expectedTables = []string{
+	"api_token",
 	"app_user",
 	"audit_log",
 	"catalog_endpoint",
@@ -26,6 +27,7 @@ var expectedTables = []string{
 	"project",
 	"project_allowed_host",
 	"project_favorite",
+	"project_webhook",
 	"run",
 	"run_artifact",
 	"run_log",
@@ -36,6 +38,7 @@ var expectedTables = []string{
 	"scenario_version",
 	"secret",
 	"threshold",
+	"webhook_delivery",
 }
 
 // violations runs a query that is expected to return the name of every table

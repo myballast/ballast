@@ -54,6 +54,18 @@ export type Threshold = {
   passed: boolean;
 };
 
+// RunCI is what a pipeline said about itself when it launched a run: which CI,
+// which repository, branch and commit, and the link to the job. Only the provider
+// is always there. The API keeps it as it was declared, bounded and tidied; the
+// screen draws it as text and follows the link only if it is an https address.
+export type RunCI = {
+  provider: string;
+  repository?: string;
+  branch?: string;
+  commit?: string;
+  job_url?: string;
+};
+
 export type Run = {
   id: string;
   // How the run is spoken of within its project: #1482. Never reused.
@@ -61,6 +73,9 @@ export type Run = {
   // Who started it, by name. Absent when nobody did, or the person has since
   // been removed.
   triggered_by?: string;
+  // What the pipeline that launched the run said about itself. Absent for a run
+  // nobody said anything about. Declared by the caller and proved by nobody.
+  ci?: RunCI;
   project_id: string;
   scenario_id: string;
   environment_id: string;

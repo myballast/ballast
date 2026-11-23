@@ -25,7 +25,7 @@ function SidebarContent({ me, scope, brand = true }: { me: Me; scope: ShellScope
         </div>
       )}
       <OrgSelector organization={me.organization} organizations={me.organizations} />
-      <Nav project={scope?.project} />
+      <Nav project={scope?.project} canManageTokens={scope?.role === "admin"} />
       <div className="mt-auto border-t pt-3">
         <UserMenu user={me.user} role={scope?.role} />
       </div>

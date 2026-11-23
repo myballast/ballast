@@ -145,6 +145,8 @@ seeded organization by default); a worker with that variable empty serves every 
 | `make lint` / `make web-lint` | Go / front-end linters |
 | `make api-docs` | Swagger UI on http://localhost:8081 |
 | `make api-lint` | Validate the OpenAPI spec |
+| `make build-cli` | Build the `ballast` command line tool into `bin/ballast` |
+| `make release-cli VERSION=vX.Y.Z` | Build the six binaries and `checksums.txt` of a release into `dist/`, without publishing |
 
 ## API
 
@@ -167,6 +169,18 @@ registered in `internal/adapter/http/router.go` is missing from the spec, when
 a documented route no longer exists, or when a route is public on one side and
 behind a session on the other. Request and response shapes come from
 `internal/adapter/http/dto/`.
+
+## Command line
+
+`ballast` starts a run from a pipeline, follows it, and leaves with a code the pipeline can
+act on: 0 when the thresholds held, 1 when one was breached, 2 for anything else. It is read
+from `BALLAST_URL` and `BALLAST_TOKEN` and takes no secret as an argument. How to install it,
+check a download and use it is in [docs/cli.md](docs/cli.md); how a release is made is in
+[docs/releasing.md](docs/releasing.md). In GitHub Actions, use
+[`myballast/ballast-action`](https://github.com/myballast/ballast-action) (its source is
+[`ops/ballast-action/`](ops/ballast-action/)), which installs and runs it and exposes the
+verdict as an output. The whole way, from a token to a failing job, is in
+[docs/ci.md](docs/ci.md).
 
 ## Front end
 

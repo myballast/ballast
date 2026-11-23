@@ -53,6 +53,12 @@ export function buildTrail(pathname: string, organization: string, scope: ShellS
     case "members":
       trail.push({ label: "Members", href: `${base}/members` });
       break;
+    case "tokens":
+      trail.push({ label: "CI tokens", href: `${base}/tokens` });
+      break;
+    case "webhook":
+      trail.push({ label: "Webhook", href: `${base}/webhook` });
+      break;
   }
   return trail;
 }

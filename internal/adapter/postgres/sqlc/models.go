@@ -10,6 +10,20 @@ import (
 	"github.com/google/uuid"
 )
 
+type ApiToken struct {
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	ProjectID  uuid.UUID
+	Name       string
+	Prefix     string
+	TokenHash  string
+	CreatedBy  *uuid.UUID
+	ExpiresAt  time.Time
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+	CreatedAt  time.Time
+}
+
 type AppUser struct {
 	ID        uuid.UUID
 	OrgID     uuid.UUID
@@ -20,16 +34,18 @@ type AppUser struct {
 }
 
 type AuditLog struct {
-	ID         uuid.UUID
-	OrgID      uuid.UUID
-	ActorID    *uuid.UUID
-	Action     string
-	TargetType string
-	TargetID   *uuid.UUID
-	Metadata   []byte
-	CreatedAt  time.Time
-	Outcome    string
-	ProjectID  *uuid.UUID
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	ActorID        *uuid.UUID
+	Action         string
+	TargetType     string
+	TargetID       *uuid.UUID
+	Metadata       []byte
+	CreatedAt      time.Time
+	Outcome        string
+	ProjectID      *uuid.UUID
+	ActorTokenID   *uuid.UUID
+	ActorWebhookID *uuid.UUID
 }
 
 type CatalogEndpoint struct {
@@ -138,30 +154,47 @@ type ProjectFavorite struct {
 	CreatedAt time.Time
 }
 
+type ProjectWebhook struct {
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	SecretEncrypted []byte
+	CreatedBy       *uuid.UUID
+	CreatedAt       time.Time
+	RotatedAt       *time.Time
+}
+
 type Run struct {
-	ID                uuid.UUID
-	OrgID             uuid.UUID
-	ProjectID         uuid.UUID
-	ScenarioID        uuid.UUID
-	EnvironmentID     uuid.UUID
-	ScheduleID        *uuid.UUID
-	ScenarioVersion   int32
-	Profile           string
-	ProfileParams     []byte
-	Status            string
-	TriggeredBy       *uuid.UUID
-	EgressBytes       int64
-	ErrorMessage      *string
-	CreatedAt         time.Time
-	StartedAt         *time.Time
-	EndedAt           *time.Time
-	HeartbeatAt       *time.Time
-	CancelRequestedAt *time.Time
-	IngressBytes      int64
-	DataSentBytes     int64
-	DataReceivedBytes int64
-	TrafficMeasured   bool
-	Number            int32
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ProjectID          uuid.UUID
+	ScenarioID         uuid.UUID
+	EnvironmentID      uuid.UUID
+	ScheduleID         *uuid.UUID
+	ScenarioVersion    int32
+	Profile            string
+	ProfileParams      []byte
+	Status             string
+	TriggeredBy        *uuid.UUID
+	EgressBytes        int64
+	ErrorMessage       *string
+	CreatedAt          time.Time
+	StartedAt          *time.Time
+	EndedAt            *time.Time
+	HeartbeatAt        *time.Time
+	CancelRequestedAt  *time.Time
+	IngressBytes       int64
+	DataSentBytes      int64
+	DataReceivedBytes  int64
+	TrafficMeasured    bool
+	Number             int32
+	TriggeredByToken   *uuid.UUID
+	CiProvider         *string
+	CiRepository       *string
+	CiBranch           *string
+	CiCommit           *string
+	CiJobUrl           *string
+	TriggeredByWebhook *uuid.UUID
 }
 
 type RunArtifact struct {
@@ -258,4 +291,11 @@ type Threshold struct {
 	ScenarioID uuid.UUID
 	Metric     string
 	Expression string
+}
+
+type WebhookDelivery struct {
+	OrgID      uuid.UUID
+	ProjectID  uuid.UUID
+	DeliveryID string
+	ReceivedAt time.Time
 }

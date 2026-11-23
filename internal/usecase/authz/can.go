@@ -28,12 +28,30 @@ var ErrNoActor = errors.New("authz: permission check without an identity")
 // when a token happens to expire.
 type Service struct {
 	memberships Memberships
+	tokens      Tokens
+	webhooks    Webhooks
+	clock       Clock
 	log         *slog.Logger
 }
 
 // NewService wires the service.
 func NewService(memberships Memberships, log *slog.Logger) *Service {
 	return &Service{memberships: memberships, log: log}
+}
+
+// WithTokens lets the service answer for API tokens too. Without it a token is
+// refused everywhere: an installation that never wired tokens must not guess.
+func (s *Service) WithTokens(tokens Tokens, clock Clock) *Service {
+	s.tokens = tokens
+	s.clock = clock
+	return s
+}
+
+// WithWebhooks lets the service answer for a project's webhook too. Without it a
+// webhook is refused everywhere, for the same reason as a token is.
+func (s *Service) WithWebhooks(webhooks Webhooks) *Service {
+	s.webhooks = webhooks
+	return s
 }
 
 // Can reports whether who may do perm in projectID.
@@ -50,6 +68,20 @@ func (s *Service) Can(
 ) (bool, error) {
 	if err := validate(who, projectID); err != nil {
 		return false, err
+	}
+	if who.IsToken() {
+		token, active, err := s.activeToken(ctx, who, projectID)
+		if err != nil || !active {
+			return false, err
+		}
+		return token.Allows(perm, projectID, s.clock.Now()), nil
+	}
+	if who.IsWebhook() {
+		hook, found, err := s.activeWebhook(ctx, who)
+		if err != nil || !found {
+			return false, err
+		}
+		return hook.Allows(perm, projectID), nil
 	}
 
 	membership, found, err := s.memberships.OfMember(ctx, who, projectID)
@@ -87,8 +119,13 @@ func (s *Service) CanInAnyProject(
 	who domain.Identity,
 	perm domain.Permission,
 ) (bool, error) {
-	if who.OrgID == uuid.Nil || who.UserID == uuid.Nil {
-		return false, ErrNoActor
+	if err := validateActor(who); err != nil {
+		return false, err
+	}
+	// "In any project of the organization" is a question about a person. A token
+	// belongs to one project and is not an organization-wide anything.
+	if who.IsToken() || who.IsWebhook() {
+		return false, nil
 	}
 
 	memberships, err := s.memberships.AllOfMember(ctx, who)
@@ -115,6 +152,20 @@ func (s *Service) Permissions(
 	if err := validate(who, projectID); err != nil {
 		return 0, err
 	}
+	if who.IsToken() {
+		_, active, err := s.activeToken(ctx, who, projectID)
+		if err != nil || !active {
+			return 0, err
+		}
+		return domain.APITokenPermissions(), nil
+	}
+	if who.IsWebhook() {
+		hook, found, err := s.activeWebhook(ctx, who)
+		if err != nil || !found || hook.ProjectID != projectID {
+			return 0, err
+		}
+		return domain.WebhookPermissions(), nil
+	}
 
 	membership, found, err := s.memberships.OfMember(ctx, who, projectID)
 	if err != nil {
@@ -129,13 +180,72 @@ func (s *Service) Permissions(
 }
 
 func validate(who domain.Identity, projectID uuid.UUID) error {
-	switch {
-	case who.OrgID == uuid.Nil, who.UserID == uuid.Nil:
-		return ErrNoActor
-	case projectID == uuid.Nil:
+	if err := validateActor(who); err != nil {
+		return err
+	}
+	if projectID == uuid.Nil {
 		return ErrNoScope
 	}
 	return nil
+}
+
+// validateActor refuses an identity that is nobody, and one that is both a
+// person and a token: nobody built that on purpose, and resolving it to
+// whichever is checked first would be a guess.
+func validateActor(who domain.Identity) error {
+	kinds := 0
+	for _, set := range []bool{who.UserID != uuid.Nil, who.TokenID != uuid.Nil, who.WebhookID != uuid.Nil} {
+		if set {
+			kinds++
+		}
+	}
+	if who.OrgID == uuid.Nil || kinds != 1 {
+		return ErrNoActor
+	}
+	return nil
+}
+
+// activeWebhook reads the webhook's row, and says whether it is there. The row is
+// read on every call and nothing is remembered between two. Which project it is for
+// is the webhook's own to say: Allows compares it.
+//
+// A service wired without webhooks answers false, and says so in the log.
+func (s *Service) activeWebhook(ctx context.Context, who domain.Identity) (domain.Webhook, bool, error) {
+	if s.webhooks == nil {
+		s.log.ErrorContext(ctx, "a webhook was presented to a service wired without webhooks",
+			"org_id", who.OrgID, "webhook_id", who.WebhookID)
+		return domain.Webhook{}, false, nil
+	}
+	hook, found, err := s.webhooks.ByID(ctx, who.OrgID, who.WebhookID)
+	if err != nil {
+		return domain.Webhook{}, false, fmt.Errorf("read the webhook: %w", err)
+	}
+	return hook, found, nil
+}
+
+// activeToken reads the token's row and says whether it may act in projectID
+// now: found, not revoked, not expired, and tied to that project. The row is
+// read on every call and nothing is remembered between two.
+//
+// A service wired without tokens answers false, and says so in the log: that is
+// an installation receiving a credential it never meant to accept.
+func (s *Service) activeToken(
+	ctx context.Context, who domain.Identity, projectID uuid.UUID,
+) (domain.APIToken, bool, error) {
+	if s.tokens == nil || s.clock == nil {
+		s.log.ErrorContext(ctx, "an API token was presented to a service wired without tokens",
+			"org_id", who.OrgID, "token_id", who.TokenID)
+		return domain.APIToken{}, false, nil
+	}
+
+	token, found, err := s.tokens.ByID(ctx, who.OrgID, who.TokenID)
+	if err != nil {
+		return domain.APIToken{}, false, fmt.Errorf("read the API token: %w", err)
+	}
+	if !found || token.ProjectID != projectID || token.State(s.clock.Now()) != domain.APITokenActive {
+		return domain.APIToken{}, false, nil
+	}
+	return token, true, nil
 }
 
 // MembershipOf is the caller's own membership in a project, and false when
@@ -145,6 +255,10 @@ func (s *Service) MembershipOf(
 ) (domain.Membership, bool, error) {
 	if err := validate(who, projectID); err != nil {
 		return domain.Membership{}, false, err
+	}
+	// A token or a webhook is not a member of anything.
+	if who.IsToken() || who.IsWebhook() {
+		return domain.Membership{}, false, nil
 	}
 	return s.memberships.OfMember(ctx, who, projectID)
 }

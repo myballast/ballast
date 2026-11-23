@@ -11,6 +11,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/http/handler"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/middleware"
 	"github.com/youssefmahersi/ballast/internal/adapter/http/session"
+	"github.com/youssefmahersi/ballast/internal/usecase/apitoken"
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/catalog"
@@ -20,6 +21,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	"github.com/youssefmahersi/ballast/internal/usecase/runner"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
+	"github.com/youssefmahersi/ballast/internal/usecase/webhook"
 )
 
 // Probe answers whether what the API depends on can be reached. It is a
@@ -32,6 +34,29 @@ type Probe func(context.Context) error
 // one that hangs on an unreachable database is worse than one that answers no:
 // the first looks like an API that is merely slow.
 const readyTimeout = 2 * time.Second
+
+// RouterOption adds something the router can do without, so that a caller that
+// has no use for it is not made to say so.
+type RouterOption func(*routerOptions)
+
+type routerOptions struct {
+	tokens          middleware.TokenAuthenticator
+	webhookManager  *webhook.Manager
+	webhookReceiver *webhook.Receiver
+}
+
+// WithWebhooks lets the API serve a project's webhook: the routes that manage its
+// secret, and the public one that a tool signs requests to. Without it those routes
+// exist and answer 404, as for an installation that was never given them.
+func WithWebhooks(manager *webhook.Manager, receiver *webhook.Receiver) RouterOption {
+	return func(o *routerOptions) { o.webhookManager, o.webhookReceiver = manager, receiver }
+}
+
+// WithTokens lets the routes that opted in accept an API token. Without it, no
+// route does, whatever the table says: a token is a request with no session.
+func WithTokens(tokens middleware.TokenAuthenticator) RouterOption {
+	return func(o *routerOptions) { o.tokens = tokens }
+}
 
 // NewRouter wires the HTTP surface.
 //
@@ -56,14 +81,21 @@ func NewRouter(
 	invitations *invitation.Service,
 	journal *audit.Service,
 	runners *runner.Service,
+	apiTokens *apitoken.Manager,
 	signIn *auth.Service,
 	permissions middleware.Authorizer,
 	sessions *session.Manager,
 	ready Probe,
 	web *url.URL,
 	log *slog.Logger,
+	opts ...RouterOption,
 ) http.Handler {
-	runHandler := handler.NewRun(runs, log)
+	var options routerOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	runHandler := handler.NewRun(runs, web, log)
 	projectHandler := handler.NewProject(projects, log)
 	scenarioHandler := handler.NewScenario(scenarios, log)
 	catalogHandler := handler.NewCatalog(catalog, log)
@@ -71,7 +103,9 @@ func NewRouter(
 	invitationHandler := handler.NewInvitation(invitations, sessions, log)
 	auditHandler := handler.NewAudit(journal, log)
 	runnerHandler := handler.NewRunner(runners, log)
+	apiTokenHandler := handler.NewAPIToken(apiTokens, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
+	webhookHandler := handler.NewWebhook(options.webhookManager, options.webhookReceiver, log)
 
 	handlers := map[string]http.HandlerFunc{
 		"GET /healthz": func(w http.ResponseWriter, _ *http.Request) {
@@ -97,12 +131,13 @@ func NewRouter(
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ready\n"))
 		},
-		"GET /auth/providers":           authHandler.Providers,
-		"GET /auth/{provider}/login":    authHandler.Login,
-		"GET /auth/{provider}/callback": authHandler.Callback,
-		"POST /auth/logout":             authHandler.Logout,
-		"GET /me":                       authHandler.Me,
-		"POST /me/organization":         authHandler.SwitchOrganization,
+		"GET /auth/providers":                authHandler.Providers,
+		"GET /auth/{provider}/login":         authHandler.Login,
+		"GET /auth/{provider}/callback":      authHandler.Callback,
+		"POST /auth/logout":                  authHandler.Logout,
+		"POST /webhooks/{orgId}/{projectId}": webhookHandler.Receive,
+		"GET /me":                            authHandler.Me,
+		"POST /me/organization":              authHandler.SwitchOrganization,
 
 		"GET /roles":                       projectHandler.Roles,
 		"GET /invitations/{token}":         invitationHandler.Describe,
@@ -128,11 +163,19 @@ func NewRouter(
 		"GET /projects/{projectId}/invitations":                   invitationHandler.List,
 		"POST /projects/{projectId}/invitations":                  invitationHandler.Create,
 		"DELETE /projects/{projectId}/invitations/{invitationId}": invitationHandler.Revoke,
-		"GET /projects/{projectId}/permissions":                   projectHandler.Permissions,
-		"PUT /projects/{projectId}/favorite":                      projectHandler.Favorite,
-		"DELETE /projects/{projectId}/favorite":                   projectHandler.Unfavorite,
-		"PUT /projects/{projectId}/members/{userId}":              projectHandler.SetMemberRole,
-		"DELETE /projects/{projectId}/members/{userId}":           projectHandler.RemoveMember,
+
+		"GET /projects/{projectId}/api-tokens":              apiTokenHandler.List,
+		"POST /projects/{projectId}/api-tokens":             apiTokenHandler.Create,
+		"DELETE /projects/{projectId}/api-tokens/{tokenId}": apiTokenHandler.Revoke,
+		"GET /projects/{projectId}/permissions":             projectHandler.Permissions,
+		"GET /projects/{projectId}/webhook":                 webhookHandler.Get,
+		"POST /projects/{projectId}/webhook":                webhookHandler.Create,
+		"POST /projects/{projectId}/webhook/rotate":         webhookHandler.Rotate,
+		"DELETE /projects/{projectId}/webhook":              webhookHandler.Delete,
+		"PUT /projects/{projectId}/favorite":                projectHandler.Favorite,
+		"DELETE /projects/{projectId}/favorite":             projectHandler.Unfavorite,
+		"PUT /projects/{projectId}/members/{userId}":        projectHandler.SetMemberRole,
+		"DELETE /projects/{projectId}/members/{userId}":     projectHandler.RemoveMember,
 
 		"GET /projects/{projectId}/scenarios":                                          scenarioHandler.List,
 		"POST /projects/{projectId}/scenarios":                                         scenarioHandler.Create,
@@ -177,7 +220,13 @@ func NewRouter(
 		"POST /projects/{projectId}/environments/{environmentId}/approve":     environmentHandler.Approve,
 	}
 
+	// Two ways in. The first knows only sessions; the second knows tokens as
+	// well, and is used by the routes whose declaration says so.
 	authenticate := middleware.Authenticate(sessions, log)
+	authenticateOrToken := authenticate
+	if options.tokens != nil {
+		authenticateOrToken = middleware.AuthenticateOrToken(sessions, options.tokens, log)
+	}
 
 	mux := http.NewServeMux()
 	for _, route := range Routes() {
@@ -189,7 +238,12 @@ func NewRouter(
 		}
 		delete(handlers, pattern)
 
-		mux.Handle(pattern, wrap(route, http.Handler(next), authenticate, permissions, log))
+		auth := authenticate
+		if route.AllowToken {
+			auth = authenticateOrToken
+		}
+
+		mux.Handle(pattern, wrap(route, http.Handler(next), auth, permissions, log))
 	}
 
 	for pattern := range handlers {

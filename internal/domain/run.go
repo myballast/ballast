@@ -26,12 +26,26 @@ type Run struct {
 	Profile         ProfileKind
 	ProfileParams   ProfileParams
 	Status          RunStatus
-	TriggeredBy     *uuid.UUID
-	ErrorMessage    string
-	CreatedAt       time.Time
-	StartedAt       *time.Time
-	EndedAt         *time.Time
-	HeartbeatAt     *time.Time
+	// TriggeredBy is the person who launched the run. Nil for a run a pipeline
+	// launched, and also for one whose person has since left: the foreign key
+	// clears it. TriggeredByToken is what tells the first from the second.
+	TriggeredBy *uuid.UUID
+	// TriggeredByToken is the API token that launched the run, when one did. Never
+	// set together with TriggeredBy.
+	TriggeredByToken *uuid.UUID
+	// TriggeredByWebhook is the project's webhook that launched the run, when one
+	// did. Never set together with the other two.
+	TriggeredByWebhook *uuid.UUID
+	// CI is what the pipeline that launched the run said about itself: which CI,
+	// repository, branch and commit, and the link to the job. Nil for a run nobody
+	// said anything about. Declared by the caller and not proved to Ballast, and
+	// frozen with the run like the rest of what describes it.
+	CI           *RunCI
+	ErrorMessage string
+	CreatedAt    time.Time
+	StartedAt    *time.Time
+	EndedAt      *time.Time
+	HeartbeatAt  *time.Time
 	// CancelRequestedAt is when somebody asked this run to stop. It is a
 	// request and not an ending: for a run being executed, the status that says
 	// the load has stopped is written by the worker that stopped it.
@@ -68,6 +82,33 @@ func NewRun(
 	}
 }
 
+// By says who launched the run: a person, a token, a webhook, or nobody. It replaces
+// whoever was named before, so that a run never remembers both.
+func (r Run) By(actor Actor) Run {
+	r.TriggeredBy = actor.UserID
+	r.TriggeredByToken = actor.TokenID
+	r.TriggeredByWebhook = actor.WebhookID
+	return r
+}
+
+// LaunchedByToken reports whether this API token is the one that launched the
+// run. A run launched by a person, by another token, or by nobody is not.
+//
+// It is what lets a pipeline take down its own load without being able to stop
+// anybody else's: a token holds the permission to run a test and not the one to
+// cancel, and the right to cancel a run it started is read from the run.
+func (r Run) LaunchedByToken(id uuid.UUID) bool {
+	return id != uuid.Nil && r.TriggeredByToken != nil && *r.TriggeredByToken == id
+}
+
+// WithCI says what the pipeline that launched the run said about itself. The run
+// keeps a copy: what the caller does with theirs afterwards does not rewrite what
+// was measured.
+func (r Run) WithCI(ci RunCI) Run {
+	r.CI = &ci
+	return r
+}
+
 // Verdict is the run status these results call for.
 //
 // Whether a single threshold held is k6's judgement, read from the summary and
@@ -75,10 +116,8 @@ func NewRun(
 // failure is enough to fail the run, and a run with no threshold at all has
 // nothing to fail.
 func (r RunResults) Verdict() RunStatus {
-	for _, threshold := range r.Thresholds {
-		if !threshold.Passed {
-			return StatusFailed
-		}
+	if VerdictOf(r.Thresholds) == VerdictBreached {
+		return StatusFailed
 	}
 	return StatusPassed
 }

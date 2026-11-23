@@ -219,7 +219,7 @@ func newWorld(ctx context.Context, t *testing.T) world {
 		fleet.NewService(
 			postgres.NewRunnerRepository(db), postgres.NewRunnerPolicyRepository(db),
 			postgres.NewProjectRepository(db), permissions, infra.SystemClock{}, log),
-		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
+		nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
 	))
 	t.Cleanup(api.Close)
 

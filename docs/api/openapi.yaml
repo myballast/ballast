@@ -21,6 +21,14 @@ info:
     `HttpOnly`, so browser scripts cannot read it; the front end's server
     forwards it. A request without a valid session gets `401`.
 
+    A pipeline authenticates with an API token instead, as `Authorization:
+    Bearer <token>`, on the few routes that say so (`security` lists `bearer`
+    next to `session`). A token belongs to one project and may read it and
+    launch runs there, nothing more. A request that carries an `Authorization`
+    header is judged by it alone: a valid cookie does not rescue a bad token, and
+    a token in the URL is never read. A token that is unknown, expired or revoked
+    gets the same `401` as no credential at all.
+
     **Origin.** A request that carries an `Origin` header comes from a browser
     page, and is answered `403` for every route unless the origin is the front
     end's or the API's own; the front end's origin also gets the CORS headers
@@ -78,6 +86,22 @@ tags:
     description: |
       Bringing people into a project. No mail is sent: the administrator is shown
       a link once and passes it on. Only the hash of its token is stored.
+
+  - name: webhooks
+    description: |
+      A project's signed webhook, for tools that are neither GitHub nor GitLab: a
+      deploy script, Jenkins. A tool signs a request with the project's secret and
+      Ballast starts a run, through the same door and the same guardrails as
+      `POST /runs`. Managed by the project's administrators, and never by a token or
+      by a webhook. The secret is shown once, when it is made or replaced.
+
+  - name: api-tokens
+    description: |
+      The credentials a pipeline holds instead of a session. A token belongs to one
+      project and may read it and launch runs there, nothing more. It is shown
+      once, when it is created: only its hash is stored. Every token expires, and
+      revoking one stops it on the next request. Managed by the project's
+      administrators, and never by a token.
 
 security:
   - session: []
@@ -437,8 +461,27 @@ paths:
         run does not fit inside — either because it is shut now, or because the
         run would still be generating load after it closes. The length compared
         is the clamped one. Both refusals are logged.
+
+        A pipeline can say what it is with the optional `ci` object: which CI, which
+        repository, branch and commit, and the link to the job. It is kept with the
+        run, frozen like the profile, and shown on the run's page. It is **declared**
+        by whoever calls and proved to Ballast by nobody: do not read it as
+        verified. Only `provider` is required; a key that is not one of the five is
+        not kept. A mistake in it is a `422` that names the field and the rule, and
+        never the value, and writes and journals nothing.
+
+        A pipeline launches a run with an API token, and meets every guardrail a
+        person meets: the same verified target, the same ceilings, the same window,
+        the same platform switch. The run is recorded with the token and no person
+        (`triggered_by` names the token), and so is every journal entry about it.
+        A token's hourly limit counts the runs that token launched; the
+        organization's limits count all of them. A scenario of another project is
+        refused: a token holds the permission in its own project only.
       operationId: enqueueRun
       x-ballast-permission: run_test
+      security:
+        - session: []
+        - bearer: []
       requestBody:
         required: true
         content:
@@ -484,10 +527,19 @@ paths:
           $ref: "#/components/responses/InternalError"
         "422":
           description: |
-            The scenario cannot be run as it stands. Its graph is checked again here:
-            a graph stored before a rule existed, and refused by it now, comes back
-            with every reason (`findings`, each on its node). Its script is parsed
-            again too, so that one k6 could not load is found before a run exists.
+            The scenario cannot be run as it stands, or what the pipeline said about
+            itself cannot be kept.
+
+            The scenario's graph is checked again here: a graph stored before a rule
+            existed, and refused by it now, comes back with every reason (`findings`,
+            each on its node). Its script is parsed again too, so that one k6 could
+            not load is found before a run exists.
+
+            A mistake in `ci` — an unknown provider, a branch with a space or an
+            invisible character, a commit that is not a hash, a link that is not an
+            https address or that holds credentials — comes back as an `error` that
+            names the field and the rule. It never repeats the value: it may be a
+            credential.
           content:
             application/json:
               schema:
@@ -672,8 +724,38 @@ paths:
       description: |
         Metrics and threshold verdicts are empty until the run has finished.
         Verdicts are k6's own; Ballast never recomputes them.
+
+        A pipeline reads its run with the API token that launched it: the token
+        must hold the permission to view the run's project. A token of another
+        project is answered `404`, exactly as a person without rights is, and as
+        a run that does not exist is.
+
+        **Waiting for a run.** A pipeline that launched a run with `POST /runs`
+        reads this until `status` is terminal (see `RunStatus`: `queued`,
+        `running` and `orphaned` are not), and then reads the verdict.
+
+        - `verdict` is `met`, `breached` or `none`, and says nothing until the run
+          is over. Today `passed` is `met` (or `none` when the script declares no
+          threshold), `failed` is always `breached`, and `errored`, `timeout`,
+          `cancelled` and `rejected` are `none`. `none` is never success: a
+          pipeline fails on anything but `met` unless it has decided that a run
+          with no threshold is acceptable.
+        - `url` is the run's page, to print for a person.
+        - Answers that end the wait: `401` means the token is unknown, revoked or
+          expired, and retrying will not change it; `404` means the run is not
+          visible to this token — another project, a run it did not launch, or one
+          that does not exist — and will not become visible. Both are final.
+        - Answers worth retrying after a pause: `503` (Ballast could not check the
+          token at that moment — its own failure, never a verdict on the token) and
+          other `5xx`. A `401` is never a transient failure.
+        - Cancelling is a request: after `DELETE /runs/{id}` on a run under way,
+          keep reading until `status` is `cancelled`; `cancel_requested_at` shows
+          that the request was recorded.
       operationId: getRun
       x-ballast-permission: view_project
+      security:
+        - session: []
+        - bearer: []
       parameters:
         - name: id
           in: path
@@ -696,6 +778,15 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          description: |
+            Ballast could not check the API token at that moment: a failure on its
+            side, not a verdict on the token. Retry after a pause; a revoked or
+            unknown token is a `401`, never this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -716,8 +807,21 @@ paths:
 
         A run that has already finished answers `409`: nothing about the request
         is wrong, there is simply nothing left to stop.
+
+        **With an API token.** A pipeline that is stopped — a job cancelled, a
+        deadline reached — takes down the load it started, and only that. A token
+        holds no permission to cancel, so it is asked whether it may run a test in
+        the run's project, and the run must be one **this token launched**. A run
+        launched by a person, by another token of the same project, or in another
+        project answers `404`, exactly as a run that does not exist does, and the
+        refusal is written to the audit journal under the token's name. Cancelling
+        a run that is under way is a request here too: wait for `status` to become
+        `cancelled`.
       operationId: cancelRun
       x-ballast-permission: cancel_run
+      security:
+        - session: []
+        - bearer: []
       parameters:
         - name: id
           in: path
@@ -766,6 +870,15 @@ paths:
                 finished:
                   value:
                     error: this run has already finished
+        "503":
+          description: |
+            Ballast could not check the API token at that moment: a failure on its
+            side, not a verdict on the token. Retry after a pause; a revoked or
+            unknown token is a `401`, never this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -880,8 +993,24 @@ paths:
         values of the environment's secrets, and any `Authorization`, `Cookie`
         or `Set-Cookie` header a script printed, are replaced with `[redacted]`
         before a line is ever stored.
+
+        **Access is checked on every poll, not once.** The stream reads again about
+        once a second, and each read asks again whether the caller may see the run.
+        Revoking an API token, or removing a person from the project, therefore
+        ends a stream that is open within about a second: it receives an `error`
+        event and the connection closes. The event does not say which right was
+        withdrawn. A client that gets `error` should not reconnect blindly: ask
+        `GET /runs/{id}`, whose `401` or `404` is the final answer, and whose
+        terminal `status` means the run is over.
+
+        With an API token, the stream is open to the token of the run's project.
+        A run it cannot see answers `404` before any event is sent, as for a run
+        that does not exist.
       operationId: followRunLogs
       x-ballast-permission: view_project
+      security:
+        - session: []
+        - bearer: []
       parameters:
         - name: id
           in: path
@@ -921,6 +1050,15 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          description: |
+            Ballast could not check the API token at that moment: a failure on its
+            side, not a verdict on the token. Retry after a pause; a revoked or
+            unknown token is a `401`, never this.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1513,6 +1651,438 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           description: No such open invitation in this project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/webhook:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [webhooks]
+      summary: Read a project's webhook
+      description: |
+        Says whether the project has a webhook, where a tool sends its requests
+        (`path`, relative to the API), and when its secret was made and last replaced.
+        The secret is never returned: it is stored sealed and nothing reads it back.
+
+        Requires `admin`.
+      operationId: getWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "200":
+          description: The project's webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project has no webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [webhooks]
+      summary: Make a project's webhook
+      description: |
+        Makes the project's webhook and returns its secret **once**: it is stored
+        sealed, so it cannot be read back. The response is marked
+        `Cache-Control: no-store`. The creation is written to the journal, in the
+        same transaction, with no detail: the secret has no way into an entry.
+
+        A project has one webhook. To replace its secret, rotate it.
+
+        Requires `admin`.
+      operationId: createWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "201":
+          description: Made. The secret is in the body, and only here.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedWebhook"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The project already has a webhook. Rotate its secret instead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [webhooks]
+      summary: Remove a project's webhook
+      description: |
+        Removes the webhook. A tool that still signs requests is refused from the
+        next one. The runs it launched keep saying it launched them, and so do the
+        journal's entries. Written to the journal, in the same transaction.
+
+        Requires `admin`.
+      operationId: deleteWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "204":
+          description: Removed.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project has no webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/webhook/rotate:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [webhooks]
+      summary: Replace a webhook's secret
+      description: |
+        Replaces the secret and returns the new one **once**
+        (`Cache-Control: no-store`). The old one stops working at once, and the
+        address a tool calls does not change. Written to the journal, in the same
+        transaction.
+
+        Requires `admin`.
+      operationId: rotateWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "200":
+          description: Replaced. The new secret is in the body, and only here.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedWebhook"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project has no webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /webhooks/{orgId}/{projectId}:
+    post:
+      tags: [webhooks]
+      summary: Start a run with a signed request
+      description: |
+        Starts a run, as the project's webhook. There is no session and no token:
+        the signature authenticates the request, and until it has been checked the
+        caller is nobody.
+
+        **Signing.** Send three headers and a JSON body, which is the one of
+        `POST /runs` (`scenario_id`, `environment_id`, `profile`, optionally `params`
+        and `ci`).
+
+        - `X-Ballast-Timestamp`: the Unix time, in seconds, as digits. It must be
+          within five minutes of Ballast's clock, on either side.
+        - `X-Ballast-Delivery`: an identifier that is new for each request, 16 to 64
+          of letters, digits, `-` and `_`.
+        - `X-Ballast-Signature`: `v1=` and the lower-case hexadecimal HMAC-SHA256,
+          keyed with the secret, of `<timestamp>.<delivery>.<body>` — the three
+          parts joined by a dot, the body being the bytes sent.
+
+        The delivery is part of what is signed, and it is remembered for ten
+        minutes: a request is served once. A request whose run was refused has spent
+        its delivery, so a sender that tries again signs a new one.
+
+        **Refusals before the signature holds are all the same.** A wrong secret, a
+        stale timestamp, a replay, a project with no webhook, a missing header and a
+        body over 64 KiB each answer `401` with the same body, so that nothing is
+        learned from which one it was. The reason is in Ballast's log, and never a
+        secret or a signature.
+
+        **After the signature holds** the request meets every guardrail of
+        `POST /runs`, in the same place and with the same answers: the platform's
+        switch, the limits, the verified target, the ceilings, the allowed window. A
+        webhook's hourly limit counts the runs that webhook launched, the
+        organization's limits count all of them, and a scenario of another project is
+        refused. The run and every journal entry about it name the webhook and no
+        person.
+
+        What this does not stop: somebody sending a flood of requests that are
+        refused. Those create no run, so they never reach the limits; keeping them
+        out is the job of a reverse proxy in front of the API.
+      operationId: receiveWebhook
+      security: []
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          description: The organization of the project, as `path` says. It says where to look and proves nothing.
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/ProjectID"
+        - name: X-Ballast-Timestamp
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[0-9]{1,10}$", example: "1700000000" }
+        - name: X-Ballast-Delivery
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{16,64}$", example: delivery-0123456789 }
+        - name: X-Ballast-Signature
+          in: header
+          required: true
+          schema: { type: string, pattern: "^v1=[0-9a-f]{64}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnqueueRunRequest"
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnqueueRunResponse"
+        "400":
+          description: |
+            The signature held and the request is wrong: the body is not a JSON
+            object, an identifier is not a UUID, the profile is unknown or its
+            parameters describe no runnable test, or the scenario and the environment
+            belong to different projects. The message names the field and never the
+            value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: |
+            The request did not prove it holds the project's secret, or is not one
+            that can be served now. Always the same answer, whatever was wrong.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: the request was not accepted
+        "403":
+          description: |
+            The environment has not been verified, its allowed window has no room for
+            this run, or the scenario is of another project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: |
+            No such scenario or environment, or this installation does not serve
+            webhooks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The scenario cannot be run as it stands, or what the pipeline said about itself cannot be kept. As for `POST /runs`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: |
+            A limit was reached: the webhook's runs in the last hour, the organization's,
+            or too many already waiting. `Retry-After` is the number of seconds to wait
+            when that can be known, and is absent when it cannot.
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again, when it is known.
+              required: false
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: This installation is not accepting new runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{projectId}/api-tokens:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [api-tokens]
+      summary: List a project's API tokens
+      description: |
+        Every token of the project, revoked and expired ones included: the ones
+        that still work first, newest first, and the revoked ones after them. The
+        secret and the hash are never returned; each token carries the start of its
+        secret (`prefix`) so that two can be told apart, and its `state`, read
+        against the clock.
+
+        `limit` is how many tokens that have not been revoked a project may hold.
+
+        Requires `admin`.
+      operationId: listApiTokens
+      x-ballast-permission: manage_project
+      responses:
+        "200":
+          description: The project's tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiTokenListResponse"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [api-tokens]
+      summary: Create an API token
+      description: |
+        Creates a token for the project and returns its secret **once**: only its
+        hash is stored, so it cannot be read back. The response is marked
+        `Cache-Control: no-store`.
+
+        A token always expires: after 90 days when `expires_at` is left out, and at
+        most a year from now when it is given. The creation is written to the
+        journal, with the prefix and the expiry and never the secret nor the name.
+
+        A project holds at most 20 tokens that have not been revoked.
+
+        Requires `admin`.
+      operationId: createApiToken
+      x-ballast-permission: manage_project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApiTokenRequest"
+      responses:
+        "201":
+          description: Created. The secret is in the body, and only here.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedApiToken"
+        "400":
+          description: The body is not valid JSON, `expires_at` is not a date, or the project id is not a UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The project already holds the most tokens it may. Revoke one first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The body is far larger than a name and a date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The name is empty, too long or holds a control character, or the expiry is not in the future or is more than a year away.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/api-tokens/{tokenId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+      - name: tokenId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    delete:
+      tags: [api-tokens]
+      summary: Revoke an API token
+      description: |
+        Withdraws a token. It is refused on the next request, and an open log
+        stream it holds is cut. Written to the journal.
+
+        A token that does not exist, belongs to another project or organization,
+        or was already revoked is a `404`: one answer for all of them, so that
+        nobody learns what exists elsewhere.
+
+        Requires `admin`.
+      operationId: revokeApiToken
+      x-ballast-permission: manage_project
+      responses:
+        "204":
+          description: Revoked.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No live token with this id in this project.
           content:
             application/json:
               schema:
@@ -3502,6 +4072,15 @@ components:
       description: |
         A JWT set by the sign-in flow. It names the user and the organization
         and carries no permission.
+    bearer:
+      type: http
+      scheme: bearer
+      description: |
+        An API token, `blt_` followed by 43 characters, created by a project's
+        administrator and shown once. It names one project and holds two
+        permissions there — reading it and launching runs — and nothing else. Only
+        the routes whose `security` lists it accept it, and it is read from the
+        `Authorization` header and nowhere else.
 
   parameters:
     InvitationToken:
@@ -4658,6 +5237,111 @@ components:
             The secret in the invitation link, shown this once. Only its hash is
             stored, so it cannot be read back.
 
+    ApiToken:
+      type: object
+      required: [id, name, prefix, state, expires_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 64 }
+        prefix:
+          type: string
+          description: |
+            The start of the secret: `blt_` and eight characters. Enough to tell two
+            tokens apart, and nothing to search with.
+        created_by:
+          type: string
+          format: uuid
+          description: Who created it. Absent when that person has left; the token stays.
+        created_by_name:
+          type: string
+          description: Their name, read when the list is asked for. Absent with `created_by`.
+        state:
+          type: string
+          enum: [active, expired, revoked]
+          description: |
+            Read against the clock when the list is asked for, never stored. A token
+            both revoked and expired is `revoked`.
+        expires_at: { type: string, format: date-time }
+        last_used_at:
+          type: string
+          format: date-time
+          description: |
+            When the token was last used, to the minute: it is written at most once a
+            minute. Absent for a token never used.
+        revoked_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    ApiTokenListResponse:
+      type: object
+      required: [tokens, limit]
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiToken"
+        limit:
+          type: integer
+          description: |
+            How many tokens that have not been revoked a project may hold. Said by the
+            API, so that a screen does not carry its own copy.
+
+    CreateApiTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 64
+          description: Trimmed. Not empty, and with no control character.
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            Optional. Left out, the token expires in 90 days. When given it must be in
+            the future and at most a year away.
+
+    Webhook:
+      type: object
+      required: [id, project_id, path, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        path:
+          type: string
+          description: |
+            Where a tool sends its signed requests, relative to the API:
+            `/webhooks/{organization}/{project}`. It is not a secret and proves nothing.
+          example: /webhooks/6d1f0e3a-3b3e-4a53-9a43-2c3f3a6a9d10/5439bf02-f910-479f-8bb1-dc72ff319d53
+        created_at: { type: string, format: date-time }
+        rotated_at:
+          type: string
+          format: date-time
+          description: When the secret was last replaced. Absent if it never was.
+
+    CreatedWebhook:
+      type: object
+      required: [webhook, secret]
+      properties:
+        webhook:
+          $ref: "#/components/schemas/Webhook"
+        secret:
+          type: string
+          description: |
+            The key that signs the requests, shown this once. It starts with `blw_`.
+            It is stored sealed, so it cannot be read back.
+
+    CreatedApiToken:
+      type: object
+      required: [token, secret]
+      properties:
+        token:
+          $ref: "#/components/schemas/ApiToken"
+        secret:
+          type: string
+          description: |
+            The credential itself, shown this once. It starts with `blt_`. Only its
+            hash is stored, so it cannot be read back.
+
     MemberAddedResponse:
       type: object
       required: [user_id]
@@ -4719,10 +5403,59 @@ components:
           $ref: "#/components/schemas/ProfileKind"
         params:
           $ref: "#/components/schemas/ProfileParams"
+        ci:
+          $ref: "#/components/schemas/RunCI"
       example:
         scenario_id: 00000000-0000-4000-8000-000000000003
         environment_id: 00000000-0000-4000-8000-000000000004
         profile: smoke
+        ci:
+          provider: github_actions
+          repository: myballast/ballast
+          branch: main
+          commit: 3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345
+          job_url: https://github.com/myballast/ballast/actions/runs/123456789
+
+    RunCI:
+      type: object
+      description: |
+        What a pipeline says about itself when it launches a run. A closed set of five
+        fields, each bounded; only `provider` is required, and absence is spelled by
+        leaving a key out. It is declared by the caller and proved by nobody. Spaces
+        around a value are dropped, the commit is written in lower case, and the link
+        loses its query and its fragment.
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [github_actions, gitlab_ci, other]
+        repository:
+          type: string
+          maxLength: 200
+          pattern: '^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$'
+          description: A path of plain names, like `owner/name` or `group/sub-group/project`.
+        branch:
+          type: string
+          maxLength: 255
+          description: |
+            No space, no control character and none of the invisible ones — the
+            zero-width and directional marks, the line and paragraph separators — that
+            would make a name read as something it is not.
+        commit:
+          type: string
+          minLength: 7
+          maxLength: 64
+          pattern: '^[0-9a-f]{7,64}$'
+          description: A hexadecimal hash. Upper case is accepted and kept in lower case.
+        job_url:
+          type: string
+          format: uri
+          maxLength: 500
+          description: |
+            An `https` address with a host, in plain ASCII. Credentials in it are
+            refused, not dropped: they are a secret that leaked into a configuration.
+            The query and the fragment are dropped, since they may carry a token and
+            say nothing about which job it is.
 
     EnqueueRunResponse:
       type: object
@@ -4904,6 +5637,11 @@ components:
             - member.invited
             - member.joined
             - invitation.revoked
+            - api_token.created
+            - api_token.revoked
+            - webhook.created
+            - webhook.rotated
+            - webhook.deleted
         outcome:
           type: string
           description: Whether it was allowed.
@@ -4912,7 +5650,23 @@ components:
           type: string
           format: uuid
           description: |
-            Who did it. Absent when Ballast itself acted with nobody behind it.
+            The person who did it. Absent when a token did it (see
+            `actor_token_id`) and when Ballast itself acted with nobody behind it.
+        actor_token_id:
+          type: string
+          format: uuid
+          description: |
+            The API token that did it, when a pipeline acted. Never present together
+            with `actor_id`; an entry with neither is Ballast acting alone. The id
+            is kept even after the token is gone, so that what a credential did
+            outlives it.
+        actor_webhook_id:
+          type: string
+          format: uuid
+          description: |
+            The project's webhook that did it, when a signed request acted. Never
+            present together with `actor_id` or `actor_token_id`. Kept after the
+            webhook is deleted, for the same reason.
         project_id:
           type: string
           format: uuid
@@ -4920,7 +5674,7 @@ components:
             The project concerned. Absent for an action on the organization.
         target_type:
           type: string
-          enum: [run, environment, membership, invitation, organization]
+          enum: [run, environment, membership, invitation, api_token, webhook, organization]
         target_id:
           type: string
           format: uuid
@@ -4978,7 +5732,32 @@ components:
 
     RunStatus:
       type: string
-      description: "`orphaned` is not terminal: the worker died mid-run and the run still has to be cleaned up."
+      description: |
+        Where a run stands. A client that waits for a run reads this to know when to
+        stop.
+
+        **Not terminal — keep waiting:**
+
+        - `queued` — accepted, waiting for a worker and for the environment to be free.
+        - `running` — a generator is loading the target.
+        - `orphaned` — the worker died mid-run and the run still has to be cleaned
+          up. It becomes `errored` once its containers are destroyed. It is **not**
+          an ending: the load may still be running until then.
+
+        **Terminal — the run is over and will not change again:**
+
+        - `passed` — it ran and every threshold held, or it had none.
+        - `failed` — it ran and at least one threshold was breached.
+        - `errored` — it could not be run or measured; `error_message` says why.
+        - `timeout` — it was killed at the environment's maximum duration.
+        - `cancelled` — somebody cancelled it, an emergency stop did, or the worker
+          executing it was told to stop before it finished.
+        - `rejected` — it waited in the queue and could no longer start, because its
+          environment no longer allowed it; `error_message` says why. It never ran.
+        - `skipped` — reserved by the state machine; no run reaches it today.
+
+        The list above is the whole set at this version. A client that meets a
+        status it does not know should stop and report it, rather than guess.
       enum: [queued, running, passed, failed, errored, timeout, cancelled, rejected, skipped, orphaned]
 
     ProjectStatsResponse:
@@ -5084,7 +5863,10 @@ components:
         ended_at: { type: string, format: date-time }
         triggered_by:
           type: string
-          description: The name of who started the run. Absent when nobody did, or when the person has since been removed.
+          description: |
+            The name of who started the run: a person's name, or `API token <name>`
+            when a pipeline did. Absent when nobody did, or when the person has since
+            been removed.
         p95_ms:
           type: number
           description: The 95th percentile of the request duration, in milliseconds, as k6 reported it. Absent while the run has no results.
@@ -5109,6 +5891,7 @@ components:
         - created_at
         - metrics
         - thresholds
+        - verdict
       properties:
         id: { type: string, format: uuid }
         number:
@@ -5118,7 +5901,12 @@ components:
         project_id: { type: string, format: uuid }
         triggered_by:
           type: string
-          description: The name of who started the run. Absent when nobody did, or when the person has since been removed.
+          description: |
+            The name of who started the run: a person's name, or `API token <name>`
+            when a pipeline did. Absent when nobody did, or when the person has since
+            been removed.
+        ci:
+          $ref: "#/components/schemas/RunCI"
         scenario_id: { type: string, format: uuid }
         environment_id: { type: string, format: uuid }
         scenario_version:
@@ -5152,6 +5940,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Threshold"
+        verdict:
+          type: string
+          enum: [met, breached, none]
+          description: |
+            Whether the run's thresholds held, in one word for a pipeline to read.
+            It adds up the verdicts in `thresholds`, which are k6's and never
+            recomputed by Ballast: `met` when at least one threshold was judged and
+            every one held, `breached` when at least one did not.
+
+            `none` means nothing was judged: the run has no threshold, or has not
+            produced results (queued, running, `errored`, `cancelled`). It is **not**
+            success, and a pipeline must not treat it as such; `status` says why
+            there is none. Always present.
+        url:
+          type: string
+          format: uri
+          description: |
+            The run's page in the web application, to print in a pipeline's log for
+            a person to open. Built from the configured address of the front end and
+            never from the request. Absent when none is configured.
 
     Metric:
       type: object

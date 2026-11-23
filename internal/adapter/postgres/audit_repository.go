@@ -91,15 +91,17 @@ func insertAudit(ctx context.Context, tx pgx.Tx, entry domain.AuditEntry) error 
 	}
 
 	if _, err := sqlc.New(tx).RecordAudit(ctx, sqlc.RecordAuditParams{
-		OrgID:      entry.OrgID,
-		ActorID:    entry.ActorID,
-		ProjectID:  entry.ProjectID,
-		Action:     string(entry.Action),
-		Outcome:    string(entry.Outcome),
-		TargetType: entry.TargetType,
-		TargetID:   entry.TargetID,
-		Metadata:   details,
-		CreatedAt:  entry.At,
+		OrgID:          entry.OrgID,
+		ActorID:        entry.ActorID,
+		ActorTokenID:   entry.ActorTokenID,
+		ActorWebhookID: entry.ActorWebhookID,
+		ProjectID:      entry.ProjectID,
+		Action:         string(entry.Action),
+		Outcome:        string(entry.Outcome),
+		TargetType:     entry.TargetType,
+		TargetID:       entry.TargetID,
+		Metadata:       details,
+		CreatedAt:      entry.At,
 	}); err != nil {
 		return fmt.Errorf("record the audit entry: %w", err)
 	}
@@ -126,14 +128,16 @@ func toDomainEntry(row sqlc.AuditLog) (domain.AuditEntry, error) {
 	}
 
 	return domain.AuditEntry{
-		OrgID:      row.OrgID,
-		ActorID:    row.ActorID,
-		ProjectID:  row.ProjectID,
-		Action:     domain.AuditAction(row.Action),
-		Outcome:    domain.AuditOutcome(row.Outcome),
-		TargetType: row.TargetType,
-		TargetID:   row.TargetID,
-		Details:    details,
-		At:         row.CreatedAt,
+		OrgID:          row.OrgID,
+		ActorID:        row.ActorID,
+		ActorTokenID:   row.ActorTokenID,
+		ActorWebhookID: row.ActorWebhookID,
+		ProjectID:      row.ProjectID,
+		Action:         domain.AuditAction(row.Action),
+		Outcome:        domain.AuditOutcome(row.Outcome),
+		TargetType:     row.TargetType,
+		TargetID:       row.TargetID,
+		Details:        details,
+		At:             row.CreatedAt,
 	}, nil
 }

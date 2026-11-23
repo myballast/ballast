@@ -23,6 +23,10 @@ type EnqueueCommand struct {
 	Profile       domain.ProfileKind
 	// Params is optional. Left empty, the profile's own template is used.
 	Params *domain.ProfileParams
+	// CI is what the pipeline that launches the run says about itself, as it said
+	// it. Optional. It is checked and tidied here (domain.ParseRunCI) before
+	// anything else is read, and a mistake in it is a mistake in the request.
+	CI *domain.RunCI
 }
 
 // admit is what stands before every way of asking for a run, and reads nothing
@@ -33,7 +37,7 @@ func (s *Service) admit(ctx context.Context, actor domain.Identity) error {
 	// looked at — and nothing is written.
 	if !s.accepting {
 		s.log.WarnContext(ctx, "run refused: this installation is not accepting new runs",
-			"org_id", actor.OrgID, "user_id", actor.UserID)
+			"org_id", actor.OrgID, "user_id", actor.UserID, "token_id", actor.TokenID, "webhook_id", actor.WebhookID)
 		// No project: nothing about the request was read, because during an
 		// incident the answer does not depend on it. The entry belongs to the
 		// organization, and every project's journal shows it.
@@ -62,6 +66,18 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		params = *cmd.Params
 	}
 
+	// A mistake in what a pipeline says about itself is a mistake in the request,
+	// and is told as one: nothing is written and nothing is journaled, for a
+	// journal full of typing mistakes is one nobody reads.
+	var ci *domain.RunCI
+	if cmd.CI != nil {
+		parsed, err := domain.ParseRunCI(*cmd.CI)
+		if err != nil {
+			return domain.Run{}, err
+		}
+		ci = &parsed
+	}
+
 	scenario, err := s.scenarios.ScenarioByID(ctx, cmd.Actor.OrgID, cmd.ScenarioID)
 	if err != nil {
 		return domain.Run{}, err
@@ -76,7 +92,8 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	}
 	if !allowed {
 		s.log.InfoContext(ctx, "run refused for want of permission",
-			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID,
+			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID, "token_id", cmd.Actor.TokenID,
+			"webhook_id", cmd.Actor.WebhookID,
 			"project_id", scenario.ProjectID, "scenario_id", scenario.ID)
 		s.record(ctx, refused(cmd.Actor,
 			"the caller may not run tests in this project", s.clock.Now()).
@@ -84,7 +101,7 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 		return domain.Run{}, domain.ErrForbidden
 	}
 
-	return s.queue(ctx, cmd.Actor, scenario, cmd.EnvironmentID, cmd.Profile, params, nil)
+	return s.queue(ctx, cmd.Actor, scenario, cmd.EnvironmentID, cmd.Profile, params, nil, ci)
 }
 
 // queue is what every way of asking for a run has in common once the scenario
@@ -95,7 +112,8 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 //
 // scenario carries the version the run is to freeze: the one it is, for a run
 // asked for today, and the one an earlier run froze, for a run that repeats it.
-// rerunOf is that earlier run, or nil.
+// rerunOf is that earlier run, or nil. ci is what the pipeline said about itself,
+// already checked, or nil.
 func (s *Service) queue(
 	ctx context.Context,
 	actor domain.Identity,
@@ -104,6 +122,7 @@ func (s *Service) queue(
 	profile domain.ProfileKind,
 	params domain.ProfileParams,
 	rerunOf *uuid.UUID,
+	ci *domain.RunCI,
 ) (domain.Run, error) {
 	if err := s.checkScenario(ctx, actor, scenario); err != nil {
 		return domain.Run{}, err
@@ -174,16 +193,24 @@ func (s *Service) queue(
 		return domain.Run{}, err
 	}
 
-	created, err := s.runs.Create(ctx, domain.NewRun(
-		actor.OrgID, scenario, environment, profile, params, &actor.UserID,
-	))
+	// Who launched it is a person, an API token or a webhook, and the run says
+	// which: a pipeline's run has no person, and must not read as the run of a
+	// member who has since left.
+	toQueue := domain.NewRun(
+		actor.OrgID, scenario, environment, profile, params, nil,
+	).By(actor.Actor())
+	if ci != nil {
+		toQueue = toQueue.WithCI(*ci)
+	}
+
+	created, err := s.runs.Create(ctx, toQueue)
 	if err != nil {
 		return domain.Run{}, err
 	}
 
 	queued := domain.Allow(
-		actor.OrgID, &actor.UserID, domain.ActionRunQueued, domain.TargetRun, now,
-	).InProject(scenario.ProjectID).On(created.ID).
+		actor.OrgID, nil, domain.ActionRunQueued, domain.TargetRun, now,
+	).By(actor.Actor()).InProject(scenario.ProjectID).On(created.ID).
 		With("environment_id", environment.ID.String()).
 		With("profile", string(profile)).
 		With("target_vus", strconv.Itoa(params.TargetVUs)).
@@ -254,8 +281,17 @@ func (s *Service) Rerun(ctx context.Context, actor domain.Identity, runID uuid.U
 		return domain.Run{}, domain.ErrForbidden
 	}
 
+	// What the run being repeated said about the pipeline that launched it is
+	// carried over, as a copy: the page of the repeat says where what it repeats
+	// came from.
+	var ci *domain.RunCI
+	if source.CI != nil {
+		repeated := *source.CI
+		ci = &repeated
+	}
+
 	scenario := domain.Scenario{ID: source.ScenarioID, ProjectID: source.ProjectID, Version: source.ScenarioVersion}
-	return s.queue(ctx, actor, scenario, source.EnvironmentID, source.Profile, source.ProfileParams, &source.ID)
+	return s.queue(ctx, actor, scenario, source.EnvironmentID, source.Profile, source.ProfileParams, &source.ID, ci)
 }
 
 // Detail is a run, what it measured, and who started it: what the page of a run
@@ -269,10 +305,22 @@ func (s *Service) Detail(
 	}
 
 	detail := Listed{Run: found}
-	if found.TriggeredBy != nil {
+	switch {
+	case found.TriggeredBy != nil:
 		if detail.TriggeredByName, err = s.runs.UserName(ctx, who.OrgID, *found.TriggeredBy); err != nil {
 			return Listed{}, domain.RunResults{}, err
 		}
+	case found.TriggeredByToken != nil:
+		// Said as a token's, with its name: a person of the same name must not be
+		// mistaken for a pipeline, and the other way round.
+		name, err := s.runs.TokenName(ctx, who.OrgID, *found.TriggeredByToken)
+		if err != nil {
+			return Listed{}, domain.RunResults{}, err
+		}
+		detail.TriggeredByName = tokenLabel(name)
+	case found.TriggeredByWebhook != nil:
+		// Said as the webhook's. It has no name: a project has one.
+		detail.TriggeredByName = "the project's webhook"
 	}
 	return detail, results, nil
 }
@@ -346,4 +394,13 @@ func (s *Service) checkScenario(ctx context.Context, actor domain.Identity, scen
 		}
 	}
 	return nil
+}
+
+// tokenLabel is how a run launched by an API token says so. A token that has no
+// name any more is still a token's run.
+func tokenLabel(name string) string {
+	if name == "" {
+		return "an API token"
+	}
+	return "API token " + name
 }

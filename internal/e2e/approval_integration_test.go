@@ -194,7 +194,7 @@ func newApprovalWorld(ctx context.Context, t *testing.T) approvalWorld {
 		runs, projects, nil, nil, environments, nil,
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
 		nil,
-		auth.NewService(nil, nil, infra.SystemClock{}, log),
+		nil, auth.NewService(nil, nil, infra.SystemClock{}, log),
 		permissions, manager, db.Ping, web, log,
 	))
 	t.Cleanup(api.Close)

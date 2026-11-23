@@ -290,7 +290,7 @@ func buildWith(t *testing.T, db *postgres.DB, org uuid.UUID, accepting bool) sta
 		// a stack with it left out answers a request by dying.
 		audit.NewService(postgres.NewAuditRepository(db), permissions, log),
 		nil,
-		auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
+		nil, auth.NewService(nil, nil, infra.SystemClock{}, log), permissions, sessions, db.Ping, web, log,
 	))
 	t.Cleanup(api.Close)
 

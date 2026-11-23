@@ -30,7 +30,7 @@ func TestEveryProtectedRouteRequiresASession(t *testing.T) {
 	// This test is about sessions, so the database is declared reachable.
 	ready := func(context.Context) error { return nil }
 
-	router := httpadapter.NewRouter(nil, nil, nil, nil, nil, nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, ready, web, log)
+	router := httpadapter.NewRouter(nil, nil, nil, nil, nil, nil, nil, nil, nil, auth.NewService(nil, nil, infra.SystemClock{}, log), nil, sessions, ready, web, log)
 
 	const someID = "00000000-0000-4000-8000-000000000001"
 

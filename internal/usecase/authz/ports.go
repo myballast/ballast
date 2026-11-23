@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -18,4 +19,27 @@ type Memberships interface {
 	// AllOfMember returns every membership the person holds in their
 	// organization.
 	AllOfMember(ctx context.Context, who domain.Identity) ([]domain.Membership, error)
+}
+
+// Tokens reads the row of an API token. It is read on every check, which is what
+// makes revoking a token take effect on the next request.
+type Tokens interface {
+	// ByID returns the token under the organization, and false when there is
+	// none — including a token that belongs to another organization, which from
+	// here is the same thing.
+	ByID(ctx context.Context, orgID, tokenID uuid.UUID) (domain.APIToken, bool, error)
+}
+
+// Webhooks reads the row of a project's webhook. It is read on every check, which is
+// what makes deleting a webhook take effect on the next request.
+type Webhooks interface {
+	// ByID returns the webhook under the organization, and false when there is none,
+	// including one that belongs to another organization.
+	ByID(ctx context.Context, orgID, webhookID uuid.UUID) (domain.Webhook, bool, error)
+}
+
+// Clock tells the time, so that the instant a token expires can be chosen in a
+// test.
+type Clock interface {
+	Now() time.Time
 }

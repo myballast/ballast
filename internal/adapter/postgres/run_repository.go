@@ -81,14 +81,46 @@ func toDomainRun(row sqlc.Run) (domain.Run, error) {
 		ProfileParams:   params,
 		Status:          domain.RunStatus(row.Status),
 		TriggeredBy:     row.TriggeredBy,
-		ErrorMessage:    derefString(row.ErrorMessage),
-		CreatedAt:       row.CreatedAt,
-		StartedAt:       row.StartedAt,
-		EndedAt:         row.EndedAt,
-		HeartbeatAt:     row.HeartbeatAt,
+		// A pipeline's run names its token and no person; the two are never both,
+		// and the schema says so.
+		TriggeredByToken:   row.TriggeredByToken,
+		TriggeredByWebhook: row.TriggeredByWebhook,
+		CI:                 toDomainCI(row),
+		ErrorMessage:       derefString(row.ErrorMessage),
+		CreatedAt:          row.CreatedAt,
+		StartedAt:          row.StartedAt,
+		EndedAt:            row.EndedAt,
+		HeartbeatAt:        row.HeartbeatAt,
 
 		CancelRequestedAt: row.CancelRequestedAt,
 	}, nil
+}
+
+// toDomainCI is what the pipeline said about itself, or nil when the run has no
+// provider — and a run has none exactly when nobody said anything, which the schema
+// holds. A field that is null in the row is empty in the run, which is how the
+// domain spells "not said".
+func toDomainCI(row sqlc.Run) *domain.RunCI {
+	if row.CiProvider == nil {
+		return nil
+	}
+
+	return &domain.RunCI{
+		Provider:   domain.CIProvider(*row.CiProvider),
+		Repository: derefString(row.CiRepository),
+		Branch:     derefString(row.CiBranch),
+		Commit:     derefString(row.CiCommit),
+		JobURL:     derefString(row.CiJobUrl),
+	}
+}
+
+// nullIfEmpty is how "not said" is written: a null, and never an empty string,
+// which the schema refuses.
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // toDomainRuns converts a batch, failing on the first row it cannot read: a
@@ -121,7 +153,7 @@ func (r *RunRepository) Create(ctx context.Context, run domain.Run) (domain.Run,
 
 	var created domain.Run
 	err = r.db.InTenantTx(ctx, run.OrgID, func(tx pgx.Tx) error {
-		row, err := sqlc.New(tx).CreateRun(ctx, sqlc.CreateRunParams{
+		args := sqlc.CreateRunParams{
 			OrgID:         run.OrgID,
 			ProjectID:     run.ProjectID,
 			ScenarioID:    run.ScenarioID,
@@ -129,11 +161,25 @@ func (r *RunRepository) Create(ctx context.Context, run domain.Run) (domain.Run,
 			// The column is an integer and the check constraint keeps it
 			// positive; a scenario version large enough to overflow would
 			// mean a script edited two billion times.
-			ScenarioVersion: int32(run.ScenarioVersion), //nolint:gosec // bounded by the schema
-			Profile:         string(run.Profile),
-			ProfileParams:   params,
-			TriggeredBy:     run.TriggeredBy,
-		})
+			ScenarioVersion:    int32(run.ScenarioVersion), //nolint:gosec // bounded by the schema
+			Profile:            string(run.Profile),
+			ProfileParams:      params,
+			TriggeredBy:        run.TriggeredBy,
+			TriggeredByToken:   run.TriggeredByToken,
+			TriggeredByWebhook: run.TriggeredByWebhook,
+		}
+		if run.CI != nil {
+			// The provider is what says there is anything to keep; the rest is
+			// written only if it was said.
+			provider := string(run.CI.Provider)
+			args.CiProvider = &provider
+			args.CiRepository = nullIfEmpty(run.CI.Repository)
+			args.CiBranch = nullIfEmpty(run.CI.Branch)
+			args.CiCommit = nullIfEmpty(run.CI.Commit)
+			args.CiJobUrl = nullIfEmpty(run.CI.JobURL)
+		}
+
+		row, err := sqlc.New(tx).CreateRun(ctx, args)
 		if err != nil {
 			return fmt.Errorf("insert the run: %w", err)
 		}

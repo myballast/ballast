@@ -150,6 +150,21 @@ func seedEveryTable(ctx context.Context, t *testing.T, db *postgres.DB, label st
 			  VALUES ($1, $2, 'shop.yaml', 'GET', '/users/{id}', $3)`,
 				[]any{org, project, user}},
 
+			// A pipeline's credential. Only its hash is kept.
+			{`INSERT INTO api_token (org_id, project_id, name, prefix, token_hash, created_by, expires_at)
+			  VALUES ($1, $2, 'ci', 'blt_seed0001', $3, $4, now() + interval '90 days')`,
+				[]any{org, project, label + "-api-token-hash", user}},
+
+			// The key that signs a project's webhook, sealed. Only the sealed bytes exist.
+			{`INSERT INTO project_webhook (org_id, project_id, secret_encrypted, created_by)
+			  VALUES ($1, $2, $3, $4)`,
+				[]any{org, project, []byte{0x0a, 0x0b}, user}},
+
+			// A delivery already served, remembered so that it is not served twice.
+			{`INSERT INTO webhook_delivery (org_id, project_id, delivery_id)
+			  VALUES ($1, $2, 'delivery-0123456789')`,
+				[]any{org, project}},
+
 			// The worker's own presence: one row per runner, written by the runner.
 			{`INSERT INTO runner (org_id, name, version, contract, state, started_at, heartbeat_at)
 			  VALUES ($1, $2, 'test', 1, 'serving', now(), now())`,
@@ -206,7 +221,7 @@ func dropEverything(ctx context.Context, t *testing.T, db *postgres.DB, org uuid
 
 	tables := []string{
 		"run_log", "run_artifact", "run_threshold", "run_metric",
-		"catalog_endpoint", "runner", "environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
+		"catalog_endpoint", "webhook_delivery", "project_webhook", "api_token", "runner", "environment_lock", "run", "threshold", "scenario_version", "scenario", "secret",
 		"environment", "membership",
 		"project_allowed_host", "project", "app_user", "organization",
 	}

@@ -19,9 +19,26 @@ var ErrIncompleteIdentity = errors.New("incomplete identity")
 // It carries no permission. Permissions are resolved against the database on
 // every request, so that a revoked role takes effect immediately rather than
 // when a session happens to expire.
+//
+// It is a person, an API token or a webhook, never two of them. A token or a webhook
+// has no person: UserID is empty, and TokenID or WebhookID says which is asking.
 type Identity struct {
-	UserID uuid.UUID
-	OrgID  uuid.UUID
+	UserID  uuid.UUID
+	OrgID   uuid.UUID
+	TokenID uuid.UUID
+	// WebhookID is the project's webhook, when a signed request is what is asking.
+	// Like a token it has no person, and it is never set together with either.
+	WebhookID uuid.UUID
+}
+
+// IsToken reports whether the caller is an API token and not a person.
+func (i Identity) IsToken() bool {
+	return i.TokenID != uuid.Nil
+}
+
+// IsWebhook reports whether the caller is a project's webhook.
+func (i Identity) IsWebhook() bool {
+	return i.WebhookID != uuid.Nil
 }
 
 // ExternalIdentity is a person as an identity provider describes them.
