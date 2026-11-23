@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
-import { DM_Sans, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 
 import { parseTheme, systemThemeScript, themeCookie } from "@/features/theme/theme";
 
@@ -10,15 +10,23 @@ import { themeColors } from "@/styles/theme-colors";
 
 // Two weights and no more: 400 for text, 500 for emphasis. The lint script
 // refuses any other.
-const sans = DM_Sans({
+//
+// The fonts are files of this repository (src/app/fonts) and not a request to Google:
+// a build that has to reach a third party to finish fails whenever that party cannot
+// be reached — which is what a locked-down build machine does — and talks to someone
+// about this project every time it runs. Each file is a variable font holding both
+// weights, restricted here to the two that are used.
+const sans = localFont({
+  src: "./fonts/dm-sans-latin.woff2",
   variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: "400 500",
+  display: "swap",
 });
-const mono = JetBrains_Mono({
+const mono = localFont({
+  src: "./fonts/jetbrains-mono-latin.woff2",
   variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: "400 500",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
