@@ -42,6 +42,10 @@ Options:
 There is no --project. A token belongs to one project, and a run belongs to the
 project of its scenario: --scenario is all that names it.
 
+Inside GitHub Actions, when GITHUB_OUTPUT and GITHUB_STEP_SUMMARY name a file, the tool
+adds to them: the outputs run-id, status, verdict (met, breached or none, empty when the
+run did not finish), url and exit-code, and a short summary of the thresholds.
+
 Exit codes:
   0  the run finished and its thresholds held
   1  the run finished and a threshold was breached
@@ -149,7 +153,10 @@ func runCommand(
 		return ExitError
 	}
 
-	runner := &Runner{Client: client, Out: out, Err: errs, Env: env, Abort: abort}
+	runner := &Runner{
+		Client: client, Out: out, Err: errs, Env: env, Abort: abort,
+		Report: githubReporter(env, say),
+	}
 	return runner.Run(ctx, options)
 }
 

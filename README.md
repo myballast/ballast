@@ -176,7 +176,10 @@ behind a session on the other. Request and response shapes come from
 act on: 0 when the thresholds held, 1 when one was breached, 2 for anything else. It is read
 from `BALLAST_URL` and `BALLAST_TOKEN` and takes no secret as an argument. How to install it,
 check a download and use it is in [docs/cli.md](docs/cli.md); how a release is made is in
-[docs/releasing.md](docs/releasing.md).
+[docs/releasing.md](docs/releasing.md). In GitHub Actions, use
+[`myballast/ballast-action`](https://github.com/myballast/ballast-action) (its source is
+[`ops/ballast-action/`](ops/ballast-action/)), which installs and runs it and exposes the
+verdict as an output.
 
 ## Front end
 

@@ -1,0 +1,46 @@
+name: Install
+
+# The scripts are tested where the command and the release scripts are, in the repository
+# of Ballast. What cannot be tested there is the real thing: a real download from a real
+# release, on each system the Action supports. This is that, and it needs no Ballast
+# server, since it stops at the version.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: install
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/install.sh"
+
+      - name: It is the version this Action is released with
+        shell: bash
+        env:
+          BIN: ${{ steps.install.outputs.bin }}
+        run: |
+          set -euo pipefail
+          expected="$(tr -d ' \r\n' < "$GITHUB_WORKSPACE/VERSION")"
+          said="$("$BIN" version)"
+          echo "$said"
+          case "$said" in
+            "ballast ${expected} ("*) ;;
+            *) echo "the command is not version ${expected}"; exit 1 ;;
+          esac

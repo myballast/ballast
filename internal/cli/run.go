@@ -129,6 +129,10 @@ type Runner struct {
 	// seconds. Ballast not answering must not keep a stopped pipeline running.
 	StopWait time.Duration
 
+	// Report receives what a pipeline's next step can read, once, as the tool is
+	// leaving, whatever the way out. Nil reports nothing.
+	Report func(Result)
+
 	// Abort fires on the second signal. The first one is the context passed to Run
 	// being cancelled: the run is asked to stop, and the tool waits for the answer.
 	// The second is believed: the tool leaves at once and says what it left. Nil
@@ -138,6 +142,17 @@ type Runner struct {
 
 // Run launches the run, follows it, and returns the code to leave with.
 func (r *Runner) Run(ctx context.Context, options RunOptions) int {
+	var result Result
+	code := r.run(ctx, options, &result)
+
+	result.ExitCode = code
+	if r.Report != nil {
+		r.Report(result)
+	}
+	return code
+}
+
+func (r *Runner) run(ctx context.Context, options RunOptions, result *Result) int {
 	out := &safeWriter{w: r.Out, redact: r.Client.Redact}
 	errs := &safeWriter{w: r.Err, redact: r.Client.Redact}
 	say := func(format string, args ...any) {
@@ -185,8 +200,9 @@ func (r *Runner) Run(ctx context.Context, options RunOptions) int {
 		return ExitError
 	}
 	say("launched run %s", queued.ID)
+	result.RunID = queued.ID
 
-	return r.wait(ctx, queued.ID, options, out, say, why)
+	return r.wait(ctx, queued.ID, options, out, say, why, result)
 }
 
 // describeLaunchError says what a refused or failed launch was, in the server's
@@ -219,7 +235,7 @@ func describeLaunchError(err error) string {
 // wait reads the run until it is over, printing its output as it goes.
 func (r *Runner) wait(
 	ctx context.Context, id string, options RunOptions, out io.Writer,
-	say func(string, ...any), why func() string,
+	say func(string, ...any), why func() string, result *Result,
 ) int {
 	streamCtx, stopStream := context.WithCancel(ctx)
 	defer stopStream()
@@ -259,6 +275,8 @@ func (r *Runner) wait(
 			continue
 		}
 		failures = 0
+		result.Status = safeStatus(state.Status)
+		result.URL = safePageURL(state.URL)
 
 		if !linked && state.URL != "" {
 			say("%s", state.URL)
@@ -283,7 +301,7 @@ func (r *Runner) wait(
 			stopStream()
 			<-streamDone
 
-			return r.finish(state, options, out, say)
+			return r.finish(state, options, out, say, result)
 		}
 
 		if !r.sleep(ctx, r.pollInterval()) {
@@ -377,7 +395,7 @@ func (r *Runner) stopWhatIsLeft(id string, say func(string, ...any)) {
 // The code is read from the server's verdict and checked against its status. They
 // agree or nobody is told the run passed: a pipeline that went green on a result
 // that contradicts itself would be trusting nothing.
-func (r *Runner) finish(state RunState, options RunOptions, out io.Writer, say func(string, ...any)) int {
+func (r *Runner) finish(state RunState, options RunOptions, out io.Writer, say func(string, ...any), result *Result) int {
 	switch state.Status {
 	case "passed", "failed":
 	default:
@@ -394,10 +412,12 @@ func (r *Runner) finish(state RunState, options RunOptions, out io.Writer, say f
 
 	switch {
 	case state.Status == "passed" && state.Verdict == "met":
+		r.record(result, state)
 		printResult(out, state)
 		return ExitMet
 
 	case state.Status == "passed" && state.Verdict == "none":
+		r.record(result, state)
 		printResult(out, state)
 		if options.AllowNoThreshold {
 			say("warning: no threshold was judged, and --allow-no-threshold accepts the run as it is")
@@ -407,6 +427,7 @@ func (r *Runner) finish(state RunState, options RunOptions, out io.Writer, say f
 		return ExitError
 
 	case state.Status == "failed" && state.Verdict == "breached":
+		r.record(result, state)
 		printResult(out, state)
 		if options.NoFailOnBreach {
 			say("--no-fail-on-breach: a threshold was breached, and the exit code is 0 as asked")
@@ -417,6 +438,21 @@ func (r *Runner) finish(state RunState, options RunOptions, out io.Writer, say f
 
 	say("the answer about the run is inconsistent (status %q, verdict %q): refusing to call it a success", state.Status, state.Verdict)
 	return ExitError
+}
+
+// record keeps the verdict and the thresholds of a run whose answer agrees with
+// itself. The text of the thresholds is cleaned the way every other word of the
+// server's is before it goes anywhere.
+func (r *Runner) record(result *Result, state RunState) {
+	if !knownVerdict(state.Verdict) {
+		return
+	}
+	result.Verdict = state.Verdict
+	for _, t := range state.Thresholds {
+		result.Thresholds = append(result.Thresholds, Threshold{
+			Metric: r.Client.clean(t.Metric), Expression: r.Client.clean(t.Expression), Passed: t.Passed,
+		})
+	}
 }
 
 // printResult writes the thresholds as a table and the link to the run.
