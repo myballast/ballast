@@ -240,6 +240,12 @@ jobs of a workflow from loading the same one together:
 | a scenario or an environment that is not found | The identifier belongs to another project than the token's. |
 | the run errored, or timed out | The run started and did not finish. Its page says why. |
 
+## Other tools
+
+For a tool that is neither GitHub nor GitLab, such as a deploy script or Jenkins, a project can
+have a **webhook**: the tool signs a request and Ballast starts a run, through the same
+guardrails. See [Start a run from a signed request](webhook.md).
+
 ## Hosting Ballast yourself
 
 `make selfhost` runs the whole application with one command (see the README). Self-hosting

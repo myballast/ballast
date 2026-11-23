@@ -47,6 +47,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	fleet "github.com/youssefmahersi/ballast/internal/usecase/runner"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
+	"github.com/youssefmahersi/ballast/internal/usecase/webhook"
 
 	httpadapter "github.com/youssefmahersi/ballast/internal/adapter/http"
 )
@@ -82,7 +83,18 @@ func serve(log *slog.Logger) error {
 	// serves both the permission check (by id, under the organization) and the
 	// authentication of a request (by hash, before the organization is known).
 	apiTokens := postgres.NewAPITokenRepository(db)
-	permissions := authz.NewService(memberships, log).WithTokens(apiTokens, infra.SystemClock{})
+
+	// The key that seals what is stored: an environment's secrets, and a project's
+	// webhook secret. Read before the permission service, which reads the webhook's row.
+	cipher, err := crypto.NewCipher(cfg.SecretKey)
+	if err != nil {
+		return err
+	}
+	webhooks := postgres.NewWebhookRepository(db, cipher)
+
+	permissions := authz.NewService(memberships, log).
+		WithTokens(apiTokens, infra.SystemClock{}).
+		WithWebhooks(webhooks)
 	// Managing tokens is a project administrator's work, and its secrets come from
 	// the system's randomness.
 	tokenManager := apitoken.NewManager(apiTokens, permissions, infra.SystemClock{}, rand.Reader, log)
@@ -91,10 +103,6 @@ func serve(log *slog.Logger) error {
 	// run, who proved and approved a target, who changed somebody's role.
 	journal := postgres.NewAuditRepository(db)
 
-	cipher, err := crypto.NewCipher(cfg.SecretKey)
-	if err != nil {
-		return err
-	}
 	secrets := postgres.NewSecretRepository(db, cipher)
 
 	// The API never executes anything, so it is handed an executor that says
@@ -210,11 +218,17 @@ func serve(log *slog.Logger) error {
 			"hint", "set BALLAST_GITHUB_CLIENT_ID and BALLAST_GITHUB_CLIENT_SECRET")
 	}
 
+	// A project's webhook. The manager has no way to return a secret; the receiver is
+	// the only thing that holds one, and it asks the run service for a run like everybody.
+	webhookManager := webhook.NewManager(webhooks, permissions, infra.SystemClock{}, rand.Reader, log)
+	webhookReceiver := webhook.NewReceiver(webhooks, webhooks, runLauncher{runs: service}, infra.SystemClock{}, log)
+
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: originGuard(cfg, log)(httpadapter.NewRouter(service, projects, scenarios, catalogs, environments,
 			invitations, journalReader, runners, tokenManager, signIn, permissions, sessions, db.Ping, cfg.WebURL, log,
-			httpadapter.WithTokens(apitoken.NewService(apiTokens, infra.SystemClock{}, log)))),
+			httpadapter.WithTokens(apitoken.NewService(apiTokens, infra.SystemClock{}, log)),
+			httpadapter.WithWebhooks(webhookManager, webhookReceiver))),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

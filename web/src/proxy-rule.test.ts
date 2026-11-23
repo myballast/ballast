@@ -16,12 +16,14 @@ test("the legal pages are read by anybody, signed in or not", () => {
 });
 
 test("the documentation is read by anybody", () => {
-  assert.equal(decide("/docs/ci", false), "continue");
-  assert.equal(decide("/docs/ci", true), "continue");
+  for (const page of ["/docs/ci", "/docs/webhook"]) {
+    assert.equal(decide(page, false), "continue", page);
+    assert.equal(decide(page, true), "continue", page);
+  }
 });
 
 test("a page that only starts like a public one still asks for a session", () => {
-  for (const page of ["/docs", "/docs/", "/docs/ci/", "/docs/ci/extra", "/docs/cix", "/docs/../projects", "/doc/ci"]) {
+  for (const page of ["/docs", "/docs/", "/docs/ci/", "/docs/ci/extra", "/docs/cix", "/docs/webhook/", "/docs/webhooks", "/docs/webhook/extra", "/docs/../projects", "/doc/ci"]) {
     assert.equal(decide(page, false), "login", page);
   }
 });

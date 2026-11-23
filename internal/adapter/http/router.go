@@ -21,6 +21,7 @@ import (
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
 	"github.com/youssefmahersi/ballast/internal/usecase/runner"
 	"github.com/youssefmahersi/ballast/internal/usecase/scenario"
+	"github.com/youssefmahersi/ballast/internal/usecase/webhook"
 )
 
 // Probe answers whether what the API depends on can be reached. It is a
@@ -39,7 +40,16 @@ const readyTimeout = 2 * time.Second
 type RouterOption func(*routerOptions)
 
 type routerOptions struct {
-	tokens middleware.TokenAuthenticator
+	tokens          middleware.TokenAuthenticator
+	webhookManager  *webhook.Manager
+	webhookReceiver *webhook.Receiver
+}
+
+// WithWebhooks lets the API serve a project's webhook: the routes that manage its
+// secret, and the public one that a tool signs requests to. Without it those routes
+// exist and answer 404, as for an installation that was never given them.
+func WithWebhooks(manager *webhook.Manager, receiver *webhook.Receiver) RouterOption {
+	return func(o *routerOptions) { o.webhookManager, o.webhookReceiver = manager, receiver }
 }
 
 // WithTokens lets the routes that opted in accept an API token. Without it, no
@@ -95,6 +105,7 @@ func NewRouter(
 	runnerHandler := handler.NewRunner(runners, log)
 	apiTokenHandler := handler.NewAPIToken(apiTokens, log)
 	authHandler := handler.NewAuth(signIn, sessions, web, log)
+	webhookHandler := handler.NewWebhook(options.webhookManager, options.webhookReceiver, log)
 
 	handlers := map[string]http.HandlerFunc{
 		"GET /healthz": func(w http.ResponseWriter, _ *http.Request) {
@@ -120,12 +131,13 @@ func NewRouter(
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ready\n"))
 		},
-		"GET /auth/providers":           authHandler.Providers,
-		"GET /auth/{provider}/login":    authHandler.Login,
-		"GET /auth/{provider}/callback": authHandler.Callback,
-		"POST /auth/logout":             authHandler.Logout,
-		"GET /me":                       authHandler.Me,
-		"POST /me/organization":         authHandler.SwitchOrganization,
+		"GET /auth/providers":                authHandler.Providers,
+		"GET /auth/{provider}/login":         authHandler.Login,
+		"GET /auth/{provider}/callback":      authHandler.Callback,
+		"POST /auth/logout":                  authHandler.Logout,
+		"POST /webhooks/{orgId}/{projectId}": webhookHandler.Receive,
+		"GET /me":                            authHandler.Me,
+		"POST /me/organization":              authHandler.SwitchOrganization,
 
 		"GET /roles":                       projectHandler.Roles,
 		"GET /invitations/{token}":         invitationHandler.Describe,
@@ -156,6 +168,10 @@ func NewRouter(
 		"POST /projects/{projectId}/api-tokens":             apiTokenHandler.Create,
 		"DELETE /projects/{projectId}/api-tokens/{tokenId}": apiTokenHandler.Revoke,
 		"GET /projects/{projectId}/permissions":             projectHandler.Permissions,
+		"GET /projects/{projectId}/webhook":                 webhookHandler.Get,
+		"POST /projects/{projectId}/webhook":                webhookHandler.Create,
+		"POST /projects/{projectId}/webhook/rotate":         webhookHandler.Rotate,
+		"DELETE /projects/{projectId}/webhook":              webhookHandler.Delete,
 		"PUT /projects/{projectId}/favorite":                projectHandler.Favorite,
 		"DELETE /projects/{projectId}/favorite":             projectHandler.Unfavorite,
 		"PUT /projects/{projectId}/members/{userId}":        projectHandler.SetMemberRole,

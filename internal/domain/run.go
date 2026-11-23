@@ -33,6 +33,9 @@ type Run struct {
 	// TriggeredByToken is the API token that launched the run, when one did. Never
 	// set together with TriggeredBy.
 	TriggeredByToken *uuid.UUID
+	// TriggeredByWebhook is the project's webhook that launched the run, when one
+	// did. Never set together with the other two.
+	TriggeredByWebhook *uuid.UUID
 	// CI is what the pipeline that launched the run said about itself: which CI,
 	// repository, branch and commit, and the link to the job. Nil for a run nobody
 	// said anything about. Declared by the caller and not proved to Ballast, and
@@ -79,11 +82,12 @@ func NewRun(
 	}
 }
 
-// By says who launched the run: a person, or a token, or nobody. It replaces
+// By says who launched the run: a person, a token, a webhook, or nobody. It replaces
 // whoever was named before, so that a run never remembers both.
 func (r Run) By(actor Actor) Run {
 	r.TriggeredBy = actor.UserID
 	r.TriggeredByToken = actor.TokenID
+	r.TriggeredByWebhook = actor.WebhookID
 	return r
 }
 

@@ -92,6 +92,14 @@ func Routes() []Route {
 		{Method: "GET", Path: "/auth/{provider}/callback", Scope: ScopePublic},
 		{Method: "POST", Path: "/auth/logout", Scope: ScopePublic},
 
+		// The one public route that starts a run. There is no session and no token:
+		// the signature is what authenticates it, and until the receiver has checked it
+		// the caller is nobody. The organization is in the address because that is how a
+		// request with no session says where to look under row-level security, without a
+		// fourth lookup that reads across organizations. Every guardrail of POST /runs
+		// applies after the check, in the same place.
+		{Method: "POST", Path: "/webhooks/{orgId}/{projectId}", Scope: ScopePublic},
+
 		// Runs. The project is on the scenario for a run being queued, and on
 		// the row itself for one being read; neither is in the path.
 		// The one route a pipeline reaches with a token. The project is on the
@@ -241,6 +249,25 @@ func Routes() []Route {
 		},
 		{
 			Method: "DELETE", Path: "/projects/{projectId}/api-tokens/{tokenId}",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		// A project's webhook: the secret a tool signs its requests with. Managed by
+		// the people who manage the project, and by nobody else: neither a token nor a
+		// webhook manages one, whatever the table says, and a test holds that.
+		{
+			Method: "GET", Path: "/projects/{projectId}/webhook",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/webhook",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "POST", Path: "/projects/{projectId}/webhook/rotate",
+			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
+		},
+		{
+			Method: "DELETE", Path: "/projects/{projectId}/webhook",
 			Scope: ScopePath, Permission: domain.PermManageProject, ProjectParam: "projectId",
 		},
 		// A star is the caller's own and changes nothing anybody else can see or

@@ -83,13 +83,14 @@ func toDomainRun(row sqlc.Run) (domain.Run, error) {
 		TriggeredBy:     row.TriggeredBy,
 		// A pipeline's run names its token and no person; the two are never both,
 		// and the schema says so.
-		TriggeredByToken: row.TriggeredByToken,
-		CI:               toDomainCI(row),
-		ErrorMessage:     derefString(row.ErrorMessage),
-		CreatedAt:        row.CreatedAt,
-		StartedAt:        row.StartedAt,
-		EndedAt:          row.EndedAt,
-		HeartbeatAt:      row.HeartbeatAt,
+		TriggeredByToken:   row.TriggeredByToken,
+		TriggeredByWebhook: row.TriggeredByWebhook,
+		CI:                 toDomainCI(row),
+		ErrorMessage:       derefString(row.ErrorMessage),
+		CreatedAt:          row.CreatedAt,
+		StartedAt:          row.StartedAt,
+		EndedAt:            row.EndedAt,
+		HeartbeatAt:        row.HeartbeatAt,
 
 		CancelRequestedAt: row.CancelRequestedAt,
 	}, nil
@@ -160,11 +161,12 @@ func (r *RunRepository) Create(ctx context.Context, run domain.Run) (domain.Run,
 			// The column is an integer and the check constraint keeps it
 			// positive; a scenario version large enough to overflow would
 			// mean a script edited two billion times.
-			ScenarioVersion:  int32(run.ScenarioVersion), //nolint:gosec // bounded by the schema
-			Profile:          string(run.Profile),
-			ProfileParams:    params,
-			TriggeredBy:      run.TriggeredBy,
-			TriggeredByToken: run.TriggeredByToken,
+			ScenarioVersion:    int32(run.ScenarioVersion), //nolint:gosec // bounded by the schema
+			Profile:            string(run.Profile),
+			ProfileParams:      params,
+			TriggeredBy:        run.TriggeredBy,
+			TriggeredByToken:   run.TriggeredByToken,
+			TriggeredByWebhook: run.TriggeredByWebhook,
 		}
 		if run.CI != nil {
 			// The provider is what says there is anything to keep; the rest is

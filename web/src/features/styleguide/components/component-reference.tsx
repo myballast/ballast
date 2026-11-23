@@ -26,6 +26,8 @@ import { Button } from "@/components/ui/button";
 import { OrgSelector } from "@/components/layout/org-selector";
 import { CreateToken, RevealedSecret } from "@/features/api-tokens/components/create-token";
 import { TokenList } from "@/features/api-tokens/components/token-list";
+import { RevealedWebhookSecret } from "@/features/webhooks/components/secret-dialog";
+import { WebhookCard, WebhookPage } from "@/features/webhooks/components/webhook-page";
 import type { ApiToken } from "@/features/api-tokens/types";
 import { InvitationCard } from "@/features/members/components/invitation-card";
 import { InviteMember } from "@/features/members/components/invite-member";
@@ -856,6 +858,43 @@ export function ComponentReference() {
         </div>
         <TokenList projectId="checkout" tokens={sampleTokens} now={new Date("2026-10-18T12:00:00Z")} />
         <TokenList projectId="checkout" tokens={[]} now={new Date("2026-10-18T12:00:00Z")} />
+      </Section>
+
+      <Section title="Webhook">
+        <p className="text-xs text-muted-foreground">
+          The webhook that exists: where to send signed requests, and when its secret was made and last replaced. The
+          secret is not on it and cannot be.
+        </p>
+        <WebhookCard
+          projectId="checkout"
+          webhook={{
+            id: "7e1d6f4a-4f6b-4c7e-8c6a-5a8d8a0a1b11",
+            project_id: "5439bf02-f910-479f-8bb1-dc72ff319d53",
+            path: "/webhooks/6d1f0e3a-3b3e-4a53-9a43-2c3f3a6a9d10/5439bf02-f910-479f-8bb1-dc72ff319d53",
+            created_at: "2026-10-01T09:00:00Z",
+            rotated_at: "2026-10-12T14:30:00Z",
+          }}
+          now={new Date("2026-10-18T12:00:00Z")}
+        />
+        <p className="text-xs text-muted-foreground">
+          Right after making or replacing it: the secret, shown once. This one is made up and works nowhere.
+        </p>
+        <div className="flex max-w-md flex-col rounded-xl border bg-card p-5">
+          <RevealedWebhookSecret secret="blw_EXAMPLE-NOT-A-REAL-SECRET-0000000000000000" />
+        </div>
+        <p className="text-xs text-muted-foreground">A project with no webhook, and what somebody who may not manage it sees.</p>
+        <WebhookPage
+          project={{ id: "checkout", name: "Checkout" } as Parameters<typeof WebhookPage>[0]["project"]}
+          webhook={null}
+          allowed
+          now={new Date("2026-10-18T12:00:00Z")}
+        />
+        <WebhookPage
+          project={{ id: "checkout", name: "Checkout" } as Parameters<typeof WebhookPage>[0]["project"]}
+          webhook={null}
+          allowed={false}
+          now={new Date("2026-10-18T12:00:00Z")}
+        />
       </Section>
 
       <Section title="Members: invitations">

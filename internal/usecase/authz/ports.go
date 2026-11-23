@@ -30,6 +30,14 @@ type Tokens interface {
 	ByID(ctx context.Context, orgID, tokenID uuid.UUID) (domain.APIToken, bool, error)
 }
 
+// Webhooks reads the row of a project's webhook. It is read on every check, which is
+// what makes deleting a webhook take effect on the next request.
+type Webhooks interface {
+	// ByID returns the webhook under the organization, and false when there is none,
+	// including one that belongs to another organization.
+	ByID(ctx context.Context, orgID, webhookID uuid.UUID) (domain.Webhook, bool, error)
+}
+
 // Clock tells the time, so that the instant a token expires can be chosen in a
 // test.
 type Clock interface {

@@ -52,6 +52,11 @@ type Repository interface {
 	TriggeredByTokenSince(ctx context.Context, orgID, tokenID uuid.UUID, since time.Time) (Triggered, error)
 	// OldestByTokenSince is OldestSince for a token's own runs.
 	OldestByTokenSince(ctx context.Context, orgID, tokenID uuid.UUID, since time.Time) (time.Time, bool, error)
+	// TriggeredByWebhookSince is TriggeredSince for a project's webhook: what the
+	// organization has started since an instant, and how many of those one webhook did.
+	TriggeredByWebhookSince(ctx context.Context, orgID, webhookID uuid.UUID, since time.Time) (Triggered, error)
+	// OldestByWebhookSince is OldestSince for a webhook's own runs.
+	OldestByWebhookSince(ctx context.Context, orgID, webhookID uuid.UUID, since time.Time) (time.Time, bool, error)
 	// TokenName is how an API token is called, or "" when there is no such token
 	// any more: a run outlives the credential that launched it.
 	TokenName(ctx context.Context, orgID, tokenID uuid.UUID) (string, error)
@@ -145,6 +150,9 @@ type Triggered struct {
 	// ByToken is how many of them one API token started, and is filled only by
 	// the question that asks about a token.
 	ByToken int
+	// ByWebhook is how many of them one webhook started, filled only by the question
+	// that asks about a webhook.
+	ByWebhook int
 }
 
 // AuditLog records what happened, for the people who have to answer for it.

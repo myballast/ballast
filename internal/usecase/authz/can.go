@@ -29,6 +29,7 @@ var ErrNoActor = errors.New("authz: permission check without an identity")
 type Service struct {
 	memberships Memberships
 	tokens      Tokens
+	webhooks    Webhooks
 	clock       Clock
 	log         *slog.Logger
 }
@@ -43,6 +44,13 @@ func NewService(memberships Memberships, log *slog.Logger) *Service {
 func (s *Service) WithTokens(tokens Tokens, clock Clock) *Service {
 	s.tokens = tokens
 	s.clock = clock
+	return s
+}
+
+// WithWebhooks lets the service answer for a project's webhook too. Without it a
+// webhook is refused everywhere, for the same reason as a token is.
+func (s *Service) WithWebhooks(webhooks Webhooks) *Service {
+	s.webhooks = webhooks
 	return s
 }
 
@@ -67,6 +75,13 @@ func (s *Service) Can(
 			return false, err
 		}
 		return token.Allows(perm, projectID, s.clock.Now()), nil
+	}
+	if who.IsWebhook() {
+		hook, found, err := s.activeWebhook(ctx, who)
+		if err != nil || !found {
+			return false, err
+		}
+		return hook.Allows(perm, projectID), nil
 	}
 
 	membership, found, err := s.memberships.OfMember(ctx, who, projectID)
@@ -109,7 +124,7 @@ func (s *Service) CanInAnyProject(
 	}
 	// "In any project of the organization" is a question about a person. A token
 	// belongs to one project and is not an organization-wide anything.
-	if who.IsToken() {
+	if who.IsToken() || who.IsWebhook() {
 		return false, nil
 	}
 
@@ -144,6 +159,13 @@ func (s *Service) Permissions(
 		}
 		return domain.APITokenPermissions(), nil
 	}
+	if who.IsWebhook() {
+		hook, found, err := s.activeWebhook(ctx, who)
+		if err != nil || !found || hook.ProjectID != projectID {
+			return 0, err
+		}
+		return domain.WebhookPermissions(), nil
+	}
 
 	membership, found, err := s.memberships.OfMember(ctx, who, projectID)
 	if err != nil {
@@ -171,11 +193,34 @@ func validate(who domain.Identity, projectID uuid.UUID) error {
 // person and a token: nobody built that on purpose, and resolving it to
 // whichever is checked first would be a guess.
 func validateActor(who domain.Identity) error {
-	person, token := who.UserID != uuid.Nil, who.TokenID != uuid.Nil
-	if who.OrgID == uuid.Nil || person == token {
+	kinds := 0
+	for _, set := range []bool{who.UserID != uuid.Nil, who.TokenID != uuid.Nil, who.WebhookID != uuid.Nil} {
+		if set {
+			kinds++
+		}
+	}
+	if who.OrgID == uuid.Nil || kinds != 1 {
 		return ErrNoActor
 	}
 	return nil
+}
+
+// activeWebhook reads the webhook's row, and says whether it is there. The row is
+// read on every call and nothing is remembered between two. Which project it is for
+// is the webhook's own to say: Allows compares it.
+//
+// A service wired without webhooks answers false, and says so in the log.
+func (s *Service) activeWebhook(ctx context.Context, who domain.Identity) (domain.Webhook, bool, error) {
+	if s.webhooks == nil {
+		s.log.ErrorContext(ctx, "a webhook was presented to a service wired without webhooks",
+			"org_id", who.OrgID, "webhook_id", who.WebhookID)
+		return domain.Webhook{}, false, nil
+	}
+	hook, found, err := s.webhooks.ByID(ctx, who.OrgID, who.WebhookID)
+	if err != nil {
+		return domain.Webhook{}, false, fmt.Errorf("read the webhook: %w", err)
+	}
+	return hook, found, nil
 }
 
 // activeToken reads the token's row and says whether it may act in projectID
@@ -211,8 +256,8 @@ func (s *Service) MembershipOf(
 	if err := validate(who, projectID); err != nil {
 		return domain.Membership{}, false, err
 	}
-	// A token is not a member of anything.
-	if who.IsToken() {
+	// A token or a webhook is not a member of anything.
+	if who.IsToken() || who.IsWebhook() {
 		return domain.Membership{}, false, nil
 	}
 	return s.memberships.OfMember(ctx, who, projectID)

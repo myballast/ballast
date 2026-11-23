@@ -45,6 +45,12 @@ const (
 	ActionAPITokenCreated AuditAction = "api_token.created"
 	// ActionAPITokenRevoked is a token withdrawn. It stops working at once.
 	ActionAPITokenRevoked AuditAction = "api_token.revoked"
+	// ActionWebhookCreated is a project's webhook made: a signing secret written.
+	ActionWebhookCreated AuditAction = "webhook.created"
+	// ActionWebhookRotated is its secret replaced. The old one stops working at once.
+	ActionWebhookRotated AuditAction = "webhook.rotated"
+	// ActionWebhookDeleted is a webhook removed.
+	ActionWebhookDeleted AuditAction = "webhook.deleted"
 )
 
 // AuditOutcome says whether what was attempted was allowed.
@@ -67,6 +73,7 @@ const (
 	TargetMembership  = "membership"
 	TargetInvitation  = "invitation"
 	TargetAPIToken    = "api_token"
+	TargetWebhook     = "webhook"
 	TargetOrg         = "organization"
 )
 
@@ -88,6 +95,9 @@ type AuditEntry struct {
 	// together with ActorID: an entry with neither is Ballast acting alone, and a
 	// credential somebody holds must not be mistaken for that.
 	ActorTokenID *uuid.UUID
+	// ActorWebhookID is the project's webhook responsible, when a signed request
+	// acted. Never set together with the other two, for the same reason.
+	ActorWebhookID *uuid.UUID
 	// ProjectID is the project concerned, and nil for an action on the whole
 	// organization. Those are read from every project's journal.
 	ProjectID *uuid.UUID
@@ -134,11 +144,12 @@ func Refuse(
 	}
 }
 
-// By says who did it: a person, or a token, or nobody. It replaces whoever was
+// By says who did it: a person, a token, a webhook, or nobody. It replaces whoever was
 // named before rather than adding to them, so that an entry never names both.
 func (e AuditEntry) By(actor Actor) AuditEntry {
 	e.ActorID = actor.UserID
 	e.ActorTokenID = actor.TokenID
+	e.ActorWebhookID = actor.WebhookID
 	return e
 }
 

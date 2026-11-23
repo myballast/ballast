@@ -155,6 +155,11 @@ outputs and how to pin a version are in the README of
 [the Action](https://github.com/myballast/ballast-action), and the whole way, from a token
 to a failing job, is in [Run Ballast from CI](ci.md).
 
+## Other tools
+
+A tool that cannot run the command can start a run with a signed request instead: see
+[Start a run from a signed request](webhook.md).
+
 ## GitLab CI
 
 For GitLab there is a file to include, `ops/gitlab/ballast.gitlab-ci.yml`, that installs the

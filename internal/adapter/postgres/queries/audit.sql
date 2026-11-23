@@ -8,8 +8,8 @@
 -- organization itself being deleted.
 -- name: RecordAudit :one
 INSERT INTO audit_log (
-    org_id, actor_id, actor_token_id, project_id, action, outcome, target_type, target_id, metadata, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    org_id, actor_id, actor_token_id, actor_webhook_id, project_id, action, outcome, target_type, target_id, metadata, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING *;
 
 -- One project's journal, newest first.

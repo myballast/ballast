@@ -15,6 +15,9 @@ type AuditEntry struct {
 	// ActorTokenID is the API token that acted, when a pipeline did. Never set
 	// together with ActorID: an entry with neither is Ballast acting alone.
 	ActorTokenID string `json:"actor_token_id,omitempty"`
+	// ActorWebhookID is the project's webhook that acted, when a signed request did.
+	// Never set together with the other two.
+	ActorWebhookID string `json:"actor_webhook_id,omitempty"`
 	// ProjectID is empty for an action on the organization.
 	ProjectID  string `json:"project_id,omitempty"`
 	TargetType string `json:"target_type"`

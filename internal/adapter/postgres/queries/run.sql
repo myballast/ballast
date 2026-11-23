@@ -10,8 +10,8 @@
 INSERT INTO run (
     org_id, project_id, scenario_id, environment_id,
     scenario_version, profile, profile_params, triggered_by, triggered_by_token,
-    ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url, status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'queued')
+    ci_provider, ci_repository, ci_branch, ci_commit, ci_job_url, triggered_by_webhook, status
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'queued')
 RETURNING *;
 
 -- name: GetRun :one
@@ -41,6 +41,7 @@ SELECT sqlc.embed(run),
        COALESCE(
            NULLIF(u.name, ''), u.email,
            CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
+           CASE WHEN run.triggered_by_webhook IS NOT NULL THEN 'the project''s webhook' END,
            ''
        )::text AS triggered_by_name
 FROM run
@@ -66,6 +67,7 @@ SELECT sqlc.embed(run),
        COALESCE(
            NULLIF(u.name, ''), u.email,
            CASE WHEN t.id IS NOT NULL THEN 'API token ' || t.name END,
+           CASE WHEN run.triggered_by_webhook IS NOT NULL THEN 'the project''s webhook' END,
            ''
        )::text AS triggered_by_name
 FROM run
@@ -383,6 +385,15 @@ SELECT
 FROM run
 WHERE org_id = $1 AND created_at >= $3;
 
+-- The same question for a project's webhook: the organization's count, and the one of
+-- one webhook, which has no person and no token.
+-- name: CountTriggeredByWebhookSince :one
+SELECT
+    count(*)::bigint                                              AS by_org,
+    count(*) FILTER (WHERE triggered_by_webhook = $2)::bigint     AS by_webhook
+FROM run
+WHERE org_id = $1 AND created_at >= $3;
+
 -- When the earliest run of a window was created, which is what says how long
 -- until a slot frees up.
 --
@@ -405,6 +416,12 @@ LIMIT 1;
 -- name: OldestRunByUserSince :one
 SELECT created_at FROM run
 WHERE org_id = $1 AND triggered_by = $2 AND created_at >= $3
+ORDER BY created_at
+LIMIT 1;
+
+-- name: OldestRunByWebhookSince :one
+SELECT created_at FROM run
+WHERE org_id = $1 AND triggered_by_webhook = $2 AND created_at >= $3
 ORDER BY created_at
 LIMIT 1;
 

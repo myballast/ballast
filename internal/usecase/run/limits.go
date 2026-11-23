@@ -70,7 +70,15 @@ func (s *Service) withinLimits(ctx context.Context, who domain.Identity) error {
 	// A person is counted by what they have triggered, and a pipeline by what its
 	// token has: a token has no person, and a person's count is neither what holds
 	// a token nor what spares one. Both are held to the same figure.
-	if who.IsToken() {
+	if who.IsWebhook() {
+		if triggered.ByWebhook >= domain.MaxRunsPerUserPerWindow {
+			return s.refuseByLimit(ctx, who, TooManyRuns{
+				Reason: fmt.Sprintf("this webhook has triggered %d runs in the last %s, which is the most allowed",
+					triggered.ByWebhook, domain.RateWindow),
+				RetryAfter: s.untilWebhook(ctx, who.OrgID, who.WebhookID, since, now),
+			}, "triggered_by_webhook", strconv.Itoa(triggered.ByWebhook))
+		}
+	} else if who.IsToken() {
 		if triggered.ByToken >= domain.MaxRunsPerUserPerWindow {
 			return s.refuseByLimit(ctx, who, TooManyRuns{
 				Reason: fmt.Sprintf("this token has triggered %d runs in the last %s, which is the most allowed",
@@ -103,6 +111,13 @@ func (s *Service) withinLimits(ctx context.Context, who domain.Identity) error {
 // triggeredSince is the count the caller's limit is read from: the organization's
 // and that of whoever is asking.
 func (s *Service) triggeredSince(ctx context.Context, who domain.Identity, since time.Time) (Triggered, error) {
+	if who.IsWebhook() {
+		triggered, err := s.runs.TriggeredByWebhookSince(ctx, who.OrgID, who.WebhookID, since)
+		if err != nil {
+			return Triggered{}, fmt.Errorf("count the runs triggered: %w", err)
+		}
+		return triggered, nil
+	}
 	if who.IsToken() {
 		triggered, err := s.runs.TriggeredByTokenSince(ctx, who.OrgID, who.TokenID, since)
 		if err != nil {
@@ -159,6 +174,23 @@ func (s *Service) untilToken(
 	return wait
 }
 
+// untilWebhook is until for a webhook's own window.
+func (s *Service) untilWebhook(
+	ctx context.Context, orgID, webhookID uuid.UUID, since, now time.Time,
+) time.Duration {
+	oldest, found, err := s.runs.OldestByWebhookSince(ctx, orgID, webhookID, since)
+	if err != nil || !found {
+		return 0
+	}
+
+	wait := oldest.Add(domain.RateWindow).Sub(now)
+	if wait < 0 {
+		return 0
+	}
+
+	return wait
+}
+
 // refuseByLimit records the refusal and returns it.
 //
 // In the journal as well as the log, because a limit reached is the shape of
@@ -167,7 +199,7 @@ func (s *Service) refuseByLimit(
 	ctx context.Context, who domain.Identity, refusal TooManyRuns, limit, reached string,
 ) error {
 	s.log.WarnContext(ctx, "run refused by a limit",
-		"org_id", who.OrgID, "user_id", who.UserID, "token_id", who.TokenID,
+		"org_id", who.OrgID, "user_id", who.UserID, "token_id", who.TokenID, "webhook_id", who.WebhookID,
 		"limit", limit, "reached", reached)
 
 	s.record(ctx, refused(who, refusal.Reason, s.clock.Now()).

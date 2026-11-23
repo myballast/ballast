@@ -192,3 +192,57 @@ func (r *RunRepository) TokenName(ctx context.Context, orgID, tokenID uuid.UUID)
 
 	return name, err
 }
+
+// TriggeredByWebhookSince counts the runs started since an instant, by the organization
+// and by one webhook. One statement for both, for the reason TriggeredSince is.
+func (r *RunRepository) TriggeredByWebhookSince(
+	ctx context.Context, orgID, webhookID uuid.UUID, since time.Time,
+) (run.Triggered, error) {
+	var triggered run.Triggered
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		counted, err := sqlc.New(tx).CountTriggeredByWebhookSince(ctx, sqlc.CountTriggeredByWebhookSinceParams{
+			OrgID:              orgID,
+			TriggeredByWebhook: &webhookID,
+			CreatedAt:          since,
+		})
+		if err != nil {
+			return fmt.Errorf("count the runs triggered by a webhook: %w", err)
+		}
+
+		triggered = run.Triggered{ByOrg: int(counted.ByOrg), ByWebhook: int(counted.ByWebhook)}
+		return nil
+	})
+
+	return triggered, err
+}
+
+// OldestByWebhookSince is when the earliest run of a window that this webhook launched
+// was created. It reports false when the window holds none of its runs.
+func (r *RunRepository) OldestByWebhookSince(
+	ctx context.Context, orgID, webhookID uuid.UUID, since time.Time,
+) (time.Time, bool, error) {
+	var (
+		oldest time.Time
+		found  bool
+	)
+
+	err := r.db.InTenantTx(ctx, orgID, func(tx pgx.Tx) error {
+		at, err := sqlc.New(tx).OldestRunByWebhookSince(ctx, sqlc.OldestRunByWebhookSinceParams{
+			OrgID:              orgID,
+			TriggeredByWebhook: &webhookID,
+			CreatedAt:          since,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("find the oldest run of the webhook's window: %w", err)
+		}
+
+		oldest, found = at, true
+		return nil
+	})
+
+	return oldest, found, err
+}

@@ -37,7 +37,7 @@ func (s *Service) admit(ctx context.Context, actor domain.Identity) error {
 	// looked at — and nothing is written.
 	if !s.accepting {
 		s.log.WarnContext(ctx, "run refused: this installation is not accepting new runs",
-			"org_id", actor.OrgID, "user_id", actor.UserID, "token_id", actor.TokenID)
+			"org_id", actor.OrgID, "user_id", actor.UserID, "token_id", actor.TokenID, "webhook_id", actor.WebhookID)
 		// No project: nothing about the request was read, because during an
 		// incident the answer does not depend on it. The entry belongs to the
 		// organization, and every project's journal shows it.
@@ -93,6 +93,7 @@ func (s *Service) Enqueue(ctx context.Context, cmd EnqueueCommand) (domain.Run, 
 	if !allowed {
 		s.log.InfoContext(ctx, "run refused for want of permission",
 			"org_id", cmd.Actor.OrgID, "user_id", cmd.Actor.UserID, "token_id", cmd.Actor.TokenID,
+			"webhook_id", cmd.Actor.WebhookID,
 			"project_id", scenario.ProjectID, "scenario_id", scenario.ID)
 		s.record(ctx, refused(cmd.Actor,
 			"the caller may not run tests in this project", s.clock.Now()).
@@ -192,9 +193,9 @@ func (s *Service) queue(
 		return domain.Run{}, err
 	}
 
-	// Who launched it is a person or an API token, and the run says which: a
-	// pipeline's run has no person, and must not read as the run of a member who
-	// has since left.
+	// Who launched it is a person, an API token or a webhook, and the run says
+	// which: a pipeline's run has no person, and must not read as the run of a
+	// member who has since left.
 	toQueue := domain.NewRun(
 		actor.OrgID, scenario, environment, profile, params, nil,
 	).By(actor.Actor())
@@ -317,6 +318,9 @@ func (s *Service) Detail(
 			return Listed{}, domain.RunResults{}, err
 		}
 		detail.TriggeredByName = tokenLabel(name)
+	case found.TriggeredByWebhook != nil:
+		// Said as the webhook's. It has no name: a project has one.
+		detail.TriggeredByName = "the project's webhook"
 	}
 	return detail, results, nil
 }

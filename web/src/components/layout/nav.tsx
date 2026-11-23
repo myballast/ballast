@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderKanban, KeyRound, LayoutDashboard, Play, Server, Users, Workflow } from "lucide-react";
+import { FolderKanban, KeyRound, LayoutDashboard, Play, Server, Users, Webhook, Workflow } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { NavGroup, NavItem } from "./nav-item";
@@ -10,8 +10,9 @@ import { NavGroup, NavItem } from "./nav-item";
 // The sidebar has a section for the project the page belongs to, on every page
 // of that project — a run's included.
 //
-// canManageTokens hides the CI tokens entry from whoever may not use it; the page
-// and the API refuse them anyway.
+// canManageTokens hides the CI tokens and Webhook entries from whoever may not use
+// them, which is whoever does not administer the project; the pages and the API refuse
+// them anyway.
 export function Nav({
   project,
   canManageTokens = false,
@@ -58,6 +59,11 @@ export function Nav({
           {canManageTokens && (
             <NavItem href={`${base}/tokens`} icon={KeyRound} active={active(`${base}/tokens`, false)}>
               CI tokens
+            </NavItem>
+          )}
+          {canManageTokens && (
+            <NavItem href={`${base}/webhook`} icon={Webhook} active={active(`${base}/webhook`, false)}>
+              Webhook
             </NavItem>
           )}
         </NavGroup>

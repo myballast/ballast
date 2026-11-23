@@ -84,3 +84,26 @@ func TestTheJournalNamesTheTokenThatActed(t *testing.T) {
 		t.Errorf("each field should appear once, for the one entry that has it: %s", body)
 	}
 }
+
+func TestTheJournalNamesTheWebhookThatActedAndNobodyElse(t *testing.T) {
+	hook := uuid.New()
+	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+
+	response, body := readJournal(t,
+		domain.Allow(uuid.New(), nil, domain.ActionRunQueued, domain.TargetRun, at).By(domain.Actor{WebhookID: &hook}),
+		domain.Allow(uuid.New(), nil, domain.ActionRunQueued, domain.TargetRun, at),
+	)
+
+	byWebhook, byNobody := response.Entries[0], response.Entries[1]
+	if byWebhook.ActorWebhookID != hook.String() || byWebhook.ActorID != "" || byWebhook.ActorTokenID != "" {
+		t.Errorf("a webhook's entry names %q, the person %q and the token %q", byWebhook.ActorWebhookID, byWebhook.ActorID, byWebhook.ActorTokenID)
+	}
+	// An entry that names no webhook says nothing of one, and an entry by a webhook is
+	// not Ballast acting alone.
+	if byNobody.ActorWebhookID != "" {
+		t.Errorf("Ballast's own entry names the webhook %q", byNobody.ActorWebhookID)
+	}
+	if strings.Count(body, `"actor_webhook_id"`) != 1 {
+		t.Errorf("the field should appear once, for the one entry that has it: %s", body)
+	}
+}

@@ -25,12 +25,14 @@ import (
 	"github.com/youssefmahersi/ballast/internal/adapter/postgres"
 	"github.com/youssefmahersi/ballast/internal/domain"
 	"github.com/youssefmahersi/ballast/internal/infra"
+	"github.com/youssefmahersi/ballast/internal/infra/crypto"
 	"github.com/youssefmahersi/ballast/internal/usecase/apitoken"
 	"github.com/youssefmahersi/ballast/internal/usecase/audit"
 	"github.com/youssefmahersi/ballast/internal/usecase/auth"
 	"github.com/youssefmahersi/ballast/internal/usecase/authz"
 	"github.com/youssefmahersi/ballast/internal/usecase/project"
 	"github.com/youssefmahersi/ballast/internal/usecase/run"
+	"github.com/youssefmahersi/ballast/internal/usecase/webhook"
 )
 
 // A pipeline launches a run with an API token, on the real stack: the real
@@ -134,7 +136,7 @@ func newCIWorld(ctx context.Context, t *testing.T) ciWorld {
 		cleanup := context.WithoutCancel(ctx)
 		_ = db.InTenantTx(cleanup, org, func(tx pgx.Tx) error {
 			for _, table := range []string{
-				"run_threshold", "run_metric", "run", "api_token", "threshold", "scenario_version", "scenario",
+				"run_threshold", "run_metric", "run", "webhook_delivery", "project_webhook", "api_token", "threshold", "scenario_version", "scenario",
 				"secret", "environment", "membership", "project_allowed_host",
 				"project", "app_user", "organization",
 			} {
@@ -152,7 +154,12 @@ func newCIWorld(ctx context.Context, t *testing.T) ciWorld {
 
 	memberships := postgres.NewMembershipRepository(db)
 	apiTokens := postgres.NewAPITokenRepository(db)
-	permissions := authz.NewService(memberships, log).WithTokens(apiTokens, clock)
+	cipher, err := crypto.NewCipher([]byte(strings.Repeat("k", crypto.KeyLength)))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	webhooks := postgres.NewWebhookRepository(db, cipher)
+	permissions := authz.NewService(memberships, log).WithTokens(apiTokens, clock).WithWebhooks(webhooks)
 
 	runs := run.NewService(
 		postgres.NewRunRepository(db),
@@ -194,6 +201,10 @@ func newCIWorld(ctx context.Context, t *testing.T) ciWorld {
 		apitoken.NewManager(apiTokens, permissions, clock, rand.Reader, log),
 		auth.NewService(nil, nil, clock, log), permissions, sessions, db.Ping, web, log,
 		httpadapter.WithTokens(apitoken.NewService(apiTokens, clock, log)),
+		httpadapter.WithWebhooks(
+			webhook.NewManager(webhooks, permissions, clock, rand.Reader, log),
+			webhook.NewReceiver(webhooks, webhooks, runsLauncher{runs: runs}, clock, log),
+		),
 	))
 	t.Cleanup(api.Close)
 

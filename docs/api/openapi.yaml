@@ -87,6 +87,14 @@ tags:
       Bringing people into a project. No mail is sent: the administrator is shown
       a link once and passes it on. Only the hash of its token is stored.
 
+  - name: webhooks
+    description: |
+      A project's signed webhook, for tools that are neither GitHub nor GitLab: a
+      deploy script, Jenkins. A tool signs a request with the project's secret and
+      Ballast starts a run, through the same door and the same guardrails as
+      `POST /runs`. Managed by the project's administrators, and never by a token or
+      by a webhook. The secret is shown once, when it is made or replaced.
+
   - name: api-tokens
     description: |
       The credentials a pipeline holds instead of a session. A token belongs to one
@@ -1649,6 +1657,296 @@ paths:
                 $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/webhook:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    get:
+      tags: [webhooks]
+      summary: Read a project's webhook
+      description: |
+        Says whether the project has a webhook, where a tool sends its requests
+        (`path`, relative to the API), and when its secret was made and last replaced.
+        The secret is never returned: it is stored sealed and nothing reads it back.
+
+        Requires `admin`.
+      operationId: getWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "200":
+          description: The project's webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project has no webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [webhooks]
+      summary: Make a project's webhook
+      description: |
+        Makes the project's webhook and returns its secret **once**: it is stored
+        sealed, so it cannot be read back. The response is marked
+        `Cache-Control: no-store`. The creation is written to the journal, in the
+        same transaction, with no detail: the secret has no way into an entry.
+
+        A project has one webhook. To replace its secret, rotate it.
+
+        Requires `admin`.
+      operationId: createWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "201":
+          description: Made. The secret is in the body, and only here.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedWebhook"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The project already has a webhook. Rotate its secret instead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [webhooks]
+      summary: Remove a project's webhook
+      description: |
+        Removes the webhook. A tool that still signs requests is refused from the
+        next one. The runs it launched keep saying it launched them, and so do the
+        journal's entries. Written to the journal, in the same transaction.
+
+        Requires `admin`.
+      operationId: deleteWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "204":
+          description: Removed.
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project has no webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/webhook/rotate:
+    parameters:
+      - $ref: "#/components/parameters/ProjectID"
+
+    post:
+      tags: [webhooks]
+      summary: Replace a webhook's secret
+      description: |
+        Replaces the secret and returns the new one **once**
+        (`Cache-Control: no-store`). The old one stops working at once, and the
+        address a tool calls does not change. Written to the journal, in the same
+        transaction.
+
+        Requires `admin`.
+      operationId: rotateWebhook
+      x-ballast-permission: manage_project
+      responses:
+        "200":
+          description: Replaced. The new secret is in the body, and only here.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedWebhook"
+        "400":
+          $ref: "#/components/responses/MalformedID"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project has no webhook.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /webhooks/{orgId}/{projectId}:
+    post:
+      tags: [webhooks]
+      summary: Start a run with a signed request
+      description: |
+        Starts a run, as the project's webhook. There is no session and no token:
+        the signature authenticates the request, and until it has been checked the
+        caller is nobody.
+
+        **Signing.** Send three headers and a JSON body, which is the one of
+        `POST /runs` (`scenario_id`, `environment_id`, `profile`, optionally `params`
+        and `ci`).
+
+        - `X-Ballast-Timestamp`: the Unix time, in seconds, as digits. It must be
+          within five minutes of Ballast's clock, on either side.
+        - `X-Ballast-Delivery`: an identifier that is new for each request, 16 to 64
+          of letters, digits, `-` and `_`.
+        - `X-Ballast-Signature`: `v1=` and the lower-case hexadecimal HMAC-SHA256,
+          keyed with the secret, of `<timestamp>.<delivery>.<body>` — the three
+          parts joined by a dot, the body being the bytes sent.
+
+        The delivery is part of what is signed, and it is remembered for ten
+        minutes: a request is served once. A request whose run was refused has spent
+        its delivery, so a sender that tries again signs a new one.
+
+        **Refusals before the signature holds are all the same.** A wrong secret, a
+        stale timestamp, a replay, a project with no webhook, a missing header and a
+        body over 64 KiB each answer `401` with the same body, so that nothing is
+        learned from which one it was. The reason is in Ballast's log, and never a
+        secret or a signature.
+
+        **After the signature holds** the request meets every guardrail of
+        `POST /runs`, in the same place and with the same answers: the platform's
+        switch, the limits, the verified target, the ceilings, the allowed window. A
+        webhook's hourly limit counts the runs that webhook launched, the
+        organization's limits count all of them, and a scenario of another project is
+        refused. The run and every journal entry about it name the webhook and no
+        person.
+
+        What this does not stop: somebody sending a flood of requests that are
+        refused. Those create no run, so they never reach the limits; keeping them
+        out is the job of a reverse proxy in front of the API.
+      operationId: receiveWebhook
+      security: []
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          description: The organization of the project, as `path` says. It says where to look and proves nothing.
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/ProjectID"
+        - name: X-Ballast-Timestamp
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[0-9]{1,10}$", example: "1700000000" }
+        - name: X-Ballast-Delivery
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{16,64}$", example: delivery-0123456789 }
+        - name: X-Ballast-Signature
+          in: header
+          required: true
+          schema: { type: string, pattern: "^v1=[0-9a-f]{64}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnqueueRunRequest"
+      responses:
+        "202":
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnqueueRunResponse"
+        "400":
+          description: |
+            The signature held and the request is wrong: the body is not a JSON
+            object, an identifier is not a UUID, the profile is unknown or its
+            parameters describe no runnable test, or the scenario and the environment
+            belong to different projects. The message names the field and never the
+            value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: |
+            The request did not prove it holds the project's secret, or is not one
+            that can be served now. Always the same answer, whatever was wrong.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: the request was not accepted
+        "403":
+          description: |
+            The environment has not been verified, its allowed window has no room for
+            this run, or the scenario is of another project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: |
+            No such scenario or environment, or this installation does not serve
+            webhooks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The scenario cannot be run as it stands, or what the pipeline said about itself cannot be kept. As for `POST /runs`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: |
+            A limit was reached: the webhook's runs in the last hour, the organization's,
+            or too many already waiting. `Retry-After` is the number of seconds to wait
+            when that can be known, and is absent when it cannot.
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again, when it is known.
+              required: false
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: This installation is not accepting new runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /projects/{projectId}/api-tokens:
     parameters:
@@ -5002,6 +5300,36 @@ components:
             Optional. Left out, the token expires in 90 days. When given it must be in
             the future and at most a year away.
 
+    Webhook:
+      type: object
+      required: [id, project_id, path, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        path:
+          type: string
+          description: |
+            Where a tool sends its signed requests, relative to the API:
+            `/webhooks/{organization}/{project}`. It is not a secret and proves nothing.
+          example: /webhooks/6d1f0e3a-3b3e-4a53-9a43-2c3f3a6a9d10/5439bf02-f910-479f-8bb1-dc72ff319d53
+        created_at: { type: string, format: date-time }
+        rotated_at:
+          type: string
+          format: date-time
+          description: When the secret was last replaced. Absent if it never was.
+
+    CreatedWebhook:
+      type: object
+      required: [webhook, secret]
+      properties:
+        webhook:
+          $ref: "#/components/schemas/Webhook"
+        secret:
+          type: string
+          description: |
+            The key that signs the requests, shown this once. It starts with `blw_`.
+            It is stored sealed, so it cannot be read back.
+
     CreatedApiToken:
       type: object
       required: [token, secret]
@@ -5311,6 +5639,9 @@ components:
             - invitation.revoked
             - api_token.created
             - api_token.revoked
+            - webhook.created
+            - webhook.rotated
+            - webhook.deleted
         outcome:
           type: string
           description: Whether it was allowed.
@@ -5329,6 +5660,13 @@ components:
             with `actor_id`; an entry with neither is Ballast acting alone. The id
             is kept even after the token is gone, so that what a credential did
             outlives it.
+        actor_webhook_id:
+          type: string
+          format: uuid
+          description: |
+            The project's webhook that did it, when a signed request acted. Never
+            present together with `actor_id` or `actor_token_id`. Kept after the
+            webhook is deleted, for the same reason.
         project_id:
           type: string
           format: uuid
@@ -5336,7 +5674,7 @@ components:
             The project concerned. Absent for an action on the organization.
         target_type:
           type: string
-          enum: [run, environment, membership, invitation, organization]
+          enum: [run, environment, membership, invitation, api_token, webhook, organization]
         target_id:
           type: string
           format: uuid

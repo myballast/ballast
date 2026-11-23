@@ -8,7 +8,7 @@
 export type Decision = "continue" | "landing" | "login" | "projects";
 
 // Compared whole, never by prefix: "/terms-of-something" is not a legal page, and "/docs" alone is not a page of the documentation.
-const publicPages = new Set(["/privacy", "/terms", "/docs/ci"]);
+const publicPages = new Set(["/privacy", "/terms", "/docs/ci", "/docs/webhook"]);
 
 export function decide(pathname: string, hasSession: boolean): Decision {
   if (pathname === "/") return hasSession ? "projects" : "landing";

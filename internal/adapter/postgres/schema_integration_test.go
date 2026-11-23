@@ -27,6 +27,7 @@ var expectedTables = []string{
 	"project",
 	"project_allowed_host",
 	"project_favorite",
+	"project_webhook",
 	"run",
 	"run_artifact",
 	"run_log",
@@ -37,6 +38,7 @@ var expectedTables = []string{
 	"scenario_version",
 	"secret",
 	"threshold",
+	"webhook_delivery",
 }
 
 // violations runs a query that is expected to return the name of every table

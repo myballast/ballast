@@ -89,7 +89,12 @@ type fakeRuns struct {
 	tokenSince       time.Time
 	tokenOldest      time.Time
 	tokenOldestFound bool
-	tokenName        string
+
+	webhookTriggered   Triggered
+	webhookAskedAbout  uuid.UUID
+	webhookOldest      time.Time
+	webhookOldestFound bool
+	tokenName          string
 	// What a usage reading asked for, and what it was given.
 	usage        domain.Usage
 	usageAsked   int
@@ -830,6 +835,25 @@ func (f *fakeRuns) OldestByTokenSince(
 	defer f.mu.Unlock()
 
 	return f.tokenOldest, f.tokenOldestFound, f.oldestErr
+}
+
+func (f *fakeRuns) TriggeredByWebhookSince(
+	_ context.Context, _, webhookID uuid.UUID, _ time.Time,
+) (Triggered, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.webhookAskedAbout = webhookID
+	return f.webhookTriggered, f.err
+}
+
+func (f *fakeRuns) OldestByWebhookSince(
+	_ context.Context, _, _ uuid.UUID, _ time.Time,
+) (time.Time, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.webhookOldest, f.webhookOldestFound, f.oldestErr
 }
 
 func (f *fakeRuns) TokenName(context.Context, uuid.UUID, uuid.UUID) (string, error) {
