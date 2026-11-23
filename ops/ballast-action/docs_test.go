@@ -86,7 +86,7 @@ func uses(t *testing.T, w map[string]any) []map[string]any {
 func TestEveryExampleIsAWorkflowThatWorksWithTheActionAsItIs(t *testing.T) {
 	a := theAction(t)
 
-	for _, page := range []string{"README.md", "../../docs/cli.md"} {
+	for _, page := range []string{"README.md", "../../docs/cli.md", "../../docs/ci.md"} {
 		seen := 0
 		for _, w := range examples(t, page) {
 			for _, step := range uses(t, w) {
@@ -120,7 +120,7 @@ func TestEveryExampleIsAWorkflowThatWorksWithTheActionAsItIs(t *testing.T) {
 }
 
 func TestTheExamplesAskForNoMoreThanTheyNeed(t *testing.T) {
-	for _, page := range []string{"README.md", "../../docs/cli.md"} {
+	for _, page := range []string{"README.md", "../../docs/cli.md", "../../docs/ci.md"} {
 		for _, w := range examples(t, page) {
 			perms, _ := w["permissions"].(map[string]any)
 			jobs, _ := w["jobs"].(map[string]any)

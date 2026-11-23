@@ -151,4 +151,5 @@ jobs:
 The token is a secret of the repository. A workflow started by a pull request from a fork is
 not given secrets, and the step says so when it finds the token empty. The inputs, the
 outputs and how to pin a version are in the README of
-[the Action](https://github.com/myballast/ballast-action).
+[the Action](https://github.com/myballast/ballast-action), and the whole way, from a token
+to a failing job, is in [Run Ballast from CI](ci.md).

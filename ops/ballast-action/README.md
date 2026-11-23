@@ -37,7 +37,12 @@ No checkout is needed: the Action does not read your repository.
    Ballast and the identifiers of the scenario and of the environment are not secret: a
    repository **variable** is the right place.
 3. The environment must have been **verified** in Ballast. A run against one that has not
-   is refused, and so is a run that goes beyond what the environment allows.
+   is refused, and so is a run that goes beyond what the environment allows. The target must
+   also be **reachable from the internet**: Ballast sends the load from its own servers, and
+   refuses a private, loopback or link-local address, with no setting to allow one.
+
+The whole way, from nothing to a passing and a failing job, is in
+[Run Ballast from CI](https://github.com/myballast/ballast/blob/main/docs/ci.md).
 
 Secrets are not given to a workflow started by a pull request from a fork, so the step
 fails there with a message that says the token is empty. Do not "fix" it with
@@ -67,7 +72,7 @@ of its scenario.
 | `run-id` | The identifier of the run. Empty when none was launched. |
 | `status` | The last known status of the run. |
 | `verdict` | `met`, `breached` or `none`. Empty when the run did not finish: nothing was judged. |
-| `url` | The address of the run's page. |
+| `url` | The address of the run's page. Empty unless it is an `https` address. |
 | `exit-code` | The code the command left with: 0, 1 or 2. |
 
 The step also writes a short summary of the thresholds to the page of the job.

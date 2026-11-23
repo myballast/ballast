@@ -1,0 +1,50 @@
+name: Load test
+
+# Two jobs, and both are meant to be read.
+#
+#   holds    runs the scenario whose threshold holds. The job is green.
+#   breaches runs the scenario whose threshold is breached, and checks that it was: the
+#            step shows BREACHED and fails, and the job is green because that is what it
+#            is for. Remove the continue-on-error line, and the job turns red, which is what
+#            a pull request with a real regression looks like.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  holds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: myballast/ballast-action@v1
+        with:
+          url: ${{ vars.BALLAST_URL }}
+          token: ${{ secrets.BALLAST_TOKEN }}
+          scenario: ${{ vars.BALLAST_SCENARIO_HOLDS_ID }}
+          environment: ${{ vars.BALLAST_ENVIRONMENT_ID }}
+          profile: smoke
+
+  breaches:
+    runs-on: ubuntu-latest
+    steps:
+      - id: ballast
+        continue-on-error: true
+        uses: myballast/ballast-action@v1
+        with:
+          url: ${{ vars.BALLAST_URL }}
+          token: ${{ secrets.BALLAST_TOKEN }}
+          scenario: ${{ vars.BALLAST_SCENARIO_BREACHES_ID }}
+          environment: ${{ vars.BALLAST_ENVIRONMENT_ID }}
+          profile: smoke
+
+      - name: The threshold was breached, as the example means it to be
+        env:
+          VERDICT: ${{ steps.ballast.outputs.verdict }}
+        run: |
+          if [ "$VERDICT" != "breached" ]; then
+            echo "expected a breached threshold, got verdict '${VERDICT:-none}'"
+            exit 1
+          fi

@@ -54,4 +54,12 @@ flag_if() {
 flag_if "${BALLAST_ARG_ALLOW_NO_THRESHOLD:-}" "--allow-no-threshold" "allow-no-threshold"
 flag_if "${BALLAST_ARG_NO_FAIL_ON_BREACH:-}" "--no-fail-on-breach" "no-fail-on-breach"
 
+# Tell the runner to mask the token in the log of the job. It already masks a secret, and
+# this covers a token that was not one. Only a token on a single line: what follows a line
+# break would be read as another workflow command.
+case "$BALLAST_TOKEN" in
+  *$'\n'* | *$'\r'*) ;;
+  *) echo "::add-mask::${BALLAST_TOKEN}" ;;
+esac
+
 exec "$bin" "${args[@]}"

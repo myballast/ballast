@@ -179,7 +179,8 @@ check a download and use it is in [docs/cli.md](docs/cli.md); how a release is m
 [docs/releasing.md](docs/releasing.md). In GitHub Actions, use
 [`myballast/ballast-action`](https://github.com/myballast/ballast-action) (its source is
 [`ops/ballast-action/`](ops/ballast-action/)), which installs and runs it and exposes the
-verdict as an output.
+verdict as an output. The whole way, from a token to a failing job, is in
+[docs/ci.md](docs/ci.md).
 
 ## Front end
 

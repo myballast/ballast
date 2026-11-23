@@ -354,3 +354,43 @@ func TestTheMessagesNeverCarryTheTokenOrWhatWasTyped(t *testing.T) {
 		t.Errorf("the output holds the token:\n%s", got.out)
 	}
 }
+
+// --- The token is masked in the log of the job ---------------------------------------------
+
+func TestTheTokenIsMaskedBeforeTheCommandStartsAndNothingElseIsPrintedWithIt(t *testing.T) {
+	f := newFakeBallast(t, 0)
+
+	got := runScript(t, "run.sh", inputs(f))
+
+	want := "::add-mask::" + aSecret
+	lines := strings.Split(strings.TrimSpace(got.out), "\n")
+	if len(lines) != 1 || lines[0] != want {
+		t.Errorf("the output is %q, want only %q", got.out, want)
+	}
+	if _, _, ran := f.called(t); !ran {
+		t.Error("the command did not run")
+	}
+}
+
+func TestATokenThatCouldWriteAnotherCommandIsNotPrintedAtAll(t *testing.T) {
+	// A workflow command is a line that begins with "::". A token with a line break in it
+	// would let what follows the break be one, so it is neither masked by this line nor
+	// printed: the runner masks a secret by itself.
+	f := newFakeBallast(t, 0)
+
+	got := runScript(t, "run.sh", inputs(f, "BALLAST_TOKEN=blt_x\n::set-output name=a::b"))
+
+	if strings.Contains(got.out, "::") {
+		t.Errorf("a workflow command was printed:\n%s", got.out)
+	}
+}
+
+func TestNothingIsMaskedWhenTheStepIsRefused(t *testing.T) {
+	f := newFakeBallast(t, 0)
+
+	got := runScript(t, "run.sh", inputs(f, "BALLAST_ARG_ALLOW_NO_THRESHOLD=maybe"))
+
+	if got.code == 0 || strings.Contains(got.out, "add-mask") || strings.Contains(got.out, aSecret) {
+		t.Errorf("exit %d:\n%s", got.code, got.out)
+	}
+}
