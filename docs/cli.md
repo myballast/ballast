@@ -1,9 +1,14 @@
 # The `ballast` command line tool
 
-`ballast` starts a load test run on Ballast from a pipeline, follows its output, waits for
+> **Coming soon:** the `ballast` CLI, the GitHub Action and the GitLab CI template are not
+> released yet: there is no release and no tag. Until they are, a pipeline starts runs through
+> the API with a project token, or through the [signed webhook](webhook.md). This page describes
+> what the command will do; you can build it yourself with `make build-cli`.
+
+`ballast` will start a load test run on Ballast from a pipeline, follows its output, waits for
 the run to end, and leaves with an exit code the pipeline can act on. It is a single
 static binary with no dependency, and it is what the GitHub Action and the GitLab template
-run.
+will run.
 
 ## Install
 
@@ -115,17 +120,17 @@ The tool leaves with:
 | 1 | The run finished and a threshold was breached. |
 | 2 | Anything else: an error, a refusal, a run that did not finish, a cancellation, a run that judged no threshold. |
 
-## GitHub Actions
+## GitHub Actions: Coming soon — not released yet
 
-Under GitHub Actions the tool also writes what the next steps can read. When the runner names
+Under GitHub Actions the tool will also write what the next steps can read. When the runner names
 the files (`GITHUB_OUTPUT` and `GITHUB_STEP_SUMMARY`) it adds the outputs `run-id`, `status`,
 `verdict`, `url` and `exit-code`, and a short summary of the thresholds to the page of the
 job. `verdict` is `met`, `breached` or `none`, and it is empty when the run did not finish:
 nothing was judged. A file that cannot be written is a warning and never changes the code the
 tool leaves with.
 
-You do not have to install the tool yourself. The Action does it, checks the download against
-the sums of the release, and runs it:
+You will not have to install the tool yourself. The Action will do it, check the download against
+the sums of the release, and run it (the tag below is a placeholder, there is no release yet):
 
 ```yaml
 name: Load test
@@ -140,7 +145,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: myballast/ballast-action@v1
+      - uses: myballast/ballast-action@<release tag, coming soon>
         with:
           url: ${{ vars.BALLAST_URL }}
           token: ${{ secrets.BALLAST_TOKEN }}
@@ -151,18 +156,17 @@ jobs:
 
 The token is a secret of the repository. A workflow started by a pull request from a fork is
 not given secrets, and the step says so when it finds the token empty. The inputs, the
-outputs and how to pin a version are in the README of
-[the Action](https://github.com/myballast/ballast-action), and the whole way, from a token
-to a failing job, is in [Run Ballast from CI](ci.md).
+outputs and how to pin a version will be in the README of the Action, and the whole way, from
+a token to a failing job, is in [Run Ballast from CI](ci.md).
 
 ## Other tools
 
 A tool that cannot run the command can start a run with a signed request instead: see
 [Start a run from a signed request](webhook.md).
 
-## GitLab CI
+## GitLab CI: Coming soon — not released yet
 
-For GitLab there is a file to include, `ops/gitlab/ballast.gitlab-ci.yml`, that installs the
+For GitLab there will be a file to include, `ops/gitlab/ballast.gitlab-ci.yml`, that installs the
 tool the same way (the release's own sums, the version checked) and runs it in a job. The
 token is a masked and protected CI/CD variable, `BALLAST_TOKEN`, and the job fails with the
 exit code of the tool. The variables, an example `.gitlab-ci.yml` and what GitLab does to a

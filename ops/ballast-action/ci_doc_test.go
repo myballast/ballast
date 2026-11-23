@@ -87,7 +87,7 @@ func TestTheStepsOfTheWayAreAllThereAndInOrder(t *testing.T) {
 		"## 1. A scenario with a threshold",
 		"## 2. A target Ballast may load",
 		"## 3. A token, and where to put it",
-		"## 4. Add the workflow",
+		"## 4. GitHub Action: Coming soon — not released yet",
 		"## 5. Read the verdict",
 	}
 	last := -1
@@ -107,7 +107,7 @@ func TestTheStepsOfTheWayAreAllThereAndInOrder(t *testing.T) {
 	flatPage := strings.ToLower(flat(page))
 	for _, want := range []string{
 		"ci tokens", "create token", "once", "approves", "reachable from the internet", "no setting to allow",
-		"private", "exit", "breached", "limits", "hosting ballast yourself", "fork", "met", "no checkout is needed",
+		"private", "exit", "breached", "limits", "hosting ballast yourself", "fork", "met", "no checkout will be needed",
 		"pull_request_target", "administrator",
 	} {
 		if !strings.Contains(flatPage, want) {
