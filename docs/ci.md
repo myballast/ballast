@@ -149,6 +149,24 @@ and how long to wait when that is known. `timeout` (two hours by default) counts
 launch, so it includes the time spent waiting in the queue; when it is up, the run is asked to
 stop and the step fails.
 
+### When a limit is reached
+
+A launch refused for a limit has created nothing, so the tool asks again, for up to
+`queue-timeout` (ten minutes by default) in all. It waits as long as the server says when the
+server says (a window of runs per hour empties at a known moment), and otherwise a little
+longer each time, up to a minute. If the server asks for more than what is left of
+`queue-timeout`, the step fails at once and says so, rather than waiting to fail anyway.
+`queue-timeout: 0` fails at the first refusal. A launch refused for anything else (an
+unverified target, a closed window, a bad token) is never asked again.
+
+A run that is accepted but waits behind another run on the same environment says "still
+queued" every minute. To avoid the wait, give each pipeline its own environment, and keep two
+jobs of a workflow from loading the same one together:
+
+    concurrency:
+      group: ballast-staging
+      cancel-in-progress: false
+
 ## When it does not work
 
 | The step reports | What it means |

@@ -102,7 +102,8 @@ Then:
 `--scenario` and `--environment` are the identifiers of the scenario and of the environment,
 and the environment must have been verified in Ballast first: a run against one that has not
 is refused. There is no `--project`: a token belongs to one project, and a run belongs to the
-project of its scenario. `--timeout` gives the run a time, two hours by default; when it is
+project of its scenario. `--queue-timeout` is how long to keep asking when Ballast has no room yet because a limit was
+reached, ten minutes by default (`0` leaves at the first refusal). `--timeout` gives the run a time, two hours by default; when it is
 up, or when the tool is interrupted, the run is asked to stop. `--no-fail-on-breach` and
 `--allow-no-threshold` change what counts as a success, and `ballast help` lists everything.
 

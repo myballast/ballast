@@ -119,13 +119,16 @@ func TestTheOptionsAreOnlyPassedWhenTheyAreAsked(t *testing.T) {
 		env  []string
 		want []string
 	}{
-		"a timeout":      {[]string{"BALLAST_ARG_TIMEOUT=45m"}, []string{"--timeout=45m"}},
-		"no timeout":     {[]string{"BALLAST_ARG_TIMEOUT="}, nil},
-		"allow, true":    {[]string{"BALLAST_ARG_ALLOW_NO_THRESHOLD=true"}, []string{"--allow-no-threshold"}},
-		"allow, false":   {[]string{"BALLAST_ARG_ALLOW_NO_THRESHOLD=false"}, nil},
-		"allow, empty":   {[]string{"BALLAST_ARG_ALLOW_NO_THRESHOLD="}, nil},
-		"no fail, true":  {[]string{"BALLAST_ARG_NO_FAIL_ON_BREACH=true"}, []string{"--no-fail-on-breach"}},
-		"no fail, false": {[]string{"BALLAST_ARG_NO_FAIL_ON_BREACH=false"}, nil},
+		"a timeout":               {[]string{"BALLAST_ARG_TIMEOUT=45m"}, []string{"--timeout=45m"}},
+		"no timeout":              {[]string{"BALLAST_ARG_TIMEOUT="}, nil},
+		"a queue timeout":         {[]string{"BALLAST_ARG_QUEUE_TIMEOUT=20m"}, []string{"--queue-timeout=20m"}},
+		"a queue timeout of zero": {[]string{"BALLAST_ARG_QUEUE_TIMEOUT=0"}, []string{"--queue-timeout=0"}},
+		"no queue timeout":        {[]string{"BALLAST_ARG_QUEUE_TIMEOUT="}, nil},
+		"allow, true":             {[]string{"BALLAST_ARG_ALLOW_NO_THRESHOLD=true"}, []string{"--allow-no-threshold"}},
+		"allow, false":            {[]string{"BALLAST_ARG_ALLOW_NO_THRESHOLD=false"}, nil},
+		"allow, empty":            {[]string{"BALLAST_ARG_ALLOW_NO_THRESHOLD="}, nil},
+		"no fail, true":           {[]string{"BALLAST_ARG_NO_FAIL_ON_BREACH=true"}, []string{"--no-fail-on-breach"}},
+		"no fail, false":          {[]string{"BALLAST_ARG_NO_FAIL_ON_BREACH=false"}, nil},
 		"both, and a timeout": {[]string{"BALLAST_ARG_TIMEOUT=1h", "BALLAST_ARG_ALLOW_NO_THRESHOLD=true", "BALLAST_ARG_NO_FAIL_ON_BREACH=true"},
 			[]string{"--timeout=1h", "--allow-no-threshold", "--no-fail-on-breach"}},
 	} {

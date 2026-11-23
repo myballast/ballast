@@ -57,6 +57,7 @@ fails there with a message that says the token is empty. Do not "fix" it with
 | `scenario` | yes | | The identifier of the scenario to run (a UUID). |
 | `environment` | yes | | The identifier of the environment to run against (a UUID). |
 | `profile` | yes | | The load profile: `smoke`, `load`, `stress`, `spike` or `soak`. |
+| `queue-timeout` | no | ten minutes | How long to wait, in all, when Ballast has no room for the run yet because a limit was reached, for example `20m`. `0` fails at the first refusal. |
 | `timeout` | no | two hours | How long to give the run from its launch, for example `90m`. When it is up the run is asked to stop and the step fails. |
 | `allow-no-threshold` | no | `false` | Accept a run that judged no threshold. Without it such a run fails the step: it measured nothing against a rule. |
 | `no-fail-on-breach` | no | `false` | Do not fail the step when a threshold is breached. The breach is still shown, and still in the `verdict` output. |

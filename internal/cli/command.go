@@ -34,6 +34,11 @@ Options:
   --profile NAME        the load profile: %s
   --timeout DURATION    how long to give the run, from the launch. When it is up the
                         run is asked to stop and the tool leaves with 2. Default %s.
+  --queue-timeout DURATION
+                        how long to wait, in all, when Ballast has no room for the run
+                        yet (a limit was reached): the launch is asked again, after
+                        the wait the server gives. 0 leaves at the first refusal.
+                        Default %s.
   --no-fail-on-breach   leave with 0 when a threshold was breached. The breach is
                         still shown; nothing else is excused.
   --allow-no-threshold  accept a run that judged no threshold. Without it such a run
@@ -59,7 +64,7 @@ second signal leaves at once, without waiting for the answer; a third leaves now
 		string(domain.ProfileSmoke), string(domain.ProfileLoad), string(domain.ProfileStress),
 		string(domain.ProfileSpike), string(domain.ProfileSoak),
 	}, ", "),
-	"2h")
+	"2h", "10m")
 
 // Main is the command: it reads its arguments and its environment, runs, and
 // returns the code to leave with.
@@ -123,6 +128,7 @@ func runCommand(
 		options RunOptions
 		timeout time.Duration
 	)
+	options.QueueTimeout = DefaultQueueTimeout
 	flags := flag.NewFlagSet("ballast run", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.Usage = func() {}
@@ -130,6 +136,7 @@ func runCommand(
 	flags.StringVar(&options.EnvironmentID, "environment", "", "")
 	flags.StringVar(&options.Profile, "profile", "", "")
 	flags.DurationVar(&timeout, "timeout", 0, "")
+	flags.DurationVar(&options.QueueTimeout, "queue-timeout", DefaultQueueTimeout, "")
 	flags.BoolVar(&options.NoFailOnBreach, "no-fail-on-breach", false, "")
 	flags.BoolVar(&options.AllowNoThreshold, "allow-no-threshold", false, "")
 

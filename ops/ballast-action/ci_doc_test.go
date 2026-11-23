@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/youssefmahersi/ballast/internal/cli"
 	"github.com/youssefmahersi/ballast/internal/domain"
@@ -39,6 +40,9 @@ func TestTheLimitsTheCIPageStatesAreTheLimitsOfTheCode(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page does not say %q", want)
 		}
+	}
+	if !strings.Contains(page, "`queue-timeout` (ten minutes by default)") || cli.DefaultQueueTimeout != 10*time.Minute {
+		t.Error("the page and the command disagree on the default queue timeout")
 	}
 	if int(domain.APITokenMaxTTL.Hours()/24) != 365 || domain.RateWindow.Hours() != 1 {
 		t.Error("the window of the rate limit or the longest token changed: the page says an hour and a year")

@@ -72,6 +72,11 @@ type RunOptions struct {
 	// DefaultTimeout; there is no way to wait for ever, because a pipeline that waits
 	// for ever on a run is a pipeline nobody is watching.
 	Timeout time.Duration
+
+	// QueueTimeout is how long the tool waits, in all, for Ballast to have room when
+	// a launch is refused for the limits (429). Zero means the first refusal is final.
+	// It runs inside Timeout, which still ends everything.
+	QueueTimeout time.Duration
 }
 
 func (o RunOptions) timeout() time.Duration {
@@ -99,6 +104,9 @@ func (o RunOptions) validate() (RunOptions, error) {
 
 	if o.Timeout < 0 {
 		return o, errors.New("--timeout must be a duration greater than zero, for example 90m")
+	}
+	if o.QueueTimeout < 0 {
+		return o, errors.New("--queue-timeout must be a duration, for example 10m, or 0 to leave at the first refusal")
 	}
 
 	o.ScenarioID, o.EnvironmentID = scenario.String(), environment.String()
@@ -132,6 +140,16 @@ type Runner struct {
 	// Report receives what a pipeline's next step can read, once, as the tool is
 	// leaving, whatever the way out. Nil reports nothing.
 	Report func(Result)
+
+	// LaunchBackoff is the pause before the nth new try of a launch refused for the
+	// limits, when the server did not say how long. Nil means a growing pause.
+	LaunchBackoff func(attempt int) time.Duration
+	// LaunchWait pauses before such a new try and says whether it waited the whole
+	// time. Nil means a real pause, ended by the context.
+	LaunchWait func(ctx context.Context, d time.Duration) bool
+	// QueuedNotice is how often a run that is still queued says so. Zero means a
+	// minute.
+	QueuedNotice time.Duration
 
 	// Abort fires on the second signal. The first one is the context passed to Run
 	// being cancelled: the run is asked to stop, and the tool waits for the answer.
@@ -185,11 +203,16 @@ func (r *Runner) run(ctx context.Context, options RunOptions, result *Result) in
 		return "interrupted"
 	}
 
-	queued, err := r.Client.Launch(ctx, LaunchRequest{
+	queued, err := r.launch(ctx, options, LaunchRequest{
 		ScenarioID: options.ScenarioID, EnvironmentID: options.EnvironmentID,
 		Profile: options.Profile, CI: options.CI,
-	})
+	}, say)
 	if err != nil {
+		if errors.Is(err, errWaitInterrupted) {
+			// The last request was answered, and it was a refusal: nothing exists.
+			say("%s while waiting for room to launch: no run was launched, so there is nothing to stop", why())
+			return ExitError
+		}
 		if ctx.Err() != nil {
 			// The request left and nothing says it was answered, and the run has no
 			// name yet to ask about: all that can be said is that one may exist.
@@ -213,6 +236,10 @@ func describeLaunchError(err error) string {
 		return err.Error()
 	}
 
+	var waitedOut *queueWaitError
+	if errors.As(err, &waitedOut) {
+		return describeQueueWait(waitedOut)
+	}
 	var refusal *APIError
 	if !errors.As(err, &refusal) {
 		return err.Error()
@@ -249,6 +276,9 @@ func (r *Runner) wait(
 		lastStatus string
 		failures   int
 		linked     bool
+		// queuedSince is when the run was first seen queued, noticedAt when it last
+		// said so.
+		queuedSince, noticedAt time.Time
 	)
 	for {
 		state, err := r.Client.Run(ctx, id)
@@ -285,6 +315,14 @@ func (r *Runner) wait(
 		if state.Status != lastStatus {
 			say("status: %s", state.Status)
 			lastStatus = state.Status
+			queuedSince, noticedAt = time.Now(), time.Now()
+		} else if state.Status == "queued" && time.Since(noticedAt) >= r.queuedNotice() {
+			// A run waits in the queue for the environment it targets: another run on it
+			// has to end first. Said now and then, so that a log that stays silent
+			// is not read as a pipeline that hangs.
+			say("still queued after %s: another run on this environment has to finish first",
+				time.Since(queuedSince).Round(time.Second))
+			noticedAt = time.Now()
 		}
 
 		if state.Terminal() {

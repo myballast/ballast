@@ -25,6 +25,10 @@ inputs:
     description: How long to give the run from its launch, for example 90m. When it is up the run is asked to stop and the step fails. Default is two hours.
     required: false
     default: ""
+  queue-timeout:
+    description: How long to wait, in all, when Ballast has no room for the run yet because a limit was reached, for example 20m. The launch is asked again after the wait the server gives. 0 fails at the first refusal. Default is ten minutes.
+    required: false
+    default: ""
   allow-no-threshold:
     description: Accept a run that judged no threshold. Without it such a run fails the step, because it measured nothing against a rule.
     required: false
@@ -75,5 +79,6 @@ runs:
         BALLAST_ARG_ENVIRONMENT: ${{ inputs.environment }}
         BALLAST_ARG_PROFILE: ${{ inputs.profile }}
         BALLAST_ARG_TIMEOUT: ${{ inputs.timeout }}
+        BALLAST_ARG_QUEUE_TIMEOUT: ${{ inputs.queue-timeout }}
         BALLAST_ARG_ALLOW_NO_THRESHOLD: ${{ inputs.allow-no-threshold }}
         BALLAST_ARG_NO_FAIL_ON_BREACH: ${{ inputs.no-fail-on-breach }}

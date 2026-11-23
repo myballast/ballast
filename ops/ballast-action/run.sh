@@ -42,6 +42,10 @@ if [ -n "${BALLAST_ARG_TIMEOUT:-}" ]; then
   args+=("--timeout=${BALLAST_ARG_TIMEOUT}")
 fi
 
+if [ -n "${BALLAST_ARG_QUEUE_TIMEOUT:-}" ]; then
+  args+=("--queue-timeout=${BALLAST_ARG_QUEUE_TIMEOUT}")
+fi
+
 # flag_if adds $2 when the input named $1 (written $3) is "true", and refuses what is
 # neither "true" nor "false" nor empty, naming the input and never its value.
 flag_if() {

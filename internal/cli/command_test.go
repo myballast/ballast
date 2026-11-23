@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -107,6 +108,37 @@ func TestTheFlagsReachTheRun(t *testing.T) {
 		// leave with 2, and only the message and the clock tell them apart.
 		if !strings.Contains(got.err, "timeout of 200ms") || time.Since(start) > 5*time.Second {
 			t.Errorf("the run was not ended by the timeout that was given (after %s):\n%s", time.Since(start), got.err)
+		}
+	})
+}
+
+// A server that asks for an hour never makes these wait: the answer does not fit, and
+// the tool says what budget it was working with.
+func TestTheQueueTimeoutReachesTheRunAndDefaultsToTenMinutes(t *testing.T) {
+	tooLong := func(w http.ResponseWriter) {
+		w.Header().Set("Retry-After", "3600")
+		writeJSON(w, 429, `{"error":"30 runs in the last hour"}`)
+	}
+
+	t.Run("the default", func(t *testing.T) {
+		b := &ballast{launch: tooLong}
+		got := invoke(t, b, nil, runArgs()...)
+		if got.code != ExitError || !strings.Contains(got.err, "--queue-timeout of 10m") {
+			t.Errorf("exit %d, the default is not ten minutes:\n%s", got.code, got.err)
+		}
+	})
+	t.Run("a given one", func(t *testing.T) {
+		b := &ballast{launch: tooLong}
+		got := invoke(t, b, nil, runArgs("--queue-timeout", "90s")...)
+		if !strings.Contains(got.err, "--queue-timeout of 1m30s") {
+			t.Errorf("the value given did not reach the run:\n%s", got.err)
+		}
+	})
+	t.Run("zero leaves at the first refusal", func(t *testing.T) {
+		b := &ballast{launch: tooLong}
+		got := invoke(t, b, nil, runArgs("--queue-timeout", "0")...)
+		if got.code != ExitError || b.posts.Load() != 1 || strings.Contains(got.err, "--queue-timeout") {
+			t.Errorf("exit %d, %d launches:\n%s", got.code, b.posts.Load(), got.err)
 		}
 	})
 }
@@ -226,15 +258,17 @@ func TestThereIsNoProjectFlagAndTheToolSaysWhy(t *testing.T) {
 
 func TestWhatIsUsedWrongLeavesWithTwoAndStartsNothing(t *testing.T) {
 	cases := map[string][]string{
-		"no command":                    {},
-		"a command that does not exist": {"launch"},
-		"an unknown flag":               runArgs("--verbose"),
-		"a word that is not a flag":     runArgs("staging"),
-		"a timeout that is not one":     runArgs("--timeout", "soon"),
-		"no scenario":                   {"run", "--environment", environmentID, "--profile", "smoke"},
-		"no environment":                {"run", "--scenario", scenarioID, "--profile", "smoke"},
-		"no profile":                    {"run", "--scenario", scenarioID, "--environment", environmentID},
-		"a scenario that is not one":    {"run", "--scenario", "checkout", "--environment", environmentID, "--profile", "smoke"},
+		"no command":                      {},
+		"a command that does not exist":   {"launch"},
+		"an unknown flag":                 runArgs("--verbose"),
+		"a word that is not a flag":       runArgs("staging"),
+		"a timeout that is not one":       runArgs("--timeout", "soon"),
+		"a queue timeout that is not one": runArgs("--queue-timeout", "soon"),
+		"a negative queue timeout":        runArgs("--queue-timeout", "-5m"),
+		"no scenario":                     {"run", "--environment", environmentID, "--profile", "smoke"},
+		"no environment":                  {"run", "--scenario", scenarioID, "--profile", "smoke"},
+		"no profile":                      {"run", "--scenario", scenarioID, "--environment", environmentID},
+		"a scenario that is not one":      {"run", "--scenario", "checkout", "--environment", environmentID, "--profile", "smoke"},
 	}
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -288,6 +322,7 @@ func TestTheHelpSaysWhatAPipelineNeedsToKnow(t *testing.T) {
 		"BALLAST_URL", "BALLAST_TOKEN",
 		"--scenario", "--environment", "--profile", "--timeout", "--no-fail-on-breach", "--allow-no-threshold",
 		"2h", // the default timeout, so that nobody finds it out by waiting
+		"--queue-timeout", "10m",
 		"0", "1", "2",
 	} {
 		if !strings.Contains(got.out, want) {

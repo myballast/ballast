@@ -190,6 +190,9 @@ func TestTheDefaultsTheReadmeStatesAreTheOnesOfTheAction(t *testing.T) {
 			t.Errorf("the README does not say %s is false by default", name)
 		}
 	}
+	if !strings.Contains(readme, "| `queue-timeout` | no | ten minutes |") {
+		t.Error("the README does not give the default queue timeout")
+	}
 	if !strings.Contains(readme, "| `timeout` | no | two hours |") {
 		t.Error("the README does not give the default timeout")
 	}

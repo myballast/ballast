@@ -157,6 +157,7 @@ func TestEveryInputReachesTheScriptThroughTheEnvironment(t *testing.T) {
 		"BALLAST_ARG_ENVIRONMENT":        "environment",
 		"BALLAST_ARG_PROFILE":            "profile",
 		"BALLAST_ARG_TIMEOUT":            "timeout",
+		"BALLAST_ARG_QUEUE_TIMEOUT":      "queue-timeout",
 		"BALLAST_ARG_ALLOW_NO_THRESHOLD": "allow-no-threshold",
 		"BALLAST_ARG_NO_FAIL_ON_BREACH":  "no-fail-on-breach",
 	}
@@ -198,7 +199,7 @@ func TestTheInputsAreTheOnesTheDocumentationPromises(t *testing.T) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	want := "allow-no-threshold environment no-fail-on-breach profile scenario timeout token url version"
+	want := "allow-no-threshold environment no-fail-on-breach profile queue-timeout scenario timeout token url version"
 	if strings.Join(names, " ") != want {
 		t.Errorf("inputs are %v, want %s", names, want)
 	}
