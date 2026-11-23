@@ -210,7 +210,7 @@ func TestThePagesSayWhatKeepsAWorkflowSafe(t *testing.T) {
 	}
 
 	cliPage := flat(read(t, "../../docs/cli.md"))
-	for _, want := range []string{"GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY", "fork", "ballast-action@v1"} {
+	for _, want := range []string{"GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY", "fork", "ballast-action@<release tag, coming soon>"} {
 		if !strings.Contains(cliPage, want) {
 			t.Errorf("docs/cli.md does not say %q", want)
 		}
@@ -238,8 +238,12 @@ func TestTheProcedureOfTheMaintainerSaysHowTheActionIsPublished(t *testing.T) {
 
 func TestTheReadmeOfTheRepositoryLeadsToTheAction(t *testing.T) {
 	readme := read(t, "../../README.md")
-	if !strings.Contains(readme, "myballast/ballast-action") || !strings.Contains(readme, "ops/ballast-action/") {
-		t.Error("the README does not lead to the Action and to its source")
+	if !strings.Contains(readme, "ops/ballast-action/") {
+		t.Error("the README does not lead to the source of the Action")
+	}
+	// The Action is not released: the README must not link to a repository that does not exist yet.
+	if strings.Contains(readme, "github.com/myballast/ballast-action") {
+		t.Error("the README links to the Action's repository, which has no release yet")
 	}
 }
 

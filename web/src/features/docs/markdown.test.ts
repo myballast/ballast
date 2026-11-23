@@ -111,7 +111,7 @@ test("a link goes to a page of the page, to a page of the repository, or to http
   assert.equal(safeHref("#hosting-ballast-yourself"), "#hosting-ballast-yourself");
   assert.equal(safeHref("cli.md"), "https://github.com/myballast/ballast/blob/main/docs/cli.md");
   assert.equal(safeHref("cli.md#install"), "https://github.com/myballast/ballast/blob/main/docs/cli.md#install");
-  assert.equal(safeHref("https://github.com/myballast/ballast-action#outputs"), "https://github.com/myballast/ballast-action#outputs");
+  assert.equal(safeHref("https://github.com/myballast/ballast#readme"), "https://github.com/myballast/ballast#readme");
 });
 
 test("anything else is not a link", () => {
