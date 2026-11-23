@@ -133,6 +133,66 @@ first job is green and the second is red, with `BREACHED` in its log.
 The step has outputs, `run-id`, `status`, `verdict`, `url` and `exit-code`, to use in later
 steps; the [README of the Action](https://github.com/myballast/ballast-action#outputs) shows how.
 
+## GitLab CI
+
+The same thing, as a file to include. Steps 1 to 3 are the same: a scenario with a threshold, a
+target Ballast may load, and a token. In **Settings → CI/CD → Variables** make:
+
+| Name | Value | Options |
+|---|---|---|
+| `BALLAST_TOKEN` | the token | **Masked** and **Protected** |
+| `BALLAST_URL` | the address of your Ballast, for example `https://ballast.example.com` | |
+| `BALLAST_SCENARIO_ID` | the identifier of the scenario | |
+| `BALLAST_ENVIRONMENT_ID` | the identifier of the environment | |
+| `BALLAST_PROFILE` | `smoke`, `load`, `stress`, `spike` or `soak` | |
+
+Then add to `.gitlab-ci.yml`:
+
+```yaml
+include:
+  - remote: https://raw.githubusercontent.com/myballast/ballast/v1.2.3/ops/gitlab/ballast.gitlab-ci.yml
+
+ballast-load-test:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  resource_group: ballast-staging
+  timeout: 3h
+```
+
+Use the tag of a release in the address, never a branch: the file is the job, and a job that
+changes without a commit of yours is one nobody can explain. The file carries the version of the
+command that goes with it, and downloads that binary from the release, checks it against the
+sums of the release, and refuses it if they do not match or if it does not say the version
+that was asked for. To pin the command to another version, set `BALLAST_VERSION`.
+
+The job fails with the exit code of the command, so a threshold that is breached fails the
+job (code 1), and so does anything else that is not a success (code 2). Optional variables:
+
+| Name | Meaning |
+|---|---|
+| `BALLAST_TIMEOUT` | How long to give the run from its launch, for example `90m`. Two hours by default: set the `timeout` of the job above it, as in the example. |
+| `BALLAST_QUEUE_TIMEOUT` | How long to wait, in all, when a limit is reached. Ten minutes by default, `0` fails at the first refusal. |
+| `BALLAST_NO_FAIL_ON_BREACH` | `true` lets a breach pass. It is still shown. |
+| `BALLAST_ALLOW_NO_THRESHOLD` | `true` accepts a run that judged no threshold. |
+
+To let a breach show as a warning without failing the pipeline, use GitLab's own
+`allow_failure: { exit_codes: 1 }` on the job: an error still fails it.
+
+Some things that GitLab does and that explain a failure:
+
+- A **protected** variable is only given to pipelines of protected branches and tags, and no
+  variable is given to a merge request from a fork. The job then stops saying `BALLAST_TOKEN` is
+  empty. That is intended. If the pipeline of a feature branch must run, protect the branch or
+  make the variable unprotected, knowing what that gives to everybody who can push there.
+- A `$` in the value of a variable is read by GitLab as the start of a reference: write `$$`.
+- Two jobs that load the same environment wait for each other on Ballast's side, and a
+  `resource_group` keeps them from starting together.
+- The job runs in a Linux image (Alpine, pinned by digest) and needs to reach the release on
+  GitHub and your Ballast. A Windows runner is not supported by this file.
+
+There is no job summary or output as in GitHub: the verdict is in the log and in the exit code.
+The command still tells Ballast which pipeline, branch and commit the run came from.
+
 ## Limits
 
 | | |

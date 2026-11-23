@@ -114,3 +114,25 @@ Une pré-release de `ballast` ne devrait pas être la version d'un tag `v1` : ta
 Côté dépôt de l'Action, comme pour `ballast`, une règle de protection des tags (`v*`) ne doit
 laisser que le mainteneur les créer ou les déplacer : `@v1` est le tag qu'un attaquant
 voudrait déplacer.
+
+## Publier le modèle GitLab
+
+Le modèle est un seul fichier, `ops/gitlab/ballast.gitlab-ci.yml`, qu'un projet inclut par
+l'adresse brute du dépôt `myballast/ballast` **à un tag** : il n'y a rien d'autre à copier ni
+à publier.
+
+1. `ops/gitlab/VERSION` doit être celle de `ops/ballast-action/VERSION` : les deux partent
+   ensemble (un test le tient), et c'est la version du binaire que le modèle télécharge.
+2. Le fichier est **généré** : après un changement d'un script ou de `VERSION`,
+   `ops/gitlab/generate.sh > ops/gitlab/ballast.gitlab-ci.yml`. Un test refuse un fichier qui
+   n'est pas ce que le générateur écrit.
+3. L'image du job est épinglée par empreinte dans `generate.sh` ; la changer, c'est changer
+   l'empreinte, et rejouer l'essai ci-dessous.
+4. Pousser le tag `vX.Y.Z` du dépôt (c'est le même tag que celui de la release des
+   binaires) : le fichier au tag est ce que les projets incluent.
+
+**Non exercé sur un vrai GitLab** : le job a été joué dans l'image Alpine du modèle (même
+empreinte, `sh` de busybox, le vrai binaire `ballast` construit pour Linux, un faux serveur
+Ballast sur la boucle locale) : un seuil tenu sort 0, un seuil dépassé sort 1. À vérifier au
+premier tag, sur un vrai projet : le runner, le masquage de la variable, `include: remote`, et
+l'arrêt d'un job annulé.

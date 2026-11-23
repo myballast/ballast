@@ -154,3 +154,11 @@ not given secrets, and the step says so when it finds the token empty. The input
 outputs and how to pin a version are in the README of
 [the Action](https://github.com/myballast/ballast-action), and the whole way, from a token
 to a failing job, is in [Run Ballast from CI](ci.md).
+
+## GitLab CI
+
+For GitLab there is a file to include, `ops/gitlab/ballast.gitlab-ci.yml`, that installs the
+tool the same way (the release's own sums, the version checked) and runs it in a job. The
+token is a masked and protected CI/CD variable, `BALLAST_TOKEN`, and the job fails with the
+exit code of the tool. The variables, an example `.gitlab-ci.yml` and what GitLab does to a
+protected variable are in [Run Ballast from CI](ci.md#gitlab-ci).
