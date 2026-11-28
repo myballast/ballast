@@ -21,7 +21,7 @@ x-database: &database
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:19-alpine
     environment:
       # Owner role: runs the migrations and owns the tables. The application
       # connects as ballast_app, created by the init script below.
